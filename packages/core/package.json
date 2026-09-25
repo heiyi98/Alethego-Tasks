@@ -1,0 +1,21 @@
+{
+  "name": "@alethego/core",
+  "version": "0.0.0",
+  "private": true,
+  "description": "领域层：纯 TypeScript，无框架依赖（紧迫度、象限、循环规则引擎）",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "rrule": "^2.8.1"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.3",
+    "vitest": "^4.1.0"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "@alethego/data",
+  "version": "0.0.0",
+  "private": true,
+  "description": "数据层：仓储接口 + Supabase 远程实现 + 本地存储接口",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@alethego/core": "workspace:*",
+    "@supabase/supabase-js": "^2.117.2"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.3",
+    "vitest": "^4.1.0"
+  }
+}
