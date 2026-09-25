@@ -208,6 +208,28 @@ class MemoryOccurrenceRepository implements IOccurrenceRepository {
     return updated;
   }
 
+  async setStatusByDate(
+    taskId: string,
+    occurrenceDate: Date,
+    status: OccurrenceStatus,
+    completedAt: Date | null,
+  ) {
+    const existing = (await this.listByTask(taskId)).find(
+      (o) => o.occurrenceDate.getTime() === occurrenceDate.getTime(),
+    );
+    if (existing) return this.setStatus(existing.id, status, completedAt);
+    const occurrence: RecurrenceOccurrence = {
+      id: this.state.newId(),
+      taskId,
+      occurrenceDate,
+      status,
+      completedAt,
+      createdAt: this.state.now(),
+    };
+    this.state.occurrences.set(occurrence.id, occurrence);
+    return occurrence;
+  }
+
   async applyReconcile(taskId: string, result: ReconcileResult) {
     const existingDates = new Set(
       (await this.listByTask(taskId)).map((o) => o.occurrenceDate.getTime()),

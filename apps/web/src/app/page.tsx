@@ -4,9 +4,12 @@ import {
   DEFAULT_STATUS_FILTER,
   STATUS_FILTERS,
   buildTaskList,
+  deriveListStatus,
+  listDeadlineOf,
   type StatusFilter,
   type Task,
 } from '@alethego/core';
+import { completeCurrentOccurrence } from '@alethego/data';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useMemo, useState } from 'react';
 
@@ -29,7 +32,7 @@ function TaskListPage() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const { data, error, reload, replaceTask } = useTaskListData();
+  const { data, error, reload, replaceTask, upsertOccurrence } = useTaskListData();
   const now = useNow();
   const [timeZone] = useState(browserTimeZone);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -64,6 +67,24 @@ function TaskListPage() {
   }
 
   async function toggleComplete(task: Task) {
+    // 循环任务：完成当前代表实例（任务本身的 completed_at 不动），代表实例随即顺延到下一次
+    if (task.recurrenceRule) {
+      try {
+        const done = await completeCurrentOccurrence(
+          repositories.occurrences,
+          task,
+          data?.occurrencesByTask.get(task.id) ?? [],
+          { now: new Date(), timeZone },
+        );
+        if (done) upsertOccurrence(done);
+        setActionError(null);
+      } catch (e) {
+        setActionError(errorMessage(e));
+        await reload();
+      }
+      return;
+    }
+
     const completedAt = task.completedAt ? null : new Date();
     replaceTask({ ...task, completedAt }); // 乐观更新，勾选立即生效
     try {
@@ -133,6 +154,14 @@ function TaskListPage() {
               now={now}
               timeZone={timeZone}
               onToggleComplete={toggleComplete}
+              deadline={listDeadlineOf(task, data.occurrencesByTask.get(task.id) ?? [], {
+                now,
+                timeZone,
+              })}
+              status={deriveListStatus(task, data.occurrencesByTask.get(task.id) ?? [], {
+                now,
+                timeZone,
+              })}
             />
           ))}
         </ul>

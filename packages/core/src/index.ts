@@ -14,6 +14,7 @@ export * from './quadrant/matrix-candidate';
 export * from './quadrant/quadrant-classifier';
 
 export * from './recurrence/recurrence-engine';
+export * from './recurrence/recurrence-rule';
 
 export * from './representative/task-representative';
 

@@ -88,6 +88,15 @@ export interface IOccurrenceRepository {
     status: OccurrenceStatus,
     completedAt: Date | null,
   ): Promise<RecurrenceOccurrence>;
+  /**
+   * 按实例时间设置状态：记录不存在时新建（例如提前完成一个尚未到来的实例），存在时更新。
+   */
+  setStatusByDate(
+    taskId: string,
+    occurrenceDate: Date,
+    status: OccurrenceStatus,
+    completedAt: Date | null,
+  ): Promise<RecurrenceOccurrence>;
   /** 落库 RecurrenceEngine.reconcileOccurrences 的判定结果（重复记录会被忽略） */
   applyReconcile(taskId: string, result: ReconcileResult): Promise<void>;
 }

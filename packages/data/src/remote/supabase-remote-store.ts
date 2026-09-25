@@ -258,6 +258,32 @@ export class SupabaseOccurrenceRepository implements IOccurrenceRepository {
     );
   }
 
+  async setStatusByDate(
+    taskId: string,
+    occurrenceDate: Date,
+    status: OccurrenceStatus,
+    completedAt: Date | null,
+  ) {
+    return occurrenceFromRow(
+      unwrap(
+        await this.client
+          .from('recurrence_occurrences')
+          .upsert(
+            {
+              task_id: taskId,
+              occurrence_date: occurrenceDate.toISOString(),
+              status,
+              completed_at: completedAt ? completedAt.toISOString() : null,
+            },
+            { onConflict: 'task_id,occurrence_date' },
+          )
+          .select()
+          .single(),
+        '更新循环实例',
+      ),
+    );
+  }
+
   async applyReconcile(taskId: string, result: ReconcileResult) {
     if (result.toCreate.length > 0) {
       const { error } = await this.client.from('recurrence_occurrences').upsert(

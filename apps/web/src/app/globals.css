@@ -560,3 +560,196 @@ a {
   font-size: 15px;
   margin: 0 0 8px;
 }
+
+/* 循环任务 */
+.task-recurrence {
+  color: var(--muted);
+}
+
+.switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+/* 真正的复选框透明地覆盖整个开关，点击任意位置都能切换 */
+.switch input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.switch-track {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--border);
+  transition: background 0.15s;
+}
+
+.switch-track::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 20%);
+  transition: transform 0.15s;
+}
+
+.switch input:checked + .switch-track {
+  background: var(--accent);
+}
+
+.switch input:checked + .switch-track::after {
+  transform: translateX(16px);
+}
+
+.switch input:focus-visible + .switch-track {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.recurrence-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.recurrence-body select,
+.recurrence-body input[type='number'],
+.recurrence-body input[type='date'],
+.recurrence-body input[type='datetime-local'] {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.field .recurrence-body .input-narrow {
+  width: 64px;
+  flex: none;
+}
+
+.chip-square {
+  min-width: 34px;
+  justify-content: center;
+  padding: 4px 8px;
+}
+
+.month-days {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(34px, 1fr));
+  gap: 4px;
+  max-width: 340px;
+}
+
+.month-last {
+  grid-column: span 3;
+}
+
+.recurrence-summary {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.button-link {
+  margin-left: 6px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.history-link {
+  align-self: flex-start;
+  color: var(--accent);
+  font-size: 14px;
+}
+
+.history-header h1 {
+  margin: 0 0 4px;
+  font-size: 20px;
+}
+
+.history-header p {
+  margin: 0 0 16px;
+}
+
+.history-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+}
+
+.history-row + .history-row {
+  border-top: 1px solid var(--border);
+}
+
+.history-main {
+  display: flex;
+  flex-direction: column;
+}
+
+.history-status {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.history-status[data-status='completed'] {
+  color: var(--success, #1e7d32);
+}
+
+.history-status[data-status='missed'] {
+  color: var(--danger);
+}
+
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  flex: none;
+}
+
+.segmented button {
+  padding: 4px 12px;
+  border: none;
+  background: var(--surface);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.segmented button + button {
+  border-left: 1px solid var(--border);
+}
+
+.segmented button[aria-pressed='true'] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+@media (prefers-color-scheme: dark) {
+  .history-status[data-status='completed'] {
+    color: #5fbf6a;
+  }
+}

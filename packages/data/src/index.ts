@@ -13,3 +13,4 @@ export * from './remote/supabase-remote-store';
 export * from './local/in-memory-local-store';
 
 export * from './repository/create-repositories';
+export * from './repository/occurrence-sync';

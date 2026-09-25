@@ -75,3 +75,55 @@ describe('buildTaskList', () => {
     expect(build('all', ['home', 'work'])).toEqual(['昨天错过', '明天', '下周']);
   });
 });
+
+describe('循环任务在列表中的状态', () => {
+  const gym = task('健身', {
+    recurrenceRule: 'FREQ=WEEKLY;BYDAY=MO,WE,FR',
+    recurrenceDtstart: sh('2026-09-21T07:00:00'),
+    // 循环任务不看这两个字段
+    deadlineAt: sh('2026-09-01T00:00:00'),
+    completedAt: sh('2026-09-02T00:00:00'),
+  });
+  const ended = task('两次就结束', {
+    recurrenceRule: 'FREQ=DAILY;COUNT=2',
+    recurrenceDtstart: sh('2026-09-20T07:00:00'),
+  });
+
+  it('进行中的循环任务是待办，按代表实例排序；已结束的序列算已完成', () => {
+    const sources = { tasks: [gym, ended, tasks[4]!], categoryIdsByTask: new Map() };
+    expect(titles(buildTaskList(sources, { status: 'todo', categoryIds: [] }, context))).toEqual([
+      '健身', // 代表实例：今天（周五）07:00
+      '下周',
+    ]);
+    expect(
+      titles(buildTaskList(sources, { status: 'completed', categoryIds: [] }, context)),
+    ).toEqual(['两次就结束']);
+    expect(titles(buildTaskList(sources, { status: 'missed', categoryIds: [] }, context))).toEqual(
+      [],
+    );
+  });
+
+  it('本次实例完成后，代表实例顺延', () => {
+    const occurrencesByTask = new Map([
+      [
+        '健身',
+        [
+          {
+            id: 'o1',
+            taskId: '健身',
+            occurrenceDate: sh('2026-09-25T07:00:00'),
+            status: 'completed' as const,
+            completedAt: sh('2026-09-25T08:00:00'),
+            createdAt: sh('2026-09-25T00:00:00'),
+          },
+        ],
+      ],
+    ]);
+    const sources = { tasks: [gym, tasks[4]!], categoryIdsByTask: new Map(), occurrencesByTask };
+    // 下次是 9/28（周一），在"下周"（10/2）之前
+    expect(titles(buildTaskList(sources, { status: 'todo', categoryIds: [] }, context))).toEqual([
+      '健身',
+      '下周',
+    ]);
+  });
+});

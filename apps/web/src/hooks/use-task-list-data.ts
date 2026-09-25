@@ -1,10 +1,11 @@
 'use client';
 
 import type { Category, RecurrenceOccurrence, Task } from '@alethego/core';
+import { syncOccurrences } from '@alethego/data';
 import { useCallback, useEffect, useState } from 'react';
 
 import { useRepositories } from '@/components/repositories-provider';
-import { errorMessage } from '@/lib/format';
+import { browserTimeZone, errorMessage } from '@/lib/format';
 
 export interface TaskListData {
   tasks: Task[];
@@ -29,7 +30,15 @@ export function useTaskListData() {
       const recurring = tasks.filter((task) => task.recurrenceRule);
       const [categoryIdsByTask, occurrences] = await Promise.all([
         repositories.categories.listCategoryIdsByTask(tasks.map((task) => task.id)),
-        Promise.all(recurring.map((task) => repositories.occurrences.listByTask(task.id))),
+        // 读取时顺带执行归档（生成已出现实例的记录、把被取代的 pending 标为 missed）
+        Promise.all(
+          recurring.map((task) =>
+            syncOccurrences(repositories.occurrences, task, {
+              now: new Date(),
+              timeZone: browserTimeZone(),
+            }),
+          ),
+        ),
       ]);
       const occurrencesByTask = new Map(recurring.map((task, i) => [task.id, occurrences[i]!]));
       setData({ tasks, categories, categoryIdsByTask, occurrencesByTask });
@@ -52,5 +61,19 @@ export function useTaskListData() {
     );
   }, []);
 
-  return { data, error, reload, replaceTask };
+  /** 本地更新（或新增）一条循环实例记录 */
+  const upsertOccurrence = useCallback((occurrence: RecurrenceOccurrence) => {
+    setData((current) => {
+      if (!current) return current;
+      const records = current.occurrencesByTask.get(occurrence.taskId) ?? [];
+      const next = [...records.filter((o) => o.id !== occurrence.id), occurrence].sort(
+        (a, b) => a.occurrenceDate.getTime() - b.occurrenceDate.getTime(),
+      );
+      const occurrencesByTask = new Map(current.occurrencesByTask);
+      occurrencesByTask.set(occurrence.taskId, next);
+      return { ...current, occurrencesByTask };
+    });
+  }, []);
+
+  return { data, error, reload, replaceTask, upsertOccurrence };
 }

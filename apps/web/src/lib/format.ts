@@ -1,5 +1,9 @@
 import {
   calendarDaysBetween,
+  describeRecurrence,
+  parseRecurrenceRule,
+  weekdayName,
+  weekdayOf,
   type ImportanceLevel,
   type Quadrant,
   type StatusFilter,
@@ -83,4 +87,32 @@ export function fromDateTimeLocalValue(value: string): Date | null {
 
 export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** 循环规则的简短描述；超出可编辑子集的规则显示为"自定义重复" */
+export function recurrenceLabel(rule: string, timeZone: string): string {
+  const spec = parseRecurrenceRule(rule);
+  return spec ? describeRecurrence(spec, timeZone) : '自定义重复';
+}
+
+/** 完整日期：9月25日 周五 07:00（非今年时带年份） */
+export function formatFullDateTime(date: Date, timeZone: string): string {
+  const year = date.getFullYear() === new Date().getFullYear() ? '' : `${date.getFullYear()}年`;
+  return (
+    `${year}${date.getMonth() + 1}月${date.getDate()}日 ` +
+    `周${weekdayName(weekdayOf(date, timeZone))} ` +
+    `${pad(date.getHours())}:${pad(date.getMinutes())}`
+  );
+}
+
+/** Date → <input type="date"> 的值（本地日期） */
+export function toDateValue(date: Date): string {
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+/** <input type="date"> 的值 → 本地当天 00:00；空字符串为 null */
+export function fromDateValue(value: string): Date | null {
+  if (!value) return null;
+  const date = new Date(`${value}T00:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
 }

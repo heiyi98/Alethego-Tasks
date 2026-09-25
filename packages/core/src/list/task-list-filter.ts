@@ -1,6 +1,7 @@
 import type { RecurrenceOccurrence } from '../domain/occurrence';
 import type { Task } from '../domain/task';
-import { deriveTaskStatus } from '../domain/task-status';
+import { deriveTaskStatus, type TaskStatus } from '../domain/task-status';
+import { resolveRepresentativeInstance, seriesFromTask } from '../recurrence/recurrence-engine';
 import type { EvaluationContext } from '../time/zoned-time';
 import { listDeadlineOf, sortByDeadline } from './task-list-order';
 
@@ -17,6 +18,22 @@ export interface TaskListFilter {
   status: StatusFilter;
   /** 点亮的分类；为空表示不按分类筛选（总览） */
   categoryIds: readonly string[];
+}
+
+/**
+ * 列表中显示的状态：
+ * - 普通任务：由截止时间 / 完成时间派生（见 deriveTaskStatus）
+ * - 循环任务：只要还有下一个实例就是"待办"（逾期规则不适用于循环任务的历史实例）；
+ *   序列已结束（COUNT / UNTIL 用尽且都已处理）视为"已完成"
+ */
+export function deriveListStatus(
+  task: Task,
+  occurrences: readonly Pick<RecurrenceOccurrence, 'occurrenceDate' | 'status'>[],
+  context: EvaluationContext,
+): TaskStatus {
+  const series = seriesFromTask(task);
+  if (!series) return deriveTaskStatus(task, context.now);
+  return resolveRepresentativeInstance(series, occurrences, context) ? 'todo' : 'completed';
 }
 
 export function matchesStatusFilter(
@@ -52,7 +69,12 @@ export function buildTaskList(
 ): Task[] {
   const rows = sources.tasks
     .filter((task) => !task.deletedAt)
-    .filter((task) => matchesStatusFilter(task, filter.status, context.now))
+    .filter(
+      (task) =>
+        filter.status === 'all' ||
+        deriveListStatus(task, sources.occurrencesByTask?.get(task.id) ?? [], context) ===
+          filter.status,
+    )
     .filter((task) =>
       matchesCategoryFilter(sources.categoryIdsByTask.get(task.id) ?? [], filter.categoryIds),
     )

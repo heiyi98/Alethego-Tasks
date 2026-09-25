@@ -1,14 +1,29 @@
 'use client';
 
-import { normalizeTaskTitle, type Category, type ImportanceLevel, type Task } from '@alethego/core';
+import {
+  normalizeTaskTitle,
+  type Category,
+  type ImportanceLevel,
+  type RecurrenceOccurrence,
+  type Task,
+} from '@alethego/core';
+import { syncOccurrences } from '@alethego/data';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 
 import { CategoryDot } from '@/components/category-dot';
+import {
+  RecurrenceEditor,
+  recurrenceFormFromTask,
+  recurrencePatch,
+  type RecurrenceFormState,
+} from '@/components/recurrence-editor';
 import { useRepositories } from '@/components/repositories-provider';
+import { useNow } from '@/hooks/use-now';
 import {
   IMPORTANCE_LEVELS,
+  browserTimeZone,
   errorMessage,
   fromDateTimeLocalValue,
   importanceLabel,
@@ -23,6 +38,7 @@ interface FormState {
   importanceLevel: ImportanceLevel;
   categoryIds: string[];
   completed: boolean;
+  recurrence: RecurrenceFormState;
 }
 
 function toFormState(task: Task, categoryIds: string[]): FormState {
@@ -33,6 +49,7 @@ function toFormState(task: Task, categoryIds: string[]): FormState {
     importanceLevel: task.importanceLevel,
     categoryIds,
     completed: task.completedAt !== null,
+    recurrence: recurrenceFormFromTask(task),
   };
 }
 
@@ -40,7 +57,7 @@ type LoadState =
   | { kind: 'loading' }
   | { kind: 'not_found' }
   | { kind: 'error'; message: string }
-  | { kind: 'ready'; task: Task; categories: Category[] };
+  | { kind: 'ready'; task: Task; categories: Category[]; records: RecurrenceOccurrence[] };
 
 export default function TaskDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -50,6 +67,8 @@ export default function TaskDetailPage() {
   const [form, setForm] = useState<FormState | null>(null);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
+  const now = useNow();
+  const [timeZone] = useState(browserTimeZone);
 
   useEffect(() => {
     let cancelled = false;
@@ -65,7 +84,13 @@ export default function TaskDetailPage() {
           setLoad({ kind: 'not_found' });
           return;
         }
-        setLoad({ kind: 'ready', task, categories });
+        // 顺带执行归档，历史记录与"当前实例"预览都基于最新记录
+        const records = await syncOccurrences(repositories.occurrences, task, {
+          now: new Date(),
+          timeZone: browserTimeZone(),
+        });
+        if (cancelled) return;
+        setLoad({ kind: 'ready', task, categories, records });
         setForm(toFormState(task, links.get(id) ?? []));
       } catch (e) {
         if (!cancelled) setLoad({ kind: 'error', message: errorMessage(e) });
@@ -81,7 +106,8 @@ export default function TaskDetailPage() {
   if (load.kind === 'error') return <DetailShell>加载失败：{load.message}</DetailShell>;
   if (!form) return null;
 
-  const { task, categories } = load;
+  const { task, categories, records } = load;
+  const recurring = form.recurrence.enabled;
   const update = (patch: Partial<FormState>) => setForm({ ...form, ...patch });
 
   function toggleCategory(categoryId: string) {
@@ -99,17 +125,35 @@ export default function TaskDetailPage() {
       setMessage({ kind: 'error', text: '标题不能为空' });
       return;
     }
+    const recurrence = recurrencePatch(form!.recurrence);
+    if (!recurrence.ok) {
+      setMessage({ kind: 'error', text: recurrence.error });
+      return;
+    }
     setSaving(true);
     try {
       const saved = await repositories.tasks.update(task.id, {
         title,
         description: form!.description,
-        deadlineAt: fromDateTimeLocalValue(form!.deadline),
         importanceLevel: form!.importanceLevel,
-        completedAt: form!.completed ? (task.completedAt ?? new Date()) : null,
+        recurrenceRule: recurrence.recurrenceRule,
+        ...(recurrence.recurrenceDtstart
+          ? { recurrenceDtstart: recurrence.recurrenceDtstart }
+          : {}),
+        // 循环任务的完成按实例记录，截止时间由规则决定：这两个字段保持原值
+        ...(recurrence.recurrenceRule
+          ? {}
+          : {
+              deadlineAt: fromDateTimeLocalValue(form!.deadline),
+              completedAt: form!.completed ? (task.completedAt ?? new Date()) : null,
+            }),
       });
       await repositories.categories.setTaskCategories(task.id, form!.categoryIds);
-      setLoad({ kind: 'ready', task: saved, categories });
+      const nextRecords = await syncOccurrences(repositories.occurrences, saved, {
+        now: new Date(),
+        timeZone,
+      });
+      setLoad({ kind: 'ready', task: saved, categories, records: nextRecords });
       setForm(toFormState(saved, form!.categoryIds));
       setMessage({ kind: 'ok', text: '已保存' });
     } catch (e) {
@@ -153,29 +197,46 @@ export default function TaskDetailPage() {
           />
         </label>
 
-        <div className="field">
-          <label className="field-label" htmlFor="deadline">
-            截止时间
-          </label>
-          <div className="field-inline">
-            <input
-              id="deadline"
-              name="deadline"
-              type="datetime-local"
-              value={form.deadline}
-              onChange={(event) => update({ deadline: event.target.value })}
-            />
-            {form.deadline && (
-              <button
-                type="button"
-                className="button-ghost"
-                onClick={() => update({ deadline: '' })}
-              >
-                清除
-              </button>
-            )}
+        <RecurrenceEditor
+          task={task}
+          value={form.recurrence}
+          onChange={(recurrence) => update({ recurrence })}
+          records={records}
+          now={now}
+          timeZone={timeZone}
+        />
+
+        {(task.recurrenceRule || records.length > 0) && (
+          <Link href={`/tasks/${task.id}/history`} className="history-link">
+            历史记录（{records.length} 次）→
+          </Link>
+        )}
+
+        {!recurring && (
+          <div className="field">
+            <label className="field-label" htmlFor="deadline">
+              截止时间
+            </label>
+            <div className="field-inline">
+              <input
+                id="deadline"
+                name="deadline"
+                type="datetime-local"
+                value={form.deadline}
+                onChange={(event) => update({ deadline: event.target.value })}
+              />
+              {form.deadline && (
+                <button
+                  type="button"
+                  className="button-ghost"
+                  onClick={() => update({ deadline: '' })}
+                >
+                  清除
+                </button>
+              )}
+            </div>
           </div>
-        </div>
+        )}
 
         <fieldset className="field">
           <legend className="field-label">重要性</legend>
@@ -216,14 +277,16 @@ export default function TaskDetailPage() {
           )}
         </fieldset>
 
-        <label className="field field-checkbox">
-          <input
-            type="checkbox"
-            checked={form.completed}
-            onChange={(event) => update({ completed: event.target.checked })}
-          />
-          已完成
-        </label>
+        {!recurring && (
+          <label className="field field-checkbox">
+            <input
+              type="checkbox"
+              checked={form.completed}
+              onChange={(event) => update({ completed: event.target.checked })}
+            />
+            已完成
+          </label>
+        )}
 
         {message && (
           <p className={message.kind === 'ok' ? 'notice' : 'notice notice-error'} role="status">
