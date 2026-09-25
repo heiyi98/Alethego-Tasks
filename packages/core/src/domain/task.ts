@@ -20,4 +20,6 @@ export interface Task {
   completedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+  /** 软删除时间；非空即已删除，只在列表/矩阵中隐藏，数据保留 */
+  deletedAt: Date | null;
 }

@@ -1,4 +1,5 @@
 export * from './errors';
+export * from './owner';
 
 export type * from './interfaces/repositories';
 export type * from './interfaces/stores';

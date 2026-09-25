@@ -9,7 +9,7 @@ import type {
 
 /**
  * 仓储接口：上层业务代码只依赖这些窄接口，不感知背后是 Supabase、本地存储还是同步队列。
- * owner_id 由数据库按当前登录用户（auth.uid()）自动填充，接口中不出现。
+ * owner_id 由存储实现在构造时确定（未登录阶段为固定值 LOCAL_OWNER_ID），接口中不出现。
  */
 
 export interface TaskListQuery {
@@ -17,7 +17,9 @@ export interface TaskListQuery {
   categoryIds?: readonly string[];
 }
 
+/** 快速添加只需 title；其余字段可省略，之后在详情中通过 update 补充。 */
 export interface NewTask {
+  /** 会去除首尾空白；为空白时抛出 DataError('invalid') */
   title: string;
   description?: string;
   deadlineAt?: Date | null;
@@ -39,13 +41,23 @@ export type TaskPatch = Partial<
   >
 >;
 
+/**
+ * 任务仓储。已软删除的任务对 list / getById / update 均不可见。
+ */
 export interface ITaskRepository {
+  /**
+   * 默认按截止时间从近到远排序，无截止时间的排最后（同 core 的 compareByDeadline）。
+   * 循环任务的排序依据是代表实例，需上层用 listDeadlineOf + sortByDeadline 重新排序。
+   */
   list(query?: TaskListQuery): Promise<Task[]>;
   getById(id: string): Promise<Task | null>;
+  /** 快速添加：只需标题即可创建 */
   create(input: NewTask): Promise<Task>;
   update(id: string, patch: TaskPatch): Promise<Task>;
-  /** 同时级联删除该任务的分类关联与循环实例记录 */
+  /** 软删除：写入 deleted_at，数据（含分类关联、循环实例记录）保留；重复删除无副作用 */
   delete(id: string): Promise<void>;
+  /** 撤销软删除 */
+  restore(id: string): Promise<Task>;
 }
 
 export interface NewCategory {

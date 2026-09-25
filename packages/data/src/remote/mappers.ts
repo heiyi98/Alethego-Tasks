@@ -35,11 +35,13 @@ export function taskFromRow(row: TableRow<'tasks'>): Task {
     completedAt: toNullableDate(row.completed_at),
     createdAt: toDate(row.created_at),
     updatedAt: toDate(row.updated_at),
+    deletedAt: toNullableDate(row.deleted_at),
   };
 }
 
-export function taskToInsert(input: NewTask): TableInsert<'tasks'> {
+export function taskToInsert(input: NewTask, ownerId: string): TableInsert<'tasks'> {
   return {
+    owner_id: ownerId,
     title: input.title,
     description: input.description ?? '',
     deadline_at: toNullableIso(input.deadlineAt),

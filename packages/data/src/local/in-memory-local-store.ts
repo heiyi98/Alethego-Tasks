@@ -1,4 +1,5 @@
 import {
+  compareByDeadline,
   normalizeColor,
   type Category,
   type OccurrenceStatus,
@@ -19,10 +20,12 @@ import type {
   TaskPatch,
 } from '../interfaces/repositories';
 import type { ILocalStore } from '../interfaces/stores';
+import { LOCAL_OWNER_ID } from '../owner';
+import { validateNewTask, validateTaskPatch } from '../validation';
 
 /**
  * 内存版本地存储：用于测试与离线存储实现（IndexedDB / SQLite）落地前的占位。
- * 行为与数据库约束保持一致：分类颜色排他、删除级联、实例记录去重。
+ * 行为与数据库约束保持一致：分类颜色排他、任务软删除、按截止时间排序、实例记录去重。
  */
 
 interface MemoryState {
@@ -45,8 +48,14 @@ function notFound(what: string, id: string): never {
 class MemoryTaskRepository implements ITaskRepository {
   constructor(private readonly state: MemoryState) {}
 
+  private active(id: string): Task {
+    const task = this.state.tasks.get(id);
+    if (!task || task.deletedAt) notFound('任务', id);
+    return task;
+  }
+
   async list(query: TaskListQuery = {}) {
-    let tasks = [...this.state.tasks.values()];
+    let tasks = [...this.state.tasks.values()].filter((task) => !task.deletedAt);
     const categoryIds = query.categoryIds ?? [];
     if (categoryIds.length > 0) {
       tasks = tasks.filter((task) =>
@@ -55,47 +64,57 @@ class MemoryTaskRepository implements ITaskRepository {
         ),
       );
     }
-    return tasks.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    return tasks.sort(compareByDeadline);
   }
 
   async getById(id: string) {
-    return this.state.tasks.get(id) ?? null;
+    const task = this.state.tasks.get(id);
+    return task && !task.deletedAt ? task : null;
   }
 
   async create(input: NewTask) {
+    const valid = validateNewTask(input);
     const now = this.state.now();
     const task: Task = {
       id: this.state.newId(),
       ownerId: this.state.ownerId,
-      title: input.title,
-      description: input.description ?? '',
-      deadlineAt: input.deadlineAt ?? null,
-      importanceLevel: input.importanceLevel ?? 0,
-      recurrenceRule: input.recurrenceRule ?? null,
-      recurrenceDtstart: input.recurrenceDtstart ?? null,
+      title: valid.title,
+      description: valid.description ?? '',
+      deadlineAt: valid.deadlineAt ?? null,
+      importanceLevel: valid.importanceLevel ?? 0,
+      recurrenceRule: valid.recurrenceRule ?? null,
+      recurrenceDtstart: valid.recurrenceDtstart ?? null,
       completedAt: null,
       createdAt: now,
       updatedAt: now,
+      deletedAt: null,
     };
     this.state.tasks.set(task.id, task);
     return task;
   }
 
   async update(id: string, patch: TaskPatch) {
-    const existing = this.state.tasks.get(id) ?? notFound('任务', id);
-    const updated: Task = { ...existing, ...patch, updatedAt: this.state.now() };
+    const updated: Task = {
+      ...this.active(id),
+      ...validateTaskPatch(patch),
+      updatedAt: this.state.now(),
+    };
     this.state.tasks.set(id, updated);
     return updated;
   }
 
   async delete(id: string) {
-    this.state.tasks.delete(id);
-    for (const key of this.state.taskCategories) {
-      if (key.startsWith(`${id}:`)) this.state.taskCategories.delete(key);
-    }
-    for (const [occurrenceId, occurrence] of this.state.occurrences) {
-      if (occurrence.taskId === id) this.state.occurrences.delete(occurrenceId);
-    }
+    const task = this.state.tasks.get(id);
+    if (!task || task.deletedAt) return;
+    const now = this.state.now();
+    this.state.tasks.set(id, { ...task, deletedAt: now, updatedAt: now });
+  }
+
+  async restore(id: string) {
+    const task = this.state.tasks.get(id) ?? notFound('任务', id);
+    const restored: Task = { ...task, deletedAt: null, updatedAt: this.state.now() };
+    this.state.tasks.set(id, restored);
+    return restored;
   }
 }
 
@@ -228,7 +247,7 @@ export class InMemoryLocalStore implements ILocalStore {
 
   constructor(options: InMemoryLocalStoreOptions = {}) {
     const state: MemoryState = {
-      ownerId: options.ownerId ?? 'local-user',
+      ownerId: options.ownerId ?? LOCAL_OWNER_ID,
       now: options.now ?? (() => new Date()),
       newId: options.newId ?? (() => crypto.randomUUID()),
       tasks: new Map(),

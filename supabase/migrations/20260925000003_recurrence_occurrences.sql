@@ -1,6 +1,6 @@
 -- 循环任务实例记录。
 -- 独立于 tasks.recurrence_rule 存续：关闭循环开关或清空规则后，历史记录依然保留，
--- 只在对应任务被删除时级联删除。
+-- 只在对应任务被物理删除时级联删除（任务日常删除为软删除，记录保留）。
 
 create type public.occurrence_status as enum ('pending', 'completed', 'missed');
 

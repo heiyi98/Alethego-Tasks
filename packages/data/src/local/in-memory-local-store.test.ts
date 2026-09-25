@@ -2,9 +2,74 @@ import { reconcileOccurrences, seriesFromTask } from '@alethego/core';
 import { describe, expect, it } from 'vitest';
 
 import { DataError } from '../errors';
+import { LOCAL_OWNER_ID } from '../owner';
 import { InMemoryLocalStore } from './in-memory-local-store';
 
 describe('InMemoryLocalStore', () => {
+  it('快速添加：只需标题，默认归属固定 owner，其余字段取默认值', async () => {
+    const store = new InMemoryLocalStore();
+    const task = await store.tasks.create({ title: '  买牛奶 ' });
+    expect(task).toMatchObject({
+      ownerId: LOCAL_OWNER_ID,
+      title: '买牛奶',
+      description: '',
+      deadlineAt: null,
+      importanceLevel: 0,
+      recurrenceRule: null,
+      deletedAt: null,
+    });
+
+    // 之后在详情中补充字段
+    const deadline = new Date('2026-09-30T10:00:00Z');
+    expect(
+      await store.tasks.update(task.id, { deadlineAt: deadline, importanceLevel: 4 }),
+    ).toMatchObject({ deadlineAt: deadline, importanceLevel: 4 });
+  });
+
+  it('空白标题不能创建或更新', async () => {
+    const store = new InMemoryLocalStore();
+    await expect(store.tasks.create({ title: '   ' })).rejects.toThrow(DataError);
+    const task = await store.tasks.create({ title: 'x' });
+    await expect(store.tasks.update(task.id, { title: '' })).rejects.toThrow(DataError);
+  });
+
+  it('列表默认按截止时间从近到远，无截止时间排最后', async () => {
+    let tick = 0;
+    const store = new InMemoryLocalStore({ now: () => new Date(Date.UTC(2026, 8, 1) + tick++) });
+    await store.tasks.create({ title: '无截止' });
+    await store.tasks.create({ title: '下月', deadlineAt: new Date('2026-10-20T00:00:00Z') });
+    await store.tasks.create({ title: '明天', deadlineAt: new Date('2026-09-26T00:00:00Z') });
+    await store.tasks.create({ title: '也无截止' });
+    expect((await store.tasks.list()).map((t) => t.title)).toEqual([
+      '明天',
+      '下月',
+      '也无截止',
+      '无截止',
+    ]);
+  });
+
+  it('软删除：列表与详情不可见、不可编辑，数据与关联保留，可恢复', async () => {
+    const store = new InMemoryLocalStore();
+    const work = await store.categories.create({ name: '工作', color: '#1E88E5' });
+    const task = await store.tasks.create({ title: '周报' });
+    await store.categories.setTaskCategories(task.id, [work.id]);
+
+    await store.tasks.delete(task.id);
+    await store.tasks.delete(task.id); // 重复删除无副作用
+    expect(await store.tasks.list()).toEqual([]);
+    expect(await store.tasks.getById(task.id)).toBeNull();
+    await expect(store.tasks.update(task.id, { title: 'x' })).rejects.toThrow(DataError);
+    expect(await store.categories.listCategoryIdsByTask([task.id])).toEqual(
+      new Map([[task.id, [work.id]]]),
+    );
+
+    const restored = await store.tasks.restore(task.id);
+    expect(restored.deletedAt).toBeNull();
+    expect((await store.tasks.list({ categoryIds: [work.id] })).map((t) => t.id)).toEqual([
+      task.id,
+    ]);
+  });
+
   it('分类筛选为逻辑或；删除分类只解除关联，不删除任务', async () => {
     const store = new InMemoryLocalStore();
     const work = await store.categories.create({ name: '工作', color: '#1e88e5' });
@@ -75,8 +140,8 @@ describe('InMemoryLocalStore', () => {
     );
     expect((await store.occurrences.listByTask(task.id))[1]?.status).toBe('completed');
 
-    // 删除任务时实例记录一并删除
+    // 软删除任务不影响历史实例记录
     await store.tasks.delete(task.id);
-    expect(await store.occurrences.listByTask(task.id)).toEqual([]);
+    expect(await store.occurrences.listByTask(task.id)).toHaveLength(3);
   });
 });

@@ -20,6 +20,7 @@ export interface TaskRepresentative {
 
 /**
  * 解析任务的代表：
+ * - 已软删除的任务没有代表。
  * - 普通任务：任务本身；已完成的任务没有代表（不进入矩阵）。
  * - 循环任务：日期未过去的最早未完成实例，各实例继承任务的重要性；序列已结束时没有代表。
  */
@@ -28,6 +29,7 @@ export function resolveTaskRepresentative(
   occurrences: readonly Pick<RecurrenceOccurrence, 'occurrenceDate' | 'status'>[],
   context: EvaluationContext,
 ): TaskRepresentative | null {
+  if (task.deletedAt) return null;
   const series = seriesFromTask(task);
   if (series) {
     const instance = resolveRepresentativeInstance(series, occurrences, context);

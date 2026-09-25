@@ -19,6 +19,8 @@ import type {
   TaskPatch,
 } from '../interfaces/repositories';
 import type { IRemoteStore } from '../interfaces/stores';
+import { LOCAL_OWNER_ID } from '../owner';
+import { validateNewTask, validateTaskPatch } from '../validation';
 import type { TableUpdate } from './database.types';
 import {
   categoryFromRow,
@@ -55,10 +57,21 @@ function unwrap<T>(result: { data: T | null; error: PostgrestError | null }, act
 }
 
 export class SupabaseTaskRepository implements ITaskRepository {
-  constructor(private readonly client: TaskAppSupabaseClient) {}
+  constructor(
+    private readonly client: TaskAppSupabaseClient,
+    private readonly ownerId: string,
+  ) {}
+
+  /** 未删除任务的查询起点 */
+  private activeTasks() {
+    return this.client.from('tasks').select('*').is('deleted_at', null);
+  }
 
   async list(query: TaskListQuery = {}): Promise<Task[]> {
-    let request = this.client.from('tasks').select('*').order('created_at', { ascending: false });
+    let request = this.activeTasks()
+      .order('deadline_at', { ascending: true, nullsFirst: false })
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: true });
 
     if (query.categoryIds && query.categoryIds.length > 0) {
       const links = unwrap(
@@ -77,17 +90,18 @@ export class SupabaseTaskRepository implements ITaskRepository {
   }
 
   async getById(id: string): Promise<Task | null> {
-    const row = unwrap(
-      await this.client.from('tasks').select('*').eq('id', id).maybeSingle(),
-      '查询任务',
-    );
+    const row = unwrap(await this.activeTasks().eq('id', id).maybeSingle(), '查询任务');
     return row ? taskFromRow(row) : null;
   }
 
   async create(input: NewTask): Promise<Task> {
     return taskFromRow(
       unwrap(
-        await this.client.from('tasks').insert(taskToInsert(input)).select().single(),
+        await this.client
+          .from('tasks')
+          .insert(taskToInsert(validateNewTask(input), this.ownerId))
+          .select()
+          .single(),
         '创建任务',
       ),
     );
@@ -98,8 +112,9 @@ export class SupabaseTaskRepository implements ITaskRepository {
       unwrap(
         await this.client
           .from('tasks')
-          .update(taskPatchToUpdate(patch))
+          .update(taskPatchToUpdate(validateTaskPatch(patch)))
           .eq('id', id)
+          .is('deleted_at', null)
           .select()
           .single(),
         '更新任务',
@@ -108,13 +123,29 @@ export class SupabaseTaskRepository implements ITaskRepository {
   }
 
   async delete(id: string): Promise<void> {
-    const { error } = await this.client.from('tasks').delete().eq('id', id);
+    const { error } = await this.client
+      .from('tasks')
+      .update({ deleted_at: new Date().toISOString() })
+      .eq('id', id)
+      .is('deleted_at', null);
     if (error) unwrap({ data: null, error }, '删除任务');
+  }
+
+  async restore(id: string): Promise<Task> {
+    return taskFromRow(
+      unwrap(
+        await this.client.from('tasks').update({ deleted_at: null }).eq('id', id).select().single(),
+        '恢复任务',
+      ),
+    );
   }
 }
 
 export class SupabaseCategoryRepository implements ICategoryRepository {
-  constructor(private readonly client: TaskAppSupabaseClient) {}
+  constructor(
+    private readonly client: TaskAppSupabaseClient,
+    private readonly ownerId: string,
+  ) {}
 
   async list() {
     return unwrap(
@@ -128,7 +159,7 @@ export class SupabaseCategoryRepository implements ICategoryRepository {
       unwrap(
         await this.client
           .from('categories')
-          .insert({ ...input, color: normalizeColor(input.color) })
+          .insert({ ...input, owner_id: this.ownerId, color: normalizeColor(input.color) })
           .select()
           .single(),
         '创建分类',
@@ -250,15 +281,21 @@ export class SupabaseOccurrenceRepository implements IOccurrenceRepository {
   }
 }
 
+export interface SupabaseRemoteStoreOptions {
+  /** 数据所有者；未登录阶段默认为固定值 LOCAL_OWNER_ID */
+  ownerId?: string;
+}
+
 export class SupabaseRemoteStore implements IRemoteStore {
   readonly kind = 'remote' as const;
   readonly tasks: SupabaseTaskRepository;
   readonly categories: SupabaseCategoryRepository;
   readonly occurrences: SupabaseOccurrenceRepository;
 
-  constructor(client: TaskAppSupabaseClient) {
-    this.tasks = new SupabaseTaskRepository(client);
-    this.categories = new SupabaseCategoryRepository(client);
+  constructor(client: TaskAppSupabaseClient, options: SupabaseRemoteStoreOptions = {}) {
+    const ownerId = options.ownerId ?? LOCAL_OWNER_ID;
+    this.tasks = new SupabaseTaskRepository(client, ownerId);
+    this.categories = new SupabaseCategoryRepository(client, ownerId);
     this.occurrences = new SupabaseOccurrenceRepository(client);
   }
 }

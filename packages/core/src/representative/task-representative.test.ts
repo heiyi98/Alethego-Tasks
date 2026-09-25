@@ -20,6 +20,7 @@ const baseTask: Task = {
   completedAt: null,
   createdAt: sh('2026-09-01T00:00:00'),
   updatedAt: sh('2026-09-01T00:00:00'),
+  deletedAt: null,
 };
 
 describe('resolveTaskRepresentative', () => {
@@ -41,6 +42,11 @@ describe('resolveTaskRepresentative', () => {
     expect(
       resolveTaskRepresentative({ ...baseTask, completedAt: context.now }, [], context),
     ).toBeNull();
+  });
+
+  it('已删除的任务没有代表', () => {
+    const task = { ...baseTask, importanceLevel: 5 as const, deletedAt: context.now };
+    expect(resolveTaskRepresentative(task, [], context)).toBeNull();
   });
 
   it('循环任务的代表是日期未过去的最早未完成实例，继承任务重要性', () => {

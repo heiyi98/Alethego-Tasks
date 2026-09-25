@@ -15,6 +15,7 @@ const row = {
   completed_at: null,
   created_at: '2026-09-25T00:00:00+00:00',
   updated_at: '2026-09-25T00:00:00+00:00',
+  deleted_at: null,
 };
 
 describe('task mappers', () => {
@@ -25,6 +26,7 @@ describe('task mappers', () => {
       deadlineAt: new Date('2026-09-26T10:00:00Z'),
       importanceLevel: 3,
       completedAt: null,
+      deletedAt: null,
     });
   });
 
@@ -32,8 +34,9 @@ describe('task mappers', () => {
     expect(() => taskFromRow({ ...row, importance_level: 6 })).toThrow(DataError);
   });
 
-  it('新建任务填默认值，不包含 owner_id（由数据库按 auth.uid() 填充）', () => {
-    expect(taskToInsert({ title: 'x' })).toEqual({
+  it('新建任务填默认值，owner_id 由调用方指定', () => {
+    expect(taskToInsert({ title: 'x' }, 'owner-1')).toEqual({
+      owner_id: 'owner-1',
       title: 'x',
       description: '',
       deadline_at: null,
