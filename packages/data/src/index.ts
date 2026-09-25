@@ -4,6 +4,7 @@ export * from './owner';
 export type * from './interfaces/repositories';
 export type * from './interfaces/stores';
 
+export { DB_SCHEMA } from './remote/database.types';
 export type { Database, TableInsert, TableRow, TableUpdate } from './remote/database.types';
 export * from './remote/mappers';
 export * from './remote/supabase-client';

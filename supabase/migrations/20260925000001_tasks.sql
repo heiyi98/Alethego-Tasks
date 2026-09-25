@@ -6,9 +6,9 @@
 --
 -- 删除为软删除（deleted_at），不物理删除。
 
-create table public.tasks (
+create table taskapp.tasks (
   id                 uuid primary key default gen_random_uuid(),
-  owner_id           uuid not null default public.current_owner_id(),
+  owner_id           uuid not null default taskapp.current_owner_id(),
   title              text not null
                      constraint tasks_title_not_blank check (btrim(title) <> ''),
   description        text not null default '',
@@ -27,15 +27,15 @@ create table public.tasks (
     check (recurrence_rule is null or recurrence_dtstart is not null)
 );
 
-comment on column public.tasks.importance_level is '重要性 0-5：0 = 未设置，1-5 为用户设置的档位';
-comment on column public.tasks.recurrence_rule is 'RFC 5545 RRULE；非空即为循环任务';
+comment on column taskapp.tasks.importance_level is '重要性 0-5：0 = 未设置，1-5 为用户设置的档位';
+comment on column taskapp.tasks.recurrence_rule is 'RFC 5545 RRULE；非空即为循环任务';
 
 -- 列表默认排序：截止时间从近到远，无截止时间排最后；只索引未删除的任务
-create index tasks_owner_deadline_idx on public.tasks (owner_id, deadline_at asc nulls last)
+create index tasks_owner_deadline_idx on taskapp.tasks (owner_id, deadline_at asc nulls last)
   where deleted_at is null;
 
 -- updated_at 用于同步冲突解决（Last-Write-Wins）；软删除同样会刷新它，删除标记可随同步传播
-create function public.set_updated_at()
+create function taskapp.set_updated_at()
 returns trigger
 language plpgsql
 set search_path = ''
@@ -47,5 +47,5 @@ end;
 $$;
 
 create trigger tasks_set_updated_at
-  before update on public.tasks
-  for each row execute function public.set_updated_at();
+  before update on taskapp.tasks
+  for each row execute function taskapp.set_updated_at();

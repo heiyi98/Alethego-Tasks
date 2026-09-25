@@ -1,3 +1,9 @@
+-- 业务表统一放在独立的 taskapp schema 中，不使用 public。
+-- 需要在 Supabase 控制台 Project Settings → API → Exposed schemas 中加入 taskapp，
+-- 前端才能通过 Data API 访问（客户端已配置 db.schema = 'taskapp'）。
+
+create schema if not exists taskapp;
+
 -- 当前数据所有者。
 --
 -- 【临时：无登录模式】账号体系尚未接入，所有数据归属一个写死的固定 owner_id。
@@ -9,7 +15,7 @@
 --   2. 在 RLS 策略中去掉 anon 角色
 -- 表结构与其余策略都不用动。
 
-create function public.current_owner_id()
+create function taskapp.current_owner_id()
 returns uuid
 language sql
 stable

@@ -135,7 +135,8 @@ test('删除为软删除：列表与详情不可见，数据库中保留并带 d
   const response = await request.get(
     `${url}/rest/v1/tasks?id=eq.${taskId}&select=title,deleted_at`,
     {
-      headers: { apikey: key, Authorization: `Bearer ${key}` },
+      // 业务表在 taskapp schema 中，通过 Accept-Profile 指定
+      headers: { apikey: key, Authorization: `Bearer ${key}`, 'Accept-Profile': 'taskapp' },
     },
   );
   const rows = (await response.json()) as { title: string; deleted_at: string | null }[];

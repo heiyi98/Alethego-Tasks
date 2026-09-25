@@ -1,14 +1,17 @@
 /**
- * Supabase 数据库类型，结构与 `supabase gen types typescript` 的输出一致。
+ * Supabase 数据库类型，结构与 `supabase gen types typescript --schema taskapp` 的输出一致。
  * 目前按 supabase/migrations 手写；接入真实项目后可直接用生成结果替换本文件。
  */
+
+/** 业务表所在的 schema（不使用 public） */
+export const DB_SCHEMA = 'taskapp';
 
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
 
 export type OccurrenceStatusEnum = 'pending' | 'completed' | 'missed';
 
 export interface Database {
-  public: {
+  taskapp: {
     Tables: {
       tasks: {
         Row: {
@@ -157,7 +160,7 @@ export interface Database {
   };
 }
 
-type PublicTables = Database['public']['Tables'];
-export type TableRow<T extends keyof PublicTables> = PublicTables[T]['Row'];
-export type TableInsert<T extends keyof PublicTables> = PublicTables[T]['Insert'];
-export type TableUpdate<T extends keyof PublicTables> = PublicTables[T]['Update'];
+type AppTables = Database[typeof DB_SCHEMA]['Tables'];
+export type TableRow<T extends keyof AppTables> = AppTables[T]['Row'];
+export type TableInsert<T extends keyof AppTables> = AppTables[T]['Insert'];
+export type TableUpdate<T extends keyof AppTables> = AppTables[T]['Update'];

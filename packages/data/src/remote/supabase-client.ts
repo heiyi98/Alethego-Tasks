@@ -1,8 +1,8 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
-import type { Database } from './database.types';
+import { DB_SCHEMA, type Database } from './database.types';
 
-export type TaskAppSupabaseClient = SupabaseClient<Database>;
+export type TaskAppSupabaseClient = SupabaseClient<Database, typeof DB_SCHEMA>;
 
 export interface SupabaseClientConfig {
   url: string;
@@ -16,7 +16,9 @@ export interface SupabaseClientConfig {
 }
 
 export function createSupabaseClient(config: SupabaseClientConfig): TaskAppSupabaseClient {
-  return createClient<Database>(config.url, config.anonKey, {
+  return createClient<Database, typeof DB_SCHEMA>(config.url, config.anonKey, {
+    // 所有读写都走 taskapp schema（需在 Supabase 的 Exposed schemas 中加入 taskapp）
+    db: { schema: DB_SCHEMA },
     ...(config.accessToken ? { accessToken: config.accessToken } : {}),
   });
 }

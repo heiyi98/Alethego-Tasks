@@ -8,7 +8,7 @@
 packages/core/   领域层：纯 TypeScript，无框架依赖（Web / Mobile 共享）
 packages/data/   数据层：仓储接口、Supabase 远程实现、本地存储接口
 apps/web/        Next.js：任务列表、快速添加、任务详情/编辑（直接读写 Supabase）
-supabase/        数据库迁移（tasks、categories、task_categories、recurrence_occurrences + RLS）
+supabase/        数据库迁移（taskapp schema：tasks、categories、task_categories、recurrence_occurrences + RLS）
 ```
 
 ### packages/core
@@ -50,6 +50,9 @@ pnpm dev         # 启动 apps/web
 supabase start
 supabase db reset   # 应用 supabase/migrations
 ```
+
+业务表全部位于独立的 **`taskapp` schema**（不使用 `public`）。在 Supabase 上部署时，除了执行迁移，
+还需要在控制台 **Project Settings → API → Exposed schemas** 中加入 `taskapp`，前端才能访问。
 
 ### 运行 Web
 
