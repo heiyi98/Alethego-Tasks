@@ -90,8 +90,10 @@ export class SupabaseTaskRepository implements ITaskRepository {
   }
 
   async getById(id: string): Promise<Task | null> {
-    const row = unwrap(await this.activeTasks().eq('id', id).maybeSingle(), '查询任务');
-    return row ? taskFromRow(row) : null;
+    // 不存在或已删除时返回 null，而不是报错（unwrap 会把空结果当作 not_found）
+    const { data, error } = await this.activeTasks().eq('id', id).maybeSingle();
+    if (error) unwrap({ data: null, error }, '查询任务');
+    return data ? taskFromRow(data) : null;
   }
 
   async create(input: NewTask): Promise<Task> {

@@ -7,7 +7,7 @@
 ```
 packages/core/   领域层：纯 TypeScript，无框架依赖（Web / Mobile 共享）
 packages/data/   数据层：仓储接口、Supabase 远程实现、本地存储接口
-apps/web/        Next.js（目前只有骨架）
+apps/web/        Next.js：任务列表、快速添加、任务详情/编辑（直接读写 Supabase）
 supabase/        数据库迁移（tasks、categories、task_categories、recurrence_occurrences + RLS）
 ```
 
@@ -51,7 +51,28 @@ supabase start
 supabase db reset   # 应用 supabase/migrations
 ```
 
+### 运行 Web
+
+```bash
+cp apps/web/.env.example apps/web/.env.local   # 填入 Supabase URL 与 anon key
+pnpm dev
+```
+
+页面：
+
+- `/` 任务列表：顶部输入框回车快速添加；状态筛选（待办 / 已错过 / 已完成 / 全部，默认待办）与
+  分类多选筛选（命中其一即显示）可组合，筛选条件保存在 URL 中；勾选即完成；可就地新建分类
+- `/tasks/[id]` 详情：编辑标题、描述、截止时间、重要性 0–5、分类多选、完成状态；删除为软删除
+
+### 端到端测试
+
+驱动真实页面读写 Supabase，需要先配置好 `.env.local` 并应用迁移：
+
+```bash
+pnpm --filter @alethego/web test:e2e
+```
+
 ## 暂未实现
 
-账号认证（Third-Party Auth 接入待定，目前为固定 owner）、UI 页面、离线同步（SyncEngine / IndexedDB / SQLite）、
+账号认证（Third-Party Auth 接入待定，目前为固定 owner）、矩阵视图、循环任务的编辑界面、离线同步（SyncEngine / IndexedDB / SQLite）、
 子任务、通讯录 / 地图 / 日历集成。
