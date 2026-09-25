@@ -321,3 +321,242 @@ a {
   border-color: var(--border);
   padding: 6px 12px;
 }
+
+/* 视图切换 */
+.page-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.view-nav {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+}
+
+.view-nav-link {
+  padding: 2px 14px;
+  border-radius: 999px;
+  color: var(--muted);
+}
+
+.view-nav-link[aria-current='page'] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* 矩阵 */
+:root {
+  --viz-muted: #898781;
+  --viz-axis: #c3c2b7;
+  --viz-uncategorized: #b4b2aa;
+  --critical: #d03b3b;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --viz-axis: #4a4a46;
+    --viz-uncategorized: #6b6a64;
+  }
+}
+
+.page-wide {
+  max-width: 960px;
+}
+
+.matrix-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 12px 8px;
+}
+
+.matrix-wrapper {
+  position: relative;
+}
+
+.matrix-scroll {
+  overflow-x: auto;
+}
+
+.matrix {
+  display: block;
+  width: 100%;
+  min-width: 600px;
+  height: auto;
+  font-family: inherit;
+}
+
+.matrix-overdue-strip {
+  fill: var(--critical);
+  opacity: 0.07;
+}
+
+.matrix-divider,
+.matrix-axis {
+  stroke: var(--viz-axis);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+}
+
+.matrix-region {
+  fill: var(--muted);
+  font-size: 12px;
+  text-anchor: middle;
+}
+
+.matrix-tick {
+  fill: var(--viz-muted);
+  font-size: 11px;
+}
+
+.matrix-axis-title {
+  fill: var(--viz-muted);
+  font-size: 11px;
+  text-anchor: middle;
+}
+
+.matrix-dot {
+  cursor: pointer;
+  outline: none;
+}
+
+.dot-hit {
+  fill: transparent;
+}
+
+.dot-slice {
+  stroke: var(--surface);
+  stroke-width: 1;
+}
+
+.dot-uncategorized {
+  fill: var(--viz-uncategorized);
+}
+
+/* 2px 表面色描边，让重叠或相邻的点彼此分开 */
+.dot-ring {
+  fill: none;
+  stroke: var(--surface);
+  stroke-width: 2;
+}
+
+.dot-overdue-ring {
+  fill: none;
+  stroke: var(--critical);
+  stroke-width: 2;
+}
+
+.dot-overdue-label {
+  fill: var(--text);
+  font-size: 10px;
+}
+
+.matrix-dot:hover .dot-ring,
+.matrix-dot:focus-visible .dot-ring {
+  stroke: var(--text);
+  stroke-width: 1.5;
+}
+
+.matrix-tooltip {
+  position: absolute;
+  transform: translate(-50%, calc(-100% - 6px));
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 140px;
+  max-width: 240px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 12%);
+  font-size: 12px;
+  color: var(--muted);
+  pointer-events: none;
+  z-index: 10;
+}
+
+.matrix-tooltip-below {
+  transform: translate(-50%, 6px);
+}
+
+.matrix-tooltip-title {
+  color: var(--text);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.matrix-tooltip-overdue {
+  color: var(--critical);
+}
+
+.matrix-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  padding: 6px 4px 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.legend-overdue {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--critical);
+  border-radius: 50%;
+}
+
+.matrix-hidden {
+  font-size: 13px;
+  margin: 6px 4px 0;
+}
+
+.matrix-hidden a {
+  color: var(--accent);
+}
+
+.quadrant-lists {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+  margin-top: 20px;
+}
+
+/* 宽屏：四个象限列表按矩阵中的位置排成 2×2（DOM 顺序仍按优先级，供窄屏与读屏使用） */
+@media (min-width: 640px) {
+  .quadrant-lists {
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas:
+      'important-not-urgent important-urgent'
+      'not-important-not-urgent not-important-urgent';
+    align-items: start;
+  }
+
+  .quadrant-important_urgent {
+    grid-area: important-urgent;
+  }
+
+  .quadrant-important_not_urgent {
+    grid-area: important-not-urgent;
+  }
+
+  .quadrant-not_important_urgent {
+    grid-area: not-important-urgent;
+  }
+
+  .quadrant-not_important_not_urgent {
+    grid-area: not-important-not-urgent;
+  }
+}
+
+.quadrant-list h2 {
+  font-size: 15px;
+  margin: 0 0 8px;
+}

@@ -1,6 +1,6 @@
 'use client';
 
-import type { Category, Task } from '@alethego/core';
+import type { Category, RecurrenceOccurrence, Task } from '@alethego/core';
 import { useCallback, useEffect, useState } from 'react';
 
 import { useRepositories } from '@/components/repositories-provider';
@@ -10,9 +10,11 @@ export interface TaskListData {
   tasks: Task[];
   categories: Category[];
   categoryIdsByTask: Map<string, string[]>;
+  /** 循环任务的实例记录（用于确定代表实例）；普通任务不在其中 */
+  occurrencesByTask: Map<string, RecurrenceOccurrence[]>;
 }
 
-/** 列表页数据：任务 + 分类 + 任务的分类关联。筛选在客户端完成，切换筛选无需重新请求。 */
+/** 列表 / 矩阵页数据：任务 + 分类 + 分类关联 + 循环实例记录。筛选在客户端完成，切换筛选无需重新请求。 */
 export function useTaskListData() {
   const repositories = useRepositories();
   const [data, setData] = useState<TaskListData | null>(null);
@@ -24,10 +26,13 @@ export function useTaskListData() {
         repositories.tasks.list(),
         repositories.categories.list(),
       ]);
-      const categoryIdsByTask = await repositories.categories.listCategoryIdsByTask(
-        tasks.map((task) => task.id),
-      );
-      setData({ tasks, categories, categoryIdsByTask });
+      const recurring = tasks.filter((task) => task.recurrenceRule);
+      const [categoryIdsByTask, occurrences] = await Promise.all([
+        repositories.categories.listCategoryIdsByTask(tasks.map((task) => task.id)),
+        Promise.all(recurring.map((task) => repositories.occurrences.listByTask(task.id))),
+      ]);
+      const occurrencesByTask = new Map(recurring.map((task, i) => [task.id, occurrences[i]!]));
+      setData({ tasks, categories, categoryIdsByTask, occurrencesByTask });
       setError(null);
     } catch (e) {
       setError(errorMessage(e));

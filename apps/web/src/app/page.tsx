@@ -14,6 +14,7 @@ import { CategoryFilterBar, StatusFilterBar } from '@/components/list-filters';
 import { QuickAdd } from '@/components/quick-add';
 import { useRepositories } from '@/components/repositories-provider';
 import { TaskRow } from '@/components/task-row';
+import { ViewNav } from '@/components/view-nav';
 import { useNow } from '@/hooks/use-now';
 import { useTaskListData } from '@/hooks/use-task-list-data';
 import { STATUS_LABELS, browserTimeZone, errorMessage } from '@/lib/format';
@@ -78,7 +79,11 @@ function TaskListPage() {
     () =>
       data
         ? buildTaskList(
-            { tasks: data.tasks, categoryIdsByTask: data.categoryIdsByTask },
+            {
+              tasks: data.tasks,
+              categoryIdsByTask: data.categoryIdsByTask,
+              occurrencesByTask: data.occurrencesByTask,
+            },
             { status, categoryIds: selectedCategoryIds },
             { now, timeZone },
           )
@@ -90,9 +95,7 @@ function TaskListPage() {
 
   return (
     <main className="page">
-      <header className="page-header">
-        <h1>任务</h1>
-      </header>
+      <ViewNav title="任务" />
 
       <QuickAdd onCreated={reload} />
 

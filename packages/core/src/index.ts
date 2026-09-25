@@ -19,3 +19,4 @@ export * from './representative/task-representative';
 
 export * from './list/task-list-order';
 export * from './list/task-list-filter';
+export * from './matrix/matrix-layout';

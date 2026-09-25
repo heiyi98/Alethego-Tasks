@@ -12,30 +12,36 @@ export function TaskRow({
   now,
   timeZone,
   onToggleComplete,
+  deadline = task.deadlineAt,
 }: {
   task: Task;
   categories: readonly Category[];
   now: Date;
   timeZone: string;
-  onToggleComplete: (task: Task) => void;
+  /** 不传时为只读行（不显示完成勾选框） */
+  onToggleComplete?: (task: Task) => void;
+  /** 显示的截止时间；循环任务传代表实例的时间 */
+  deadline?: Date | null;
 }) {
   const status = deriveTaskStatus(task, now);
   return (
     <li className={`task-row task-${status}`}>
-      <input
-        type="checkbox"
-        className="task-check"
-        aria-label={`${status === 'completed' ? '取消完成' : '完成'}：${task.title}`}
-        checked={status === 'completed'}
-        onChange={() => onToggleComplete(task)}
-      />
+      {onToggleComplete && (
+        <input
+          type="checkbox"
+          className="task-check"
+          aria-label={`${status === 'completed' ? '取消完成' : '完成'}：${task.title}`}
+          checked={status === 'completed'}
+          onChange={() => onToggleComplete(task)}
+        />
+      )}
       <Link href={`/tasks/${task.id}`} className="task-main">
         <span className="task-title">{task.title}</span>
         <span className="task-meta">
-          {task.deadlineAt && (
+          {deadline && (
             <span className="task-deadline">
               {status === 'missed' && '已错过 · '}
-              {formatDeadline(task.deadlineAt, now, timeZone)}
+              {formatDeadline(deadline, now, timeZone)}
             </span>
           )}
           {task.importanceLevel > 0 && (

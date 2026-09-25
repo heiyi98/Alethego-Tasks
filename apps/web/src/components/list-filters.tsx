@@ -61,7 +61,8 @@ export function CategoryFilterBar({
   categories: readonly Category[];
   selected: readonly string[];
   onToggle: (categoryId: string) => void;
-  onCreated: () => void | Promise<void>;
+  /** 不传时不显示"新建分类"入口 */
+  onCreated?: () => void | Promise<void>;
 }) {
   const repositories = useRepositories();
   const [adding, setAdding] = useState(false);
@@ -77,7 +78,7 @@ export function CategoryFilterBar({
       setName('');
       setAdding(false);
       setError(null);
-      await onCreated();
+      await onCreated?.();
     } catch (e) {
       setError(errorMessage(e));
     }
@@ -97,7 +98,7 @@ export function CategoryFilterBar({
           {category.name}
         </button>
       ))}
-      {adding ? (
+      {!onCreated ? null : adding ? (
         <form className="inline-form" onSubmit={handleCreate}>
           <input
             aria-label="新分类名称"
