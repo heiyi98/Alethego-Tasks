@@ -1,5 +1,10 @@
 import {
   normalizeColor,
+  normalizeLocationDraft,
+  type TaskLocation,
+  type TaskLocationDraft,
+  type TaskPerson,
+  type TaskPersonDraft,
   type OccurrenceStatus,
   type RecurrenceOccurrence,
   type ReconcileResult,
@@ -12,6 +17,8 @@ import type {
   CategoryPatch,
   ICategoryRepository,
   IOccurrenceRepository,
+  ITaskLocationRepository,
+  ITaskPeopleRepository,
   ITaskRepository,
   NewCategory,
   NewTask,
@@ -20,11 +27,13 @@ import type {
 } from '../interfaces/repositories';
 import type { IRemoteStore } from '../interfaces/stores';
 import { LOCAL_OWNER_ID } from '../owner';
-import { validateNewTask, validateTaskPatch } from '../validation';
+import { validateNewTask, validatePeopleDrafts, validateTaskPatch } from '../validation';
 import type { TableUpdate } from './database.types';
 import {
   categoryFromRow,
+  locationFromRow,
   occurrenceFromRow,
+  personFromRow,
   taskFromRow,
   taskPatchToUpdate,
   taskToInsert,
@@ -309,6 +318,92 @@ export class SupabaseOccurrenceRepository implements IOccurrenceRepository {
   }
 }
 
+export class SupabaseTaskLocationRepository implements ITaskLocationRepository {
+  constructor(private readonly client: TaskAppSupabaseClient) {}
+
+  async getByTask(taskId: string): Promise<TaskLocation | null> {
+    const { data, error } = await this.client
+      .from('task_locations')
+      .select('*')
+      .eq('task_id', taskId)
+      .maybeSingle();
+    if (error) unwrap({ data: null, error }, '查询地点');
+    return data ? locationFromRow(data) : null;
+  }
+
+  async set(taskId: string, draft: TaskLocationDraft | null): Promise<TaskLocation | null> {
+    const location = draft ? normalizeLocationDraft(draft) : null;
+    if (!location) {
+      const { error } = await this.client.from('task_locations').delete().eq('task_id', taskId);
+      if (error) unwrap({ data: null, error }, '删除地点');
+      return null;
+    }
+    // 只写本地字段：预留的 place_id / 坐标不在 payload 中，不会被覆盖
+    return locationFromRow(
+      unwrap(
+        await this.client
+          .from('task_locations')
+          .upsert({ task_id: taskId, ...location }, { onConflict: 'task_id' })
+          .select()
+          .single(),
+        '保存地点',
+      ),
+    );
+  }
+}
+
+export class SupabaseTaskPeopleRepository implements ITaskPeopleRepository {
+  constructor(private readonly client: TaskAppSupabaseClient) {}
+
+  async listByTask(taskId: string): Promise<TaskPerson[]> {
+    return unwrap(
+      await this.client
+        .from('task_people')
+        .select('*')
+        .eq('task_id', taskId)
+        .order('created_at')
+        .order('id'),
+      '查询人物',
+    ).map(personFromRow);
+  }
+
+  async replace(taskId: string, drafts: readonly TaskPersonDraft[]): Promise<TaskPerson[]> {
+    const people = validatePeopleDrafts(drafts);
+    const current = await this.listByTask(taskId);
+    const keep = new Set(people.flatMap((p) => (p.id ? [p.id] : [])));
+
+    const removed = current.filter((p) => !keep.has(p.id)).map((p) => p.id);
+    if (removed.length > 0) {
+      const { error } = await this.client
+        .from('task_people')
+        .delete()
+        .eq('task_id', taskId)
+        .in('id', removed);
+      if (error) unwrap({ data: null, error }, '删除人物');
+    }
+
+    const byId = new Map(current.map((p) => [p.id, p]));
+    for (const person of people) {
+      const existing = person.id ? byId.get(person.id) : undefined;
+      if (existing) {
+        if (existing.name === person.name && existing.relation === person.relation) continue;
+        const { error } = await this.client
+          .from('task_people')
+          .update({ name: person.name, relation: person.relation })
+          .eq('id', existing.id)
+          .eq('task_id', taskId);
+        if (error) unwrap({ data: null, error }, '更新人物');
+      } else {
+        const { error } = await this.client
+          .from('task_people')
+          .insert({ task_id: taskId, name: person.name, relation: person.relation });
+        if (error) unwrap({ data: null, error }, '添加人物');
+      }
+    }
+    return this.listByTask(taskId);
+  }
+}
+
 export interface SupabaseRemoteStoreOptions {
   /** 数据所有者；未登录阶段默认为固定值 LOCAL_OWNER_ID */
   ownerId?: string;
@@ -319,11 +414,15 @@ export class SupabaseRemoteStore implements IRemoteStore {
   readonly tasks: SupabaseTaskRepository;
   readonly categories: SupabaseCategoryRepository;
   readonly occurrences: SupabaseOccurrenceRepository;
+  readonly locations: SupabaseTaskLocationRepository;
+  readonly people: SupabaseTaskPeopleRepository;
 
   constructor(client: TaskAppSupabaseClient, options: SupabaseRemoteStoreOptions = {}) {
     const ownerId = options.ownerId ?? LOCAL_OWNER_ID;
     this.tasks = new SupabaseTaskRepository(client, ownerId);
     this.categories = new SupabaseCategoryRepository(client, ownerId);
     this.occurrences = new SupabaseOccurrenceRepository(client);
+    this.locations = new SupabaseTaskLocationRepository(client);
+    this.people = new SupabaseTaskPeopleRepository(client);
   }
 }

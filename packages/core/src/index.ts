@@ -4,6 +4,7 @@ export * from './domain/task-status';
 export * from './domain/task-title';
 export * from './domain/category';
 export * from './domain/occurrence';
+export * from './domain/task-details';
 
 export * from './time/zoned-time';
 

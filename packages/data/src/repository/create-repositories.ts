@@ -17,5 +17,7 @@ export function createRepositories({ remote }: RepositoryDependencies): DataStor
     tasks: remote.tasks,
     categories: remote.categories,
     occurrences: remote.occurrences,
+    locations: remote.locations,
+    people: remote.people,
   };
 }

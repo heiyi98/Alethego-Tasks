@@ -5,6 +5,10 @@ import type {
   ReconcileResult,
   RecurrenceOccurrence,
   Task,
+  TaskLocation,
+  TaskLocationDraft,
+  TaskPerson,
+  TaskPersonDraft,
 } from '@alethego/core';
 
 /**
@@ -99,4 +103,24 @@ export interface IOccurrenceRepository {
   ): Promise<RecurrenceOccurrence>;
   /** 落库 RecurrenceEngine.reconcileOccurrences 的判定结果（重复记录会被忽略） */
   applyReconcile(taskId: string, result: ReconcileResult): Promise<void>;
+}
+
+/** 任务地点（一对一）。tasks 仓储不感知它的存在。 */
+export interface ITaskLocationRepository {
+  getByTask(taskId: string): Promise<TaskLocation | null>;
+  /**
+   * 设置地点的本地字段（名称、地址）；传 null 表示删除地点。
+   * 只写本地字段，预留的 placeId / 坐标不会被覆盖。名称与地址都为空时等同于删除。
+   */
+  set(taskId: string, draft: TaskLocationDraft | null): Promise<TaskLocation | null>;
+}
+
+/** 任务关联人物（一对多）。 */
+export interface ITaskPeopleRepository {
+  listByTask(taskId: string): Promise<TaskPerson[]>;
+  /**
+   * 将任务的人物整体替换为给定列表：带 id 的更新、不带 id 的新增、列表中没有的删除。
+   * 完全空白的行会被忽略；只有关系没有姓名时抛出 DataError('invalid')。
+   */
+  replace(taskId: string, drafts: readonly TaskPersonDraft[]): Promise<TaskPerson[]>;
 }

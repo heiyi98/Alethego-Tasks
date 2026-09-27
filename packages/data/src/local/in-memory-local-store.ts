@@ -1,6 +1,11 @@
 import {
   compareByDeadline,
   normalizeColor,
+  normalizeLocationDraft,
+  type TaskLocation,
+  type TaskLocationDraft,
+  type TaskPerson,
+  type TaskPersonDraft,
   type Category,
   type OccurrenceStatus,
   type ReconcileResult,
@@ -13,6 +18,8 @@ import type {
   CategoryPatch,
   ICategoryRepository,
   IOccurrenceRepository,
+  ITaskLocationRepository,
+  ITaskPeopleRepository,
   ITaskRepository,
   NewCategory,
   NewTask,
@@ -21,7 +28,7 @@ import type {
 } from '../interfaces/repositories';
 import type { ILocalStore } from '../interfaces/stores';
 import { LOCAL_OWNER_ID } from '../owner';
-import { validateNewTask, validateTaskPatch } from '../validation';
+import { validateNewTask, validatePeopleDrafts, validateTaskPatch } from '../validation';
 
 /**
  * 内存版本地存储：用于测试与离线存储实现（IndexedDB / SQLite）落地前的占位。
@@ -37,6 +44,8 @@ interface MemoryState {
   /** `${taskId}:${categoryId}` */
   taskCategories: Set<string>;
   occurrences: Map<string, RecurrenceOccurrence>;
+  locations: Map<string, TaskLocation>;
+  people: Map<string, TaskPerson>;
 }
 
 const linkKey = (taskId: string, categoryId: string) => `${taskId}:${categoryId}`;
@@ -255,6 +264,70 @@ class MemoryOccurrenceRepository implements IOccurrenceRepository {
   }
 }
 
+class MemoryTaskLocationRepository implements ITaskLocationRepository {
+  constructor(private readonly state: MemoryState) {}
+
+  async getByTask(taskId: string) {
+    return this.state.locations.get(taskId) ?? null;
+  }
+
+  async set(taskId: string, draft: TaskLocationDraft | null) {
+    if (!this.state.tasks.has(taskId)) notFound('任务', taskId);
+    const location = draft ? normalizeLocationDraft(draft) : null;
+    if (!location) {
+      this.state.locations.delete(taskId);
+      return null;
+    }
+    const existing = this.state.locations.get(taskId);
+    const next: TaskLocation = existing
+      ? { ...existing, ...location }
+      : { taskId, ...location, placeId: null, lat: null, lng: null };
+    this.state.locations.set(taskId, next);
+    return next;
+  }
+}
+
+class MemoryTaskPeopleRepository implements ITaskPeopleRepository {
+  constructor(private readonly state: MemoryState) {}
+
+  async listByTask(taskId: string) {
+    return [...this.state.people.values()]
+      .filter((p) => p.taskId === taskId)
+      // Map 按插入顺序迭代，排序稳定：同一时刻添加的人物保持添加顺序
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  }
+
+  async replace(taskId: string, drafts: readonly TaskPersonDraft[]) {
+    if (!this.state.tasks.has(taskId)) notFound('任务', taskId);
+    const people = validatePeopleDrafts(drafts);
+    const keep = new Set(people.flatMap((p) => (p.id ? [p.id] : [])));
+    for (const person of await this.listByTask(taskId)) {
+      if (!keep.has(person.id)) this.state.people.delete(person.id);
+    }
+    for (const draft of people) {
+      const existing = draft.id ? this.state.people.get(draft.id) : undefined;
+      if (existing && existing.taskId === taskId) {
+        this.state.people.set(existing.id, {
+          ...existing,
+          name: draft.name,
+          relation: draft.relation,
+        });
+      } else {
+        const person: TaskPerson = {
+          id: this.state.newId(),
+          taskId,
+          name: draft.name,
+          relation: draft.relation,
+          contactId: null,
+          createdAt: this.state.now(),
+        };
+        this.state.people.set(person.id, person);
+      }
+    }
+    return this.listByTask(taskId);
+  }
+}
+
 export interface InMemoryLocalStoreOptions {
   ownerId?: string;
   now?: () => Date;
@@ -266,6 +339,8 @@ export class InMemoryLocalStore implements ILocalStore {
   readonly tasks: ITaskRepository;
   readonly categories: ICategoryRepository;
   readonly occurrences: IOccurrenceRepository;
+  readonly locations: ITaskLocationRepository;
+  readonly people: ITaskPeopleRepository;
 
   constructor(options: InMemoryLocalStoreOptions = {}) {
     const state: MemoryState = {
@@ -276,9 +351,13 @@ export class InMemoryLocalStore implements ILocalStore {
       categories: new Map(),
       taskCategories: new Set(),
       occurrences: new Map(),
+      locations: new Map(),
+      people: new Map(),
     };
     this.tasks = new MemoryTaskRepository(state);
     this.categories = new MemoryCategoryRepository(state);
     this.occurrences = new MemoryOccurrenceRepository(state);
+    this.locations = new MemoryTaskLocationRepository(state);
+    this.people = new MemoryTaskPeopleRepository(state);
   }
 }

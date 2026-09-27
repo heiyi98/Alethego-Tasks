@@ -1,10 +1,19 @@
-import type { ICategoryRepository, IOccurrenceRepository, ITaskRepository } from './repositories';
+import type {
+  ICategoryRepository,
+  IOccurrenceRepository,
+  ITaskLocationRepository,
+  ITaskPeopleRepository,
+  ITaskRepository,
+} from './repositories';
 
 /** 一组数据存取能力。本地与远程存储各自实现同一形状。 */
 export interface DataStore {
   tasks: ITaskRepository;
   categories: ICategoryRepository;
   occurrences: IOccurrenceRepository;
+  /** 任务详情扩展：地点 / 人物（由 TaskDetailAggregator 统一拼装） */
+  locations: ITaskLocationRepository;
+  people: ITaskPeopleRepository;
 }
 
 /** 只管与 Supabase 通信。 */

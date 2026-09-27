@@ -1,13 +1,14 @@
 'use client';
 
 import {
+  normalizePeopleDrafts,
   normalizeTaskTitle,
   type Category,
   type ImportanceLevel,
   type RecurrenceOccurrence,
   type Task,
 } from '@alethego/core';
-import { syncOccurrences } from '@alethego/data';
+import { loadTaskDetail, saveTaskExtensions, syncOccurrences } from '@alethego/data';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
@@ -20,6 +21,11 @@ import {
   type RecurrenceFormState,
 } from '@/components/recurrence-editor';
 import { useRepositories } from '@/components/repositories-provider';
+import {
+  TaskExtensionsEditor,
+  extensionsFormFrom,
+  type ExtensionsFormState,
+} from '@/components/task-extensions-editor';
 import { useNow } from '@/hooks/use-now';
 import {
   IMPORTANCE_LEVELS,
@@ -39,10 +45,16 @@ interface FormState {
   categoryIds: string[];
   completed: boolean;
   recurrence: RecurrenceFormState;
+  extensions: ExtensionsFormState;
 }
 
-function toFormState(task: Task, categoryIds: string[]): FormState {
+function toFormState(
+  task: Task,
+  categoryIds: string[],
+  extensions: ExtensionsFormState,
+): FormState {
   return {
+    extensions,
     title: task.title,
     description: task.description,
     deadline: toDateTimeLocalValue(task.deadlineAt),
@@ -74,16 +86,17 @@ export default function TaskDetailPage() {
     let cancelled = false;
     (async () => {
       try {
-        const [task, categories, links] = await Promise.all([
-          repositories.tasks.getById(id),
+        // TaskDetailAggregator 统一拼装任务、分类、地点、人物
+        const [detail, categories] = await Promise.all([
+          loadTaskDetail(repositories, id),
           repositories.categories.list(),
-          repositories.categories.listCategoryIdsByTask([id]),
         ]);
         if (cancelled) return;
-        if (!task) {
+        if (!detail) {
           setLoad({ kind: 'not_found' });
           return;
         }
+        const { task } = detail;
         // 顺带执行归档，历史记录与"当前实例"预览都基于最新记录
         const records = await syncOccurrences(repositories.occurrences, task, {
           now: new Date(),
@@ -91,7 +104,9 @@ export default function TaskDetailPage() {
         });
         if (cancelled) return;
         setLoad({ kind: 'ready', task, categories, records });
-        setForm(toFormState(task, links.get(id) ?? []));
+        setForm(
+          toFormState(task, detail.categoryIds, extensionsFormFrom(detail.location, detail.people)),
+        );
       } catch (e) {
         if (!cancelled) setLoad({ kind: 'error', message: errorMessage(e) });
       }
@@ -130,6 +145,11 @@ export default function TaskDetailPage() {
       setMessage({ kind: 'error', text: recurrence.error });
       return;
     }
+    const people = normalizePeopleDrafts(form!.extensions.people);
+    if (!people.ok) {
+      setMessage({ kind: 'error', text: `第 ${people.index + 1} 个人物缺少姓名` });
+      return;
+    }
     setSaving(true);
     try {
       const saved = await repositories.tasks.update(task.id, {
@@ -149,12 +169,22 @@ export default function TaskDetailPage() {
             }),
       });
       await repositories.categories.setTaskCategories(task.id, form!.categoryIds);
+      const extensions = await saveTaskExtensions(repositories, task.id, {
+        location: form!.extensions.location,
+        people: people.people,
+      });
       const nextRecords = await syncOccurrences(repositories.occurrences, saved, {
         now: new Date(),
         timeZone,
       });
       setLoad({ kind: 'ready', task: saved, categories, records: nextRecords });
-      setForm(toFormState(saved, form!.categoryIds));
+      setForm(
+        toFormState(
+          saved,
+          form!.categoryIds,
+          extensionsFormFrom(extensions.location, extensions.people),
+        ),
+      );
       setMessage({ kind: 'ok', text: '已保存' });
     } catch (e) {
       setMessage({ kind: 'error', text: `保存失败：${errorMessage(e)}` });
@@ -276,6 +306,11 @@ export default function TaskDetailPage() {
             </div>
           )}
         </fieldset>
+
+        <TaskExtensionsEditor
+          value={form.extensions}
+          onChange={(extensions) => update({ extensions })}
+        />
 
         {!recurring && (
           <label className="field field-checkbox">

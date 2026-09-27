@@ -14,3 +14,4 @@ export * from './local/in-memory-local-store';
 
 export * from './repository/create-repositories';
 export * from './repository/occurrence-sync';
+export * from './repository/task-detail-aggregator';

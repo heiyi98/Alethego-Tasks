@@ -753,3 +753,38 @@ a {
     color: #5fbf6a;
   }
 }
+
+/* 地点 / 人物 */
+.field-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.person-row {
+  grid-template-columns: 1fr 1fr auto;
+  align-items: center;
+}
+
+.people-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.add-person {
+  align-self: flex-start;
+}
+
+@media (max-width: 480px) {
+  .field-pair {
+    grid-template-columns: 1fr;
+  }
+
+  .person-row {
+    grid-template-columns: 1fr 1fr auto;
+  }
+}

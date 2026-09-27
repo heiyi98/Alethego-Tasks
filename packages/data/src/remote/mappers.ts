@@ -1,6 +1,8 @@
 import {
   isImportanceLevel,
   type Category,
+  type TaskLocation,
+  type TaskPerson,
   type RecurrenceOccurrence,
   type Task,
 } from '@alethego/core';
@@ -82,6 +84,28 @@ export function occurrenceFromRow(row: TableRow<'recurrence_occurrences'>): Recu
     occurrenceDate: toDate(row.occurrence_date),
     status: row.status,
     completedAt: toNullableDate(row.completed_at),
+    createdAt: toDate(row.created_at),
+  };
+}
+
+export function locationFromRow(row: TableRow<'task_locations'>): TaskLocation {
+  return {
+    taskId: row.task_id,
+    name: row.name,
+    address: row.address,
+    placeId: row.place_id,
+    lat: row.lat,
+    lng: row.lng,
+  };
+}
+
+export function personFromRow(row: TableRow<'task_people'>): TaskPerson {
+  return {
+    id: row.id,
+    taskId: row.task_id,
+    name: row.name,
+    relation: row.relation,
+    contactId: row.contact_id,
     createdAt: toDate(row.created_at),
   };
 }

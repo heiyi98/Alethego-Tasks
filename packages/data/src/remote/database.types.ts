@@ -150,6 +150,82 @@ export interface Database {
           },
         ];
       };
+      task_locations: {
+        Row: {
+          task_id: string;
+          name: string;
+          address: string;
+          place_id: string | null;
+          lat: number | null;
+          lng: number | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          task_id: string;
+          name?: string;
+          address?: string;
+          place_id?: string | null;
+          lat?: number | null;
+          lng?: number | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          task_id?: string;
+          name?: string;
+          address?: string;
+          place_id?: string | null;
+          lat?: number | null;
+          lng?: number | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'task_locations_task_id_fkey';
+            columns: ['task_id'];
+            isOneToOne: true;
+            referencedRelation: 'tasks';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
+      task_people: {
+        Row: {
+          id: string;
+          task_id: string;
+          name: string;
+          relation: string;
+          contact_id: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          task_id: string;
+          name: string;
+          relation?: string;
+          contact_id?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          task_id?: string;
+          name?: string;
+          relation?: string;
+          contact_id?: string | null;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'task_people_task_id_fkey';
+            columns: ['task_id'];
+            isOneToOne: false;
+            referencedRelation: 'tasks';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
     };
     Views: { [_ in never]: never };
     Functions: { [_ in never]: never };

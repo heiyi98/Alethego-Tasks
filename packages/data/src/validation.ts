@@ -1,4 +1,9 @@
-import { isValidRecurrenceRule, normalizeTaskTitle } from '@alethego/core';
+import {
+  isValidRecurrenceRule,
+  normalizePeopleDrafts,
+  normalizeTaskTitle,
+  type TaskPersonDraft,
+} from '@alethego/core';
 
 import { DataError } from './errors';
 import type { NewTask, TaskPatch } from './interfaces/repositories';
@@ -23,4 +28,10 @@ export function validateNewTask(input: NewTask): NewTask {
 export function validateTaskPatch(patch: TaskPatch): TaskPatch {
   checkRecurrence(patch.recurrenceRule, patch.recurrenceDtstart);
   return patch.title === undefined ? patch : { ...patch, title: requireTitle(patch.title) };
+}
+
+export function validatePeopleDrafts(drafts: readonly TaskPersonDraft[]): TaskPersonDraft[] {
+  const result = normalizePeopleDrafts(drafts);
+  if (!result.ok) throw new DataError('invalid', `第 ${result.index + 1} 个人物缺少姓名`);
+  return result.people;
 }

@@ -8,7 +8,8 @@
 packages/core/   领域层：纯 TypeScript，无框架依赖（Web / Mobile 共享）
 packages/data/   数据层：仓储接口、Supabase 远程实现、本地存储接口
 apps/web/        Next.js：任务列表、快速添加、任务详情/编辑（直接读写 Supabase）
-supabase/        数据库迁移（taskapp schema：tasks、categories、task_categories、recurrence_occurrences + RLS）
+supabase/        数据库迁移（taskapp schema：tasks、categories、task_categories、recurrence_occurrences、
+                 task_locations、task_people + RLS）
 ```
 
 ### packages/core
@@ -69,13 +70,18 @@ pnpm dev
 - `/matrix` 时间管理矩阵（可选打开的可视化视图）：X = 紧迫度（越靠右越紧急），Y = 重要性 0–5；
   圆点按分类切片着色，逾期 3 天内贴右侧边界并标注天数；分类多选点亮筛选；下方为按象限分组的列表；
   点击圆点进入详情
-- `/tasks/[id]` 详情：编辑标题、描述、截止时间、重要性 0–5、分类多选、完成状态；删除为软删除。
+- `/tasks/[id]` 详情：编辑标题、描述、截止时间、重要性 0–5、分类多选、地点（名称 + 地址）、
+  关联人物（可添加多个，姓名 + 关系）、完成状态；删除为软删除。
   「重复」开关打开后可设置重复规则（每 N 天 / 周几 / 每月几号或最后一天 / 每年，可设结束次数或日期），
   截止时间与完成状态改由规则和每次实例决定
 - `/tasks/[id]/history` 循环任务的历史记录：每次实例的完成 / 未完成，可手动修改；关闭循环后记录保留
 
 循环任务在列表中的勾选框完成的是「当前这一次」实例（不写任务本身的 `completed_at`），勾选后顺延到下一次；
 实例记录的生成与"未完成"归档在读取任务时顺带完成（`syncOccurrences`）。
+
+地点 / 人物存放在独立的扩展表中（`task_locations` 一对一、`task_people` 一对多），`tasks` 表不感知它们，
+详情页通过 `TaskDetailAggregator`（`loadTaskDetail` / `saveTaskExtensions`）统一读写。目前只编辑本地自由文本，
+表中已预留 `place_id` / `lat` / `lng` 与 `contact_id`，供以后对接地图与通讯录。
 
 ### 端到端测试
 
