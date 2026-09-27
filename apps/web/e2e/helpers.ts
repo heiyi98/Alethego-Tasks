@@ -53,6 +53,30 @@ export async function saveAndBack(page: Page) {
   await expect(page.getByLabel('快速添加任务')).toBeVisible();
 }
 
+export const sidebar = (page: Page) => page.getByRole('navigation', { name: '主菜单' });
+
+/** 侧边栏"总览"区块：全部 / 未完成 / 已完成 / 已错过（链接名后面跟着计数） */
 export async function selectStatus(page: Page, label: string) {
-  await page.getByRole('group', { name: '状态筛选' }).getByRole('button', { name: label }).click();
+  await sidebar(page)
+    .getByRole('region', { name: '总览' })
+    .getByRole('link', { name: new RegExp(`^${label}`) })
+    .click();
+  await expect(page.getByRole('heading', { level: 1, name: label })).toBeVisible();
+}
+
+/** 在侧边栏新建分类（颜色默认取调色板中第一个未被使用的）；创建后会进入该分类页 */
+export async function createCategory(page: Page, name: string) {
+  await sidebar(page).getByRole('button', { name: '+ 新建分类' }).click();
+  await page.getByLabel('新分类名称').fill(name);
+  await page.getByRole('form', { name: '新建分类' }).getByRole('button', { name: '添加' }).click();
+  await expect(page.getByRole('heading', { level: 1, name })).toBeVisible();
+}
+
+/** 侧边栏"分类"区块中的某个分类 */
+export async function openCategory(page: Page, name: string) {
+  await sidebar(page)
+    .getByRole('region', { name: '分类' })
+    .getByRole('link', { name: new RegExp(`^${name}`) })
+    .click();
+  await expect(page.getByRole('heading', { level: 1, name })).toBeVisible();
 }

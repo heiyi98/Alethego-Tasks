@@ -10,11 +10,21 @@ import {
 } from '@alethego/core';
 
 export const STATUS_LABELS: Record<StatusFilter, string> = {
-  todo: '待办',
-  missed: '已错过',
-  completed: '已完成',
   all: '全部',
+  todo: '未完成',
+  completed: '已完成',
+  missed: '已错过',
 };
+
+/** 侧边栏"总览"区块与状态标签的显示顺序 */
+export const STATUS_ORDER: readonly StatusFilter[] = ['all', 'todo', 'completed', 'missed'];
+
+/** 默认视图：未完成（全部分类的待办任务） */
+export const DEFAULT_STATUS: StatusFilter = 'todo';
+
+export function isStatusFilter(value: string | null | undefined): value is StatusFilter {
+  return STATUS_ORDER.some((status) => status === value);
+}
 
 export const QUADRANT_LABELS: Record<Quadrant, string> = {
   important_urgent: '重要且紧急',

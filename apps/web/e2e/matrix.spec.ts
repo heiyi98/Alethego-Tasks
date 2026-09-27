@@ -1,6 +1,15 @@
 import { expect, test, type Page } from '@playwright/test';
 
-import { localDateTime, openTask, quickAdd, runId, saveAndBack } from './helpers';
+import {
+  createCategory,
+  localDateTime,
+  openTask,
+  quickAdd,
+  runId,
+  saveAndBack,
+  selectStatus,
+  sidebar,
+} from './helpers';
 
 /** 在详情页设置截止时间 / 重要性 / 分类 */
 async function setupTask(
@@ -23,7 +32,7 @@ async function setupTask(
   await saveAndBack(page);
 }
 
-const dot = (page: Page, title: string) => page.locator(`a.matrix-dot[aria-label^="${title}，"]`);
+const dot = (page: Page, title: string) => page.locator(`a.matrix-node[aria-label^="${title}，"]`);
 
 test('矩阵：按紧迫度 × 重要性放置，逾期贴边，远期与未处理不显示，象限列表，点击进入详情', async ({
   page,
@@ -33,11 +42,8 @@ test('矩阵：按紧迫度 × 重要性放置，逾期贴边，远期与未处�
   const category = `${id}矩阵`;
 
   await page.goto('/');
-  const categoryBar = page.getByRole('group', { name: '分类筛选' });
-  await categoryBar.getByRole('button', { name: '+ 新建分类' }).click();
-  await page.getByLabel('新分类名称').fill(category);
-  await page.getByLabel('新分类名称').press('Enter');
-  await expect(categoryBar.getByRole('button', { name: category })).toBeVisible();
+  await createCategory(page, category);
+  await selectStatus(page, '未完成');
 
   const specs = [
     { name: '明天重要', deadline: localDateTime(1, '09:00'), importance: 5 },
@@ -48,11 +54,11 @@ test('矩阵：按紧迫度 × 重要性放置，逾期贴边，远期与未处�
     { name: '未处理' },
   ];
   for (const spec of specs) await quickAdd(page, t(spec.name));
-  await page.getByRole('group', { name: '状态筛选' }).getByRole('button', { name: '全部' }).click();
+  await selectStatus(page, '全部');
   for (const { name, ...opts } of specs) await setupTask(page, t(name), { ...opts, category });
 
   // 进入矩阵，只点亮本用例的分类
-  await page.getByRole('navigation', { name: '视图' }).getByRole('link', { name: '矩阵' }).click();
+  await sidebar(page).getByRole('link', { name: '时间管理矩阵' }).click();
   await expect(page).toHaveURL(/\/matrix/);
   await page
     .getByRole('group', { name: '分类筛选' })
@@ -60,7 +66,13 @@ test('矩阵：按紧迫度 × 重要性放置，逾期贴边，远期与未处�
     .click();
   await expect(page).toHaveURL(/cat=/);
 
-  await expect(page.locator('a.matrix-dot')).toHaveCount(4);
+  await expect(page.locator('a.matrix-node')).toHaveCount(4);
+
+  // Y 轴：重要性 0–5 是六个等宽区间，刻度画在区间边界 0–6 上
+  await expect(page.getByTestId('matrix-y-tick')).toHaveText(['0', '1', '2', '3', '4', '5', '6']);
+
+  // 任务节点显示标题文字（过长时截断），完整标题在提示中
+  await expect(dot(page, t('明天重要')).locator('.node-title')).toContainText(id.slice(0, 5));
   await expect(dot(page, t('明天重要'))).toHaveAttribute('data-quadrant', 'important_urgent');
   await expect(dot(page, t('明天重要'))).toHaveAttribute('data-column', '12');
   await expect(dot(page, t('明天重要'))).toHaveAttribute('data-row', '5');
@@ -102,11 +114,8 @@ test('矩阵：完成任务后从矩阵消失；分类未命中时不显示', as
   const title = `${id} 待完成`;
   const other = `${id}其他`;
   await page.goto('/');
-  const categoryBar = page.getByRole('group', { name: '分类筛选' });
-  await categoryBar.getByRole('button', { name: '+ 新建分类' }).click();
-  await page.getByLabel('新分类名称').fill(other);
-  await page.getByLabel('新分类名称').press('Enter');
-  await expect(categoryBar.getByRole('button', { name: other })).toBeVisible();
+  await createCategory(page, other);
+  await selectStatus(page, '未完成');
 
   await quickAdd(page, title);
   await openTask(page, title);

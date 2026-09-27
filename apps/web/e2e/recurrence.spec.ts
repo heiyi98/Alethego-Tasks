@@ -52,7 +52,7 @@ test('循环开关：每天重复；勾选完成当前实例而非任务本身�
 
   // 矩阵：代表实例是今天 → 最右侧的"今天"列
   await page.goto('/matrix');
-  const dot = page.locator(`a.matrix-dot[aria-label^="${title}，"]`);
+  const dot = page.locator(`a.matrix-node[aria-label^="${title}，"]`);
   await expect(dot).toHaveAttribute('data-column', '13');
   await expect(dot).toHaveAttribute('data-row', '4');
 

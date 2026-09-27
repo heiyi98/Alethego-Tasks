@@ -1,13 +1,16 @@
 import { expect, test } from '@playwright/test';
 
 import {
+  createCategory,
   expectTitles,
+  openCategory,
   localDateTime,
   openTask,
   quickAdd,
   runId,
   saveAndBack,
   selectStatus,
+  sidebar,
 } from './helpers';
 
 test('快速添加、编辑截止时间与重要性、按截止时间排序、状态筛选、完成任务', async ({ page }) => {
@@ -17,7 +20,7 @@ test('快速添加、编辑截止时间与重要性、按截止时间排序、�
 
   for (const name of ['无截止', '下周', '明天', '已过期']) await quickAdd(page, t(name));
 
-  // 新建任务只有标题：默认待办、无截止时间，按创建时间倒序
+  // 新建任务只有标题：默认未完成、无截止时间，按创建时间倒序
   await expectTitles(page, id, [t('已过期'), t('明天'), t('下周'), t('无截止')]);
 
   await openTask(page, t('明天'));
@@ -33,7 +36,7 @@ test('快速添加、编辑截止时间与重要性、按截止时间排序、�
   await page.getByLabel('截止时间').fill(localDateTime(-1, '09:00'));
   await saveAndBack(page);
 
-  // 默认视图 = 待办：截止时间从近到远，无截止时间排最后；已过期的不在待办中
+  // 默认视图 = 未完成：截止时间从近到远，无截止时间排最后；已过期的不在待办中
   await expectTitles(page, id, [t('明天'), t('下周'), t('无截止')]);
   const tomorrowRow = page.locator('.task-row', { hasText: t('明天') });
   await expect(tomorrowRow).toContainText('明天 09:00');
@@ -43,9 +46,9 @@ test('快速添加、编辑截止时间与重要性、按截止时间排序、�
   await expectTitles(page, id, [t('已过期')]);
   await expect(page.locator('.task-row', { hasText: t('已过期') })).toContainText('已错过');
 
-  // 完成任务后离开待办，出现在已完成
-  await selectStatus(page, '待办');
-  // 待办视图中勾选后任务立即离开列表，因此用 click 而不是 check
+  // 完成任务后离开未完成，出现在已完成
+  await selectStatus(page, '未完成');
+  // 未完成视图中勾选后任务立即离开列表，因此用 click 而不是 check
   await page.getByRole('checkbox', { name: `完成：${t('明天')}` }).click();
   await expect(page.getByRole('link', { name: t('明天') })).toHaveCount(0);
   await selectStatus(page, '已完成');
@@ -55,7 +58,7 @@ test('快速添加、编辑截止时间与重要性、按截止时间排序、�
   await expectTitles(page, id, [t('已过期'), t('明天'), t('下周'), t('无截止')]);
 
   // 筛选条件保存在 URL 中，刷新后保持
-  await expect(page).toHaveURL(/status=all/);
+  await expect(page).toHaveURL(/\/list\/all/);
   await page.reload();
   await expectTitles(page, id, [t('已过期'), t('明天'), t('下周'), t('无截止')]);
 
@@ -71,13 +74,9 @@ test('分类：新建、在详情中多选、列表多选筛选（命中即显�
   const home = `${id}家庭`;
   await page.goto('/');
 
+  for (const name of [work, home]) await createCategory(page, name);
+  await selectStatus(page, '未完成');
   const categoryBar = page.getByRole('group', { name: '分类筛选' });
-  for (const name of [work, home]) {
-    await categoryBar.getByRole('button', { name: '+ 新建分类' }).click();
-    await page.getByLabel('新分类名称').fill(name);
-    await page.getByLabel('新分类名称').press('Enter');
-    await expect(categoryBar.getByRole('button', { name })).toBeVisible();
-  }
 
   for (const name of ['只工作', '工作和家庭', '无分类']) await quickAdd(page, t(name));
 
@@ -168,13 +167,9 @@ test('快速添加：只点亮一个分类时自动归入该分类；多选或�
   const home = `${id}家庭`;
   await page.goto('/');
 
+  for (const name of [work, home]) await createCategory(page, name);
+  await selectStatus(page, '未完成');
   const categoryBar = page.getByRole('group', { name: '分类筛选' });
-  for (const name of [work, home]) {
-    await categoryBar.getByRole('button', { name: '+ 新建分类' }).click();
-    await page.getByLabel('新分类名称').fill(name);
-    await page.getByLabel('新分类名称').press('Enter');
-    await expect(categoryBar.getByRole('button', { name })).toBeVisible();
-  }
   const row = (name: string) => page.locator('.task-row', { hasText: t(name) });
 
   // 只点亮「工作」：新任务自动归入，且立即出现在当前筛选视图中
@@ -212,4 +207,95 @@ test('快速添加：只点亮一个分类时自动归入该分类；多选或�
   await page.reload();
   await expect(row('单选')).toContainText(work);
   await expect(row('多选')).not.toContainText(work);
+});
+
+test('侧边栏分类页：只显示该分类的任务，页面内用状态标签筛选；快速添加自动归入该分类', async ({
+  page,
+}) => {
+  const id = runId();
+  const t = (name: string) => `${id} ${name}`;
+  const work = `${id}工作`;
+  await page.goto('/');
+  await quickAdd(page, t('不属于分类'));
+  await createCategory(page, work);
+
+  // 分类页：默认"未完成"，快速添加的任务归入该分类
+  const status = page.getByRole('group', { name: '状态筛选' });
+  await expect(status.getByRole('button', { name: '未完成' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(page.getByLabel('快速添加任务')).toHaveAttribute(
+    'placeholder',
+    `添加到「${work}」，回车创建`,
+  );
+  await quickAdd(page, t('分类内一'));
+  await quickAdd(page, t('分类内二'));
+  await expectTitles(page, id, [t('分类内二'), t('分类内一')]);
+
+  // 在分类页完成一个任务 → 离开"未完成"，出现在"已完成"
+  await page.getByRole('checkbox', { name: `完成：${t('分类内一')}` }).click();
+  await expectTitles(page, id, [t('分类内二')]);
+  await status.getByRole('button', { name: '已完成' }).click();
+  await expectTitles(page, id, [t('分类内一')]);
+  await status.getByRole('button', { name: '全部' }).click();
+  await expectTitles(page, id, [t('分类内二'), t('分类内一')]);
+  await expect(page).toHaveURL(/status=all/);
+
+  // 侧边栏计数：该分类下未完成 1 个
+  await expect(
+    sidebar(page).getByRole('region', { name: '分类' }).getByRole('link', { name: work }),
+  ).toContainText('1');
+
+  // 总览 · 全部：跨分类可见
+  await selectStatus(page, '全部');
+  await expect(page.getByRole('link', { name: t('不属于分类') })).toBeVisible();
+  await openCategory(page, work);
+  await expect(page.getByRole('link', { name: t('不属于分类') })).toHaveCount(0);
+});
+
+test('新建分类可以手动选择颜色；同一用户的分类颜色不能重复', async ({ page }) => {
+  const id = runId();
+  await page.goto('/');
+  const randomColor = () =>
+    `#${Math.floor(Math.random() * 0xffffff)
+      .toString(16)
+      .padStart(6, '0')}`;
+
+  // 手动选一个颜色（调色板中尚未被占用的第一个；调色板用尽时改用自选颜色）
+  await sidebar(page).getByRole('button', { name: '+ 新建分类' }).click();
+  const form = page.getByRole('form', { name: '新建分类' });
+  await page.getByLabel('新分类名称').fill(`${id}甲`);
+  const free = form.locator('button[role="radio"]:not([disabled])');
+  let chosen: string;
+  if ((await free.count()) > 0) {
+    chosen = (await free.last().getAttribute('aria-label'))!;
+    await free.last().click();
+    await expect(form.getByRole('radio', { name: chosen })).toHaveAttribute('aria-checked', 'true');
+  } else {
+    chosen = randomColor().toUpperCase();
+    await form.getByLabel('自选颜色').fill(chosen.toLowerCase());
+  }
+  await form.getByRole('button', { name: '添加' }).click();
+  await expect(page.getByRole('heading', { level: 1, name: `${id}甲` })).toBeVisible();
+
+  // 再新建时：若选的是调色板颜色，它已不可选
+  await sidebar(page).getByRole('button', { name: '+ 新建分类' }).click();
+  const form2 = page.getByRole('form', { name: '新建分类' });
+  const taken = form2.getByRole('radio', { name: new RegExp(`^${chosen}`) });
+  if ((await taken.count()) > 0) {
+    await expect(taken).toBeDisabled();
+    await expect(taken).toHaveAttribute('title', `已被「${id}甲」使用`);
+  }
+
+  // 自选颜色撞色（大小写不同也算）→ 提示，不能创建
+  await page.getByLabel('新分类名称').fill(`${id}乙`);
+  await form2.getByLabel('自选颜色').fill(chosen.toLowerCase());
+  await form2.getByRole('button', { name: '添加' }).click();
+  await expect(form2).toContainText(`该颜色已被「${id}甲」使用`);
+
+  // 自选一个未被使用的颜色 → 成功
+  await form2.getByLabel('自选颜色').fill(randomColor());
+  await form2.getByRole('button', { name: '添加' }).click();
+  await expect(page.getByRole('heading', { level: 1, name: `${id}乙` })).toBeVisible();
 });

@@ -1,7 +1,9 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 
+import { AppShell } from '@/components/app-shell';
 import { RepositoriesProvider } from '@/components/repositories-provider';
+import { TaskDataProvider } from '@/components/task-data-provider';
 
 import './globals.css';
 
@@ -14,7 +16,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="zh-CN">
       <body>
-        <RepositoriesProvider>{children}</RepositoriesProvider>
+        <RepositoriesProvider>
+          <TaskDataProvider>
+            <AppShell>{children}</AppShell>
+          </TaskDataProvider>
+        </RepositoriesProvider>
       </body>
     </html>
   );

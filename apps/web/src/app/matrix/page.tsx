@@ -9,24 +9,20 @@ import {
 } from '@alethego/core';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { Suspense, useMemo, useState } from 'react';
+import { Suspense, useMemo } from 'react';
 
 import { CategoryDot } from '@/components/category-dot';
-import { CategoryFilterBar } from '@/components/list-filters';
+import { CategoryTags } from '@/components/filter-tags';
+import { useTaskData } from '@/components/task-data-provider';
 import { TaskMatrix } from '@/components/task-matrix';
 import { TaskRow } from '@/components/task-row';
-import { ViewNav } from '@/components/view-nav';
-import { useNow } from '@/hooks/use-now';
-import { useTaskListData } from '@/hooks/use-task-list-data';
-import { QUADRANT_LABELS, browserTimeZone } from '@/lib/format';
+import { QUADRANT_LABELS } from '@/lib/format';
 
 function MatrixPage() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const { data, error } = useTaskListData();
-  const now = useNow();
-  const [timeZone] = useState(browserTimeZone);
+  const { data, error, now, timeZone } = useTaskData();
 
   const selectedCategoryIds = useMemo(() => {
     const ids = searchParams.get('cat')?.split(',').filter(Boolean) ?? [];
@@ -49,7 +45,7 @@ function MatrixPage() {
       .map((id) => categoriesById.get(id))
       .filter((c) => c !== undefined);
 
-  // 分类多选点亮：命中其一即显示；命中的圆点仍按全部分类切片
+  // 分类多选点亮：命中其一即显示；命中的任务标记仍按全部分类切片
   const layout = useMemo(() => {
     if (!data) return null;
     const tasks = data.tasks.filter((task) =>
@@ -73,11 +69,13 @@ function MatrixPage() {
 
   return (
     <main className="page page-wide">
-      <ViewNav title="时间管理矩阵" />
+      <header className="page-header">
+        <h1>时间管理矩阵</h1>
+      </header>
 
       {data && data.categories.length > 0 && (
         <section className="filters" aria-label="筛选">
-          <CategoryFilterBar
+          <CategoryTags
             categories={data.categories}
             selected={selectedCategoryIds}
             onToggle={toggleCategory}
@@ -106,7 +104,9 @@ function MatrixPage() {
                 <span className="legend-overdue" aria-hidden />
                 逾期（3 天内贴右侧显示）
               </span>
-              <span className="muted">圆点颜色 = 所属分类，多分类按切片显示；点击圆点查看详情</span>
+              <span className="muted">
+                标题前的色标 = 所属分类，多分类按切片显示；点击任务查看详情
+              </span>
             </div>
             {hiddenParts.length > 0 && (
               <p className="muted matrix-hidden" data-testid="matrix-hidden">
