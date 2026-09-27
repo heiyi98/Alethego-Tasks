@@ -291,10 +291,12 @@ class MemoryTaskPeopleRepository implements ITaskPeopleRepository {
   constructor(private readonly state: MemoryState) {}
 
   async listByTask(taskId: string) {
-    return [...this.state.people.values()]
-      .filter((p) => p.taskId === taskId)
-      // Map 按插入顺序迭代，排序稳定：同一时刻添加的人物保持添加顺序
-      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+    return (
+      [...this.state.people.values()]
+        .filter((p) => p.taskId === taskId)
+        // Map 按插入顺序迭代，排序稳定：同一时刻添加的人物保持添加顺序
+        .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+    );
   }
 
   async replace(taskId: string, drafts: readonly TaskPersonDraft[]) {
