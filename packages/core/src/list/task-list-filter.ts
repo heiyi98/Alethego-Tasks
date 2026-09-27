@@ -86,3 +86,11 @@ export function buildTaskList(
     }));
   return sortByDeadline(rows).map((row) => row.task);
 }
+
+/**
+ * 快速添加时自动带上的分类：只点亮了一个分类时（用户体感是"在这个分类清单里"）返回它；
+ * 总览或多选时返回 null，新任务不带分类。
+ */
+export function categoryForQuickAdd(selectedCategoryIds: readonly string[]): string | null {
+  return selectedCategoryIds.length === 1 ? selectedCategoryIds[0]! : null;
+}

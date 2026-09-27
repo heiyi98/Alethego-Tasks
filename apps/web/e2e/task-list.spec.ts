@@ -160,3 +160,56 @@ test('空白标题：快速添加忽略，详情中保存报错', async ({ page 
   await page.getByRole('button', { name: '保存' }).click();
   await expect(page.getByRole('status')).toHaveText('标题不能为空');
 });
+
+test('快速添加：只点亮一个分类时自动归入该分类；多选或总览时不带分类', async ({ page }) => {
+  const id = runId();
+  const t = (name: string) => `${id} ${name}`;
+  const work = `${id}工作`;
+  const home = `${id}家庭`;
+  await page.goto('/');
+
+  const categoryBar = page.getByRole('group', { name: '分类筛选' });
+  for (const name of [work, home]) {
+    await categoryBar.getByRole('button', { name: '+ 新建分类' }).click();
+    await page.getByLabel('新分类名称').fill(name);
+    await page.getByLabel('新分类名称').press('Enter');
+    await expect(categoryBar.getByRole('button', { name })).toBeVisible();
+  }
+  const row = (name: string) => page.locator('.task-row', { hasText: t(name) });
+
+  // 只点亮「工作」：新任务自动归入，且立即出现在当前筛选视图中
+  await categoryBar.getByRole('button', { name: work }).click();
+  await expect(page.getByLabel('快速添加任务')).toHaveAttribute(
+    'placeholder',
+    `添加到「${work}」，回车创建`,
+  );
+  await quickAdd(page, t('单选'));
+  await expect(row('单选')).toContainText(work);
+
+  // 同时点亮两个分类：不带分类（新任务不命中筛选，切回总览后可见）
+  await categoryBar.getByRole('button', { name: home }).click();
+  await expect(page.getByLabel('快速添加任务')).toHaveAttribute(
+    'placeholder',
+    '添加任务，回车创建',
+  );
+  const input = page.getByLabel('快速添加任务');
+  await input.fill(t('多选'));
+  await input.press('Enter');
+  await expect(input).toHaveValue('');
+
+  // 回到总览：再新建一个，不带分类
+  await categoryBar.getByRole('button', { name: work }).click();
+  await categoryBar.getByRole('button', { name: home }).click();
+  await quickAdd(page, t('总览'));
+
+  await expect(row('多选')).toBeVisible();
+  await expect(row('多选')).not.toContainText(work);
+  await expect(row('多选')).not.toContainText(home);
+  await expect(row('总览')).not.toContainText(work);
+  await expect(row('总览')).not.toContainText(home);
+
+  // 刷新后仍然成立（分类关联已写入数据库）
+  await page.reload();
+  await expect(row('单选')).toContainText(work);
+  await expect(row('多选')).not.toContainText(work);
+});

@@ -4,6 +4,7 @@ import {
   DEFAULT_STATUS_FILTER,
   STATUS_FILTERS,
   buildTaskList,
+  categoryForQuickAdd,
   deriveListStatus,
   listDeadlineOf,
   type StatusFilter,
@@ -112,13 +113,19 @@ function TaskListPage() {
     [data, status, selectedCategoryIds, now, timeZone],
   );
 
+  // 只点亮了一个分类时，快速添加的任务自动归入该分类
+  const quickAddCategory = useMemo(() => {
+    const id = categoryForQuickAdd(selectedCategoryIds);
+    return id ? (data?.categories.find((c) => c.id === id) ?? null) : null;
+  }, [selectedCategoryIds, data]);
+
   const categoriesById = useMemo(() => new Map(data?.categories.map((c) => [c.id, c])), [data]);
 
   return (
     <main className="page">
       <ViewNav title="任务" />
 
-      <QuickAdd onCreated={reload} />
+      <QuickAdd category={quickAddCategory} onCreated={reload} />
 
       <section className="filters" aria-label="筛选">
         <StatusFilterBar value={status} onChange={(next) => setFilter({ status: next })} />

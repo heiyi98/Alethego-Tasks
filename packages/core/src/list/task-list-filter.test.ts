@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Task } from '../domain/task';
-import { buildTaskList, matchesCategoryFilter, matchesStatusFilter } from './task-list-filter';
+import {
+  buildTaskList,
+  categoryForQuickAdd,
+  matchesCategoryFilter,
+  matchesStatusFilter,
+} from './task-list-filter';
 
 const sh = (local: string) => new Date(`${local}+08:00`);
 const context = { now: sh('2026-09-25T10:00:00'), timeZone: 'Asia/Shanghai' };
@@ -125,5 +130,13 @@ describe('循环任务在列表中的状态', () => {
       '健身',
       '下周',
     ]);
+  });
+});
+
+describe('categoryForQuickAdd', () => {
+  it('只点亮一个分类时自动带上它；总览或多选时不带', () => {
+    expect(categoryForQuickAdd(['work'])).toBe('work');
+    expect(categoryForQuickAdd([])).toBeNull();
+    expect(categoryForQuickAdd(['work', 'home'])).toBeNull();
   });
 });
