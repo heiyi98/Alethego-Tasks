@@ -44,8 +44,7 @@ export const QUADRANT_LABELS: Record<Quadrant, string> = {
 
 /**
  * 矩阵 X 轴刻度名，标在分界线上（不标在格子中央）。
- * 键是分界的天数（BASE_TIER_DAYS 的取值），即各档所在格子的左边界；中线在"两周"上。
- * 最右边的逾期格另标"逾期"。
+ * 键是分界的天数（MODE_TIER_DAYS 的取值），即各格的左边界；逾期区不标字。
  */
 export const TIER_BOUNDARY_LABELS: Record<number, string> = {
   1: '1天',
@@ -54,13 +53,9 @@ export const TIER_BOUNDARY_LABELS: Record<number, string> = {
   5: '5天',
   7: '一周',
   14: '两周',
-  21: '三周',
   30: '一个月',
-  60: '两个月',
   90: '一季度',
   180: '半年',
-  270: '三个季度',
-  365: '一年',
 };
 
 export const IMPORTANCE_LEVELS: readonly ImportanceLevel[] = [0, 1, 2, 3, 4, 5];

@@ -19,7 +19,7 @@ import {
 
 /**
  * 快速添加（每个清单页面都有）：输入栏本身就是标题，下方一行常用选项（重要性、截止日期 / 时刻），
- * 回车即创建；最右侧的三角展开完整的新建面板，面板从输入栏下方延展出来。收起面板时草稿保留。
+ * 点输入栏右端的 ✓ 创建（回车是额外的快捷方式）；最右侧的三角展开完整的新建面板，面板从输入栏下方延展出来。收起面板时草稿保留。
  * 新任务自动带上当前选中的全部分类（没选分类就不带）；在"收藏"里新建的任务自动标星。
  */
 export function QuickAdd({
@@ -115,11 +115,6 @@ export function QuickAdd({
     }
   };
 
-  const placeholder =
-    categories.length > 0
-      ? `添加到${categories.map((c) => `「${c.name}」`).join('')}，回车创建`
-      : '添加任务，回车创建';
-
   const star = (
     <StarButton
       starred={form.isStarred}
@@ -145,13 +140,18 @@ export function QuickAdd({
       </span>
       <input
         aria-label="快速添加任务"
-        placeholder={placeholder}
         value={draft.title}
         onChange={(event) => onChange({ title: event.target.value })}
         onKeyDown={onEnter}
         autoFocus
       />
-      {expanded && <div className="quick-add-actions desktop-only">{actions}</div>}
+      {expanded ? (
+        <div className="quick-add-actions desktop-only">{actions}</div>
+      ) : (
+        <IconButton label="创建" className="icon-button-primary quick-add-submit" onClick={submit}>
+          <CheckIcon />
+        </IconButton>
+      )}
     </div>
   );
 

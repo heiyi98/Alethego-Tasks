@@ -127,7 +127,6 @@ export function Sidebar() {
                   type="button"
                   className="sidebar-item sidebar-toggle"
                   aria-pressed={selected}
-                  title={category.description || undefined}
                   onClick={() => go(selectionHref(toggleCategory(selection, category.id)))}
                 >
                   <span className="sidebar-icon" aria-hidden>

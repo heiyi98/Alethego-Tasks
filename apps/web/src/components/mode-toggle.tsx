@@ -19,7 +19,6 @@ export function ModeToggle() {
       href={selectionHref({ ...selection, mode: toMatrix ? 'matrix' : 'list' })}
       className="icon-button mode-toggle"
       aria-label={label}
-      title={label}
     >
       {toMatrix ? <MatrixIcon /> : <ListIcon />}
     </Link>

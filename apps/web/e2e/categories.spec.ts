@@ -34,6 +34,13 @@ test('新建分类可以手动选择颜色；同一用户的分类颜色不能�
   const id = runId();
   await page.goto('/');
 
+  // 铅笔图标一直显示（不靠悬停）
+  const anyEdit = categoriesRegion(page).getByRole('button', { name: /^编辑分类「/ });
+  if ((await anyEdit.count()) > 0) {
+    await expect(anyEdit.first()).toBeVisible();
+    await expect(anyEdit.first()).toHaveCSS('opacity', '1');
+  }
+
   // 手动选一个颜色（调色板中尚未被占用的最后一个；调色板用尽时改用自选颜色）
   await sidebar(page).getByRole('button', { name: '+ 新建分类' }).click();
   const form = page.getByRole('form', { name: '新建分类' });
@@ -57,7 +64,8 @@ test('新建分类可以手动选择颜色；同一用户的分类颜色不能�
   const taken = form2.getByRole('radio', { name: new RegExp(`^${chosen}`) });
   if ((await taken.count()) > 0) {
     await expect(taken).toBeDisabled();
-    await expect(taken).toHaveAttribute('title', `已被「${id}甲」使用`);
+    await expect(taken).toHaveAttribute('aria-label', `${chosen}（已被「${id}甲」使用）`);
+    await expect(taken).not.toHaveAttribute('title', /.*/);
   }
 
   // 自选颜色撞色（大小写不同也算）→ 立即提示，不能创建
@@ -73,7 +81,7 @@ test('新建分类可以手动选择颜色；同一用户的分类颜色不能�
   await expect(categoryToggle(page, `${id}乙`)).toBeVisible();
 });
 
-test('编辑分类：名称、描述、颜色；撞色提示；描述显示在分类页', async ({ page, request }) => {
+test('编辑分类：名称、描述、颜色；撞色提示；描述只在编辑表单里显示', async ({ page, request }) => {
   const id = runId();
   const first = `${id}甲`;
   const second = `${id}乙`;
@@ -102,14 +110,19 @@ test('编辑分类：名称、描述、颜色；撞色提示；描述显示在�
   await form.getByRole('button', { name: '保存分类' }).click();
   await expect(form).toHaveCount(0);
 
-  // 标题栏胶囊与侧边栏分类开关的悬停提示都是描述
+  // 没有悬停提示：描述不出现在标题栏胶囊、侧边栏或页面上，只在编辑表单里
   await toggleCategory(page, `${second}改`);
-  await expect(
-    page.getByTestId('title-capsule').getByRole('button', { name: `${second}改`, exact: true }),
-  ).toHaveAttribute('title', '周末的家务');
-  await expect(categoryToggle(page, `${second}改`)).toHaveAttribute('title', '周末的家务');
-  await toggleCategory(page, first);
-  await toggleCategory(page, first);
+  const capsule = page
+    .getByTestId('title-capsule')
+    .getByRole('button', { name: `${second}改`, exact: true });
+  await expect(capsule).not.toHaveAttribute('title', /.*/);
+  await expect(categoryToggle(page, `${second}改`)).not.toHaveAttribute('title', /.*/);
+  await expect(page.getByRole('main')).not.toContainText('周末的家务');
+  await expect(sidebar(page)).not.toContainText('周末的家务');
+  await capsule.click();
+  await expect(page.getByLabel('分类描述').last()).toHaveValue('周末的家务');
+  await page.getByRole('button', { name: '取消' }).last().click();
+  await toggleCategory(page, `${second}改`);
 
   const [saved] = await queryRest<{ name: string; description: string; color: string }[]>(
     request,

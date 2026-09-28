@@ -60,7 +60,6 @@ export function QuickOptionsRow({
               type="button"
               aria-pressed={value.importanceLevel === level}
               aria-label={`重要性 ${level}`}
-              title={`重要性 ${level}`}
               onClick={() => onChange({ importanceLevel: level })}
             >
               {level}
@@ -77,7 +76,6 @@ export function QuickOptionsRow({
           <input
             type="date"
             aria-label="截止日期"
-            title="截止日期"
             className={`date-input${value.deadline ? '' : ' date-input-empty'}`}
             value={value.deadline}
             onChange={(event) =>
@@ -94,7 +92,6 @@ export function QuickOptionsRow({
               <input
                 type="time"
                 aria-label="截止时刻"
-                title="截止时刻"
                 className={`date-input time-input${value.deadlineTime ? '' : ' date-input-empty'}`}
                 value={value.deadlineTime}
                 autoFocus={timeOpen && !value.deadlineTime}

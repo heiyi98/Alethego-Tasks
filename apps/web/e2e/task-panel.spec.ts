@@ -59,10 +59,14 @@ test('展开面板新建：三角旋转、收起不丢内容（三角 / 点外�
   );
   await expect(dateInput(panel)).toHaveValue(localDate(2));
 
-  // 字段以图标为标签：有 aria-label 与悬停提示
+  // 字段以图标为标签：只有给读屏软件的 aria-label，没有悬停提示
   for (const name of ['描述', '分类', '重复', '地点', '人物', '截止日期', '重要性']) {
-    await expect(panel.locator(`.field-icon[aria-label="${name}"]`)).toHaveAttribute('title', name);
+    const icon = panel.locator(`.field-icon[aria-label="${name}"]`);
+    await expect(icon).toHaveCount(1);
+    await expect(icon).not.toHaveAttribute('title', /.*/);
   }
+  // 全站没有 title 悬停提示
+  await expect(page.locator('[title]')).toHaveCount(0);
 
   await panel.getByRole('textbox', { name: '描述' }).fill('带上身份证');
   await panel.getByLabel('地点名称').fill('市民中心');

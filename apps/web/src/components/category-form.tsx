@@ -152,7 +152,6 @@ export function CategoryForm({
               role="radio"
               aria-checked={selected}
               aria-label={owner ? `${swatch}（已被「${owner.name}」使用）` : swatch}
-              title={owner ? `已被「${owner.name}」使用` : swatch}
               disabled={Boolean(owner)}
               className="swatch"
               style={{ backgroundColor: swatch }}
@@ -165,7 +164,6 @@ export function CategoryForm({
         })}
         <label
           className={`swatch swatch-custom${!isPalette ? ' swatch-custom-selected' : ''}`}
-          title="自选颜色"
           style={!isPalette ? { backgroundColor: color } : undefined}
         >
           <input

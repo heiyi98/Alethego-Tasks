@@ -2,7 +2,7 @@ import type { ReactNode, SVGProps } from 'react';
 
 /**
  * 线性图标（风格接近 SF Symbols）。图标本身不带语义：
- * 作为按钮时用 IconButton（aria-label + title），作为字段标签时用 FieldIcon。
+ * 作为按钮时用 IconButton（aria-label），作为字段标签时用 FieldIcon。
  */
 
 type IconProps = SVGProps<SVGSVGElement> & { size?: number };
@@ -149,7 +149,7 @@ export const ListIcon = (p: IconProps) => (
   </Svg>
 );
 
-/** 只有图标的按钮：必须有 aria-label，悬停显示同样的文字 */
+/** 只有图标的按钮：必须有 aria-label（给读屏软件，不显示；没有悬停提示） */
 export function IconButton({
   label,
   children,
@@ -159,22 +159,16 @@ export function IconButton({
   label: string;
 }) {
   return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      className={`icon-button ${className}`}
-      {...props}
-    >
+    <button type="button" aria-label={label} className={`icon-button ${className}`} {...props}>
       {children}
     </button>
   );
 }
 
-/** 字段标签图标：对读屏软件和悬停提示都给出字段名 */
+/** 字段标签图标：对读屏软件给出字段名 */
 export function FieldIcon({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <span className="field-icon" role="img" aria-label={label} title={label}>
+    <span className="field-icon" role="img" aria-label={label}>
       {children}
     </span>
   );

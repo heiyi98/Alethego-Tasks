@@ -203,6 +203,20 @@ describe('reconcileOccurrences：实例时刻一过还没勾选，立刻记为�
     });
   });
 
+  it('默认从时刻已过的最新一条记录往后补；给了 backfillFrom 则从那里补齐缺的，已有记录不动', () => {
+    const records = [record('fri', FRI, 'missed')];
+    expect(reconcileOccurrences(gym, records, at('2026-09-28T08:00:00')).toCreate).toEqual([
+      { occurrenceDate: NEXT_MON, status: 'missed' },
+    ]);
+    expect(
+      reconcileOccurrences(gym, records, at('2026-09-28T08:00:00'), { backfillFrom: MON }).toCreate,
+    ).toEqual([
+      { occurrenceDate: MON, status: 'missed' },
+      { occurrenceDate: WED, status: 'missed' },
+      { occurrenceDate: NEXT_MON, status: 'missed' },
+    ]);
+  });
+
   it('尚无实例出现时什么都不做', () => {
     expect(reconcileOccurrences(gym, [], at('2026-09-20T12:00:00'))).toEqual({
       toCreate: [],

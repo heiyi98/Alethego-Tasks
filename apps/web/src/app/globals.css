@@ -299,7 +299,7 @@ a {
   color: var(--danger);
 }
 
-/* 页面标题（分类页下方显示分类描述） */
+/* 页面标题栏（下方可原地展开分类编辑） */
 .page-header {
   display: flex;
   flex-direction: column;
@@ -361,39 +361,6 @@ a {
 .matrix-tick {
   fill: var(--viz-muted);
   font-size: 13px;
-}
-
-.matrix-tooltip {
-  position: absolute;
-  transform: translate(-50%, calc(-100% - 6px));
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 140px;
-  max-width: 240px;
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface);
-  box-shadow: 0 4px 16px rgb(0 0 0 / 12%);
-  font-size: 12px;
-  color: var(--muted);
-  pointer-events: none;
-  z-index: 10;
-}
-
-.matrix-tooltip-below {
-  transform: translate(-50%, 6px);
-}
-
-.matrix-tooltip-title {
-  color: var(--text);
-  font-size: 13px;
-  overflow-wrap: anywhere;
-}
-
-.matrix-tooltip-overdue {
-  color: var(--critical);
 }
 
 .quadrant-lists {
@@ -597,8 +564,9 @@ a {
   }
 }
 
-/* 矩阵任务标签 */
-.matrix-node {
+/* 矩阵任务：圆点是位置；标签 = 写在细横线上的标题，没有外框和背景，字和线同色 */
+.matrix-node,
+.matrix-dot {
   cursor: pointer;
   outline: none;
 }
@@ -607,31 +575,44 @@ a {
   fill: transparent;
 }
 
-.node-body {
-  fill: var(--surface);
-  stroke: var(--system-gray4);
-  stroke-width: 1;
-}
-
-.matrix-node-overdue .node-body {
-  fill: rgba(255, 59, 48, 0.06);
-  stroke: var(--critical);
-  stroke-width: 1.5;
-}
-
-.matrix-node:hover .node-body,
-.matrix-node:focus-visible .node-body {
-  stroke: var(--accent);
-  stroke-width: 1.5;
-}
-
 .node-title {
   fill: var(--label);
   font-size: 12px;
 }
 
+.node-line,
+.node-leader {
+  stroke: var(--label);
+  stroke-width: 0.8;
+}
+
+.matrix-node-overdue .node-title {
+  fill: var(--critical);
+}
+
+.matrix-node-overdue .node-line,
+.matrix-node-overdue .node-leader {
+  stroke: var(--critical);
+}
+
+.matrix-node:focus-visible .node-title {
+  text-decoration: underline;
+}
+
 .marker-uncategorized {
   fill: var(--viz-uncategorized);
+}
+
+/* 短期 / 长期切换：矩阵界面右上方，只有图标 */
+.matrix-card {
+  position: relative;
+}
+
+.matrix-mode-toggle {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1;
 }
 
 /* ---------- 应用外壳：左侧菜单 + 右侧内容 ---------- */
@@ -712,10 +693,6 @@ a {
   border-radius: 8px;
   color: var(--label);
   font-size: 14px;
-}
-
-.sidebar-item:hover {
-  background: var(--quaternary-fill);
 }
 
 .sidebar-item[aria-current='page'] {
@@ -1003,11 +980,6 @@ a {
     color 0.15s;
 }
 
-.icon-button:hover {
-  background: var(--quaternary-fill);
-  color: var(--label);
-}
-
 .icon-button:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
@@ -1026,17 +998,6 @@ a {
 .icon-button-primary {
   background: var(--accent);
   color: #fff;
-}
-
-.icon-button-primary:hover {
-  background: var(--accent);
-  color: #fff;
-  filter: brightness(1.08);
-}
-
-.icon-button-danger:hover {
-  background: var(--danger-soft);
-  color: var(--danger);
 }
 
 .icon-button-active {
@@ -1337,11 +1298,6 @@ a {
   color: rgba(255, 255, 255, 0.75);
 }
 
-.toast .icon-button:hover {
-  background: rgba(255, 255, 255, 0.12);
-  color: #fff;
-}
-
 .toast .toast-undo {
   color: #64d2ff;
 }
@@ -1413,20 +1369,6 @@ a {
   color: #fff;
 }
 
-.dialog-button-primary:hover,
-.dialog-button-danger:hover {
-  color: #fff;
-  filter: brightness(1.08);
-}
-
-.dialog-button-primary:hover {
-  background: var(--accent);
-}
-
-.dialog-button-danger:hover {
-  background: var(--danger);
-}
-
 /* ---------- 分类编辑 ---------- */
 .sidebar-category {
   position: relative;
@@ -1443,16 +1385,6 @@ a {
   width: 30px;
   height: 30px;
   transform: translateY(-50%);
-  opacity: 0;
-}
-
-.sidebar-category:hover .sidebar-edit,
-.sidebar-edit:focus-visible {
-  opacity: 1;
-}
-
-.sidebar-category:hover .sidebar-count {
-  visibility: hidden;
 }
 
 .category-form textarea {
@@ -1466,16 +1398,6 @@ a {
 
 .category-form-actions .spacer {
   flex: 1;
-}
-
-@media (hover: none) {
-  .sidebar-edit {
-    opacity: 1;
-  }
-
-  .sidebar-category .sidebar-count {
-    display: none;
-  }
 }
 
 /* ---------- 手机：面板统一为底部抽屉 ---------- */
@@ -1587,16 +1509,7 @@ a {
   color: var(--system-gray3);
 }
 
-.task-item:not(:hover) .task-row > .row-actions .star-button:not(.star-button-on) {
-  opacity: 0;
-}
-
-.star-button:focus-visible {
-  opacity: 1 !important;
-}
-
-.star-button-on,
-.star-button-on:hover {
+.star-button-on {
   color: var(--system-orange);
 }
 
@@ -1636,6 +1549,19 @@ a {
   font-weight: 600;
 }
 
+.quick-add-submit {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  width: 32px;
+  height: 32px;
+  transform: translateY(-50%);
+}
+
+.quick-add-input input {
+  padding-right: 48px;
+}
+
 .quick-add-actions {
   position: absolute;
   right: 6px;
@@ -1655,8 +1581,8 @@ a {
   display: none !important;
 }
 
-/* ---------- 矩阵：逾期点位 ---------- */
-/* 逾期点位（标签内部右端）：保留分类颜色，外面一圈红色 */
+/* ---------- 矩阵：逾期圆点 ---------- */
+/* 逾期圆点（标签右端）：保留分类颜色，外面一圈红色 */
 .overdue-point-ring {
   fill: none;
   stroke: var(--danger);
@@ -1667,16 +1593,10 @@ a {
   margin: 12px 0 16px;
 }
 
-/* 横轴中线"两周" */
+/* 横轴中线 */
 .matrix-tick-mid {
   font-weight: 600;
   fill: var(--label);
-}
-
-@media (hover: none) {
-  .task-item:not(:hover) .task-row > .row-actions .star-button:not(.star-button-on) {
-    opacity: 1;
-  }
 }
 
 @media (max-width: 760px) {
@@ -1741,35 +1661,22 @@ a {
   cursor: pointer;
 }
 
-.title-capsule-name:hover {
-  color: var(--accent);
-}
-
 .title-capsule-remove {
   width: 30px;
   height: 30px;
 }
 
-.page-header {
-  position: relative;
+/* 分类编辑：在标题栏下方原地展开，没有外框（与任务面板的展开方式一致） */
+.title-editor {
+  max-width: 360px;
+  margin-bottom: 12px;
 }
 
-.title-popover {
-  position: absolute;
-  z-index: 30;
-  top: 100%;
-  left: 0;
-  width: 280px;
-  margin-top: -6px;
-  border-radius: var(--radius);
-  box-shadow:
-    0 0 0 1px var(--border),
-    0 10px 30px rgba(0, 0, 0, 0.12);
-}
-
-.title-popover .category-form {
+.title-editor .category-form {
   margin: 0;
-  background: var(--surface);
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 /* ---------- 循环任务：嵌在面板里的历史 ---------- */
@@ -1787,6 +1694,7 @@ a {
   padding: 0;
   list-style: none;
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .history-row-inline {

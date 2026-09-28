@@ -1,29 +1,33 @@
 import { calendarDaysBetween, type EvaluationContext } from '../time/zoned-time';
 import {
-  BASE_TIER_DAYS,
   EXTENDED_TIER_DAYS,
-  LAST_URGENT_TIER_INDEX,
-  MAX_TIER_INDEX,
+  MODE_TIER_DAYS,
+  QUADRANT_LIST_MAX_DAYS,
+  urgentThresholdDays,
+  type MatrixMode,
 } from './tiers';
 
 /**
  * 紧迫度计算结果。每次展示时基于当前时间动态计算，不存储。
  *
- * - scheduled：一年内（基本向量），tierIndex 0-12；dayNumber = N（今天算第 1 天）
- * - far：N > 365（扩展向量），不进入矩阵；extendedTierDays 超出扩展向量时为 null
- * - no_deadline：无截止时间，按最大档（tierIndex = MAX_TIER_INDEX）计
+ * - scheduled：一年内；dayNumber = N（今天算第 1 天）。落在哪一格取决于矩阵模式，见 cellForDayNumber
+ * - far：N > 365（扩展向量），不进入矩阵与四象限清单；extendedTierDays 超出扩展向量时为 null
+ * - no_deadline：无截止时间
  * - overdue：已超过截止时刻（只会出现在普通任务上）；overdueDays = 逾期的日历天数，不封顶
  *   （当天已过点为 0）
  */
 export type Urgency =
-  | { kind: 'scheduled'; dayNumber: number; tierIndex: number; tierDays: number }
+  | { kind: 'scheduled'; dayNumber: number }
   | { kind: 'far'; dayNumber: number; extendedTierDays: number | null }
-  | { kind: 'no_deadline'; tierIndex: number }
+  | { kind: 'no_deadline' }
   | { kind: 'overdue'; overdueDays: number };
 
-/** N（今天算第 1 天）→ 基本向量档位序号；区间上界含在内；超过一年返回 null。 */
-export function tierIndexForDayNumber(dayNumber: number): number | null {
-  const index = BASE_TIER_DAYS.findIndex((days) => dayNumber <= days);
+/**
+ * N（今天算第 1 天）→ 这种模式下从右往左的第几格（0 = 最右的普通格）；区间上界含在内。
+ * 超出这种模式的范围（短期 N > 14，长期 N > 180）返回 null。
+ */
+export function cellForDayNumber(dayNumber: number, mode: MatrixMode): number | null {
+  const index = MODE_TIER_DAYS[mode].findIndex((days) => dayNumber <= days);
   return index === -1 ? null : index;
 }
 
@@ -35,7 +39,7 @@ export function tierIndexForDayNumber(dayNumber: number): number | null {
  * 所以从次日 00:00 起逾期；设了具体时刻的从该时刻起，当天已过点也算）。
  */
 export function calculateUrgency(deadlineAt: Date | null, context: EvaluationContext): Urgency {
-  if (!deadlineAt) return { kind: 'no_deadline', tierIndex: MAX_TIER_INDEX };
+  if (!deadlineAt) return { kind: 'no_deadline' };
 
   const { now, timeZone } = context;
   if (deadlineAt.getTime() < now.getTime()) {
@@ -43,21 +47,23 @@ export function calculateUrgency(deadlineAt: Date | null, context: EvaluationCon
   }
 
   const dayNumber = calendarDaysBetween(now, deadlineAt, timeZone) + 1;
-  const tierIndex = tierIndexForDayNumber(dayNumber);
-  if (tierIndex === null) {
+  if (dayNumber > QUADRANT_LIST_MAX_DAYS) {
     const extendedTierDays = EXTENDED_TIER_DAYS.find((days) => dayNumber <= days) ?? null;
     return { kind: 'far', dayNumber, extendedTierDays };
   }
-  return { kind: 'scheduled', dayNumber, tierIndex, tierDays: BASE_TIER_DAYS[tierIndex]! };
+  return { kind: 'scheduled', dayNumber };
 }
 
-/** 是否落在紧急区：N ≤ 14（含逾期）。无截止时间、远期均为不紧急。 */
-export function isUrgent(urgency: Urgency): boolean {
+/**
+ * 是否紧急，跟着矩阵模式：短期 N ≤ 3，长期 N ≤ 14，即中线右边三格；逾期一律紧急。
+ * 无截止时间、远期均为不紧急。
+ */
+export function isUrgent(urgency: Urgency, mode: MatrixMode): boolean {
   switch (urgency.kind) {
     case 'overdue':
       return true;
     case 'scheduled':
-      return urgency.tierIndex <= LAST_URGENT_TIER_INDEX;
+      return urgency.dayNumber <= urgentThresholdDays(mode);
     case 'far':
     case 'no_deadline':
       return false;

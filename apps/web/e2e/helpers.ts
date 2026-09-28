@@ -60,11 +60,17 @@ export async function setTime(scope: Locator, time: string) {
   await input.fill(time);
 }
 
-/** 快速添加：可同时设置重要性与截止日期（YYYY-MM-DD），回车创建 */
+/** 快速添加：可同时设置重要性与截止日期（YYYY-MM-DD），点输入栏右端的 ✓ 创建（enter: true 时按回车） */
 export async function quickAdd(
   page: Page,
   title: string,
-  options: { importance?: number; deadline?: string; time?: string; expectVisible?: boolean } = {},
+  options: {
+    importance?: number;
+    deadline?: string;
+    time?: string;
+    expectVisible?: boolean;
+    enter?: boolean;
+  } = {},
 ) {
   const bar = quickAddBar(page);
   const input = page.getByLabel('快速添加任务');
@@ -72,7 +78,8 @@ export async function quickAdd(
   if (options.importance !== undefined) await pickImportance(bar, options.importance);
   if (options.deadline) await dateInput(bar).fill(options.deadline);
   if (options.time) await setTime(bar, options.time);
-  await input.press('Enter');
+  if (options.enter) await input.press('Enter');
+  else await bar.getByRole('button', { name: '创建', exact: true }).click();
   await expect(input).toHaveValue('');
   if (options.expectVisible !== false) await expect(taskItem(page, title.trim())).toBeVisible();
 }

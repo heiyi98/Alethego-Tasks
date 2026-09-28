@@ -147,22 +147,28 @@ export function resolveRepresentativeInstance(
  *
  * 归档可以滞后执行（例如用户打开应用时才调用），不影响代表实例的选取。
  * 只处理 pending → missed；completed 与用户手动修改过的记录不会被改动。
+ *
+ * 补建的起点：第一次从开始时间起补；之后只从时刻已过的已有记录中最晚的那一条往后补
+ * （改了规则时，已有记录不动，新规则只管以后到点的实例）。
+ * 开始时间本身改了时，调用方传 backfillFrom = 新的开始时间，从那里重新补齐缺的记录（已有记录不动）。
  */
 export function reconcileOccurrences(
   series: RecurrenceSeries,
   existing: readonly Pick<RecurrenceOccurrence, 'id' | 'occurrenceDate' | 'status'>[],
   context: EvaluationContext,
+  options: { backfillFrom?: Date } = {},
 ): ReconcileResult {
   const { now, timeZone } = context;
   const passed = (date: Date) => date.getTime() < now.getTime();
 
-  // 只从时刻已过的已有记录中最晚的那一条往后补建，避免每次重新展开整个历史
-  // （提前完成的未来实例不能作为起点，否则会跳过它之前、时刻已过的实例）
-  const scanFrom = existing.reduce<Date>(
-    (latest, o) =>
-      passed(o.occurrenceDate) && o.occurrenceDate > latest ? o.occurrenceDate : latest,
-    series.dtstart,
-  );
+  // 提前完成的未来实例不能作为起点，否则会跳过它之前、时刻已过的实例
+  const scanFrom =
+    options.backfillFrom ??
+    existing.reduce<Date>(
+      (latest, o) =>
+        passed(o.occurrenceDate) && o.occurrenceDate > latest ? o.occurrenceDate : latest,
+      series.dtstart,
+    );
   const existingKeys = new Set(existing.map((o) => o.occurrenceDate.getTime()));
 
   const toCreate: NewOccurrence[] =

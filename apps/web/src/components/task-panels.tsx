@@ -242,11 +242,17 @@ export function EditPanel({
           });
         }
 
-        if (patch.recurrenceRule !== undefined) {
-          const records = await syncOccurrences(repositories.occurrences, nextTask, {
-            now: new Date(),
-            timeZone,
-          });
+        if (patch.recurrenceRule !== undefined || patch.recurrenceDtstart !== undefined) {
+          // 开始时间改了：从新的开始时间补齐缺的记录（已有记录不动）；只改规则时新规则只管以后到点的实例
+          const startChanged =
+            nextTask.recurrenceDtstart !== null &&
+            nextTask.recurrenceDtstart.getTime() !== task.recurrenceDtstart?.getTime();
+          const records = await syncOccurrences(
+            repositories.occurrences,
+            nextTask,
+            { now: new Date(), timeZone },
+            startChanged ? { backfillFrom: nextTask.recurrenceDtstart! } : {},
+          );
           setLoaded((l) => (l ? { task: nextTask, records } : l));
         } else {
           setLoaded((l) => (l ? { ...l, task: nextTask } : l));

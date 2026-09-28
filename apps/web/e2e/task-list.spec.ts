@@ -229,6 +229,30 @@ test('筛选：范围 × 分类多选（命中任一即显示）× 页面内状�
   await expectTitles(page, id, [t('无分类'), t('工作和家庭'), t('只工作')]);
 });
 
+test('快速添加：点输入栏右端的 ✓ 创建，回车是额外的快捷方式；空白标题不创建', async ({ page }) => {
+  const id = runId();
+  await page.goto('/');
+  const input = page.getByLabel('快速添加任务');
+  const check = quickAddBar(page).getByRole('button', { name: '创建', exact: true });
+  await expect(check).toBeVisible();
+  await expect(check).toHaveClass(/icon-button-primary/);
+
+  await input.fill(`${id} 点对勾`);
+  await check.click();
+  await expect(input).toHaveValue('');
+  await expect(taskItem(page, `${id} 点对勾`)).toBeVisible();
+
+  await input.fill(`${id} 按回车`);
+  await input.press('Enter');
+  await expect(input).toHaveValue('');
+  await expect(taskItem(page, `${id} 按回车`)).toBeVisible();
+
+  // 空白标题：点 ✓ 不创建
+  await input.fill('   ');
+  await check.click();
+  await expect(input).toHaveValue('   ');
+});
+
 test('快速添加：自动带上当前选中的全部分类；没选分类就不带', async ({ page }) => {
   const id = runId();
   const t = (name: string) => `${id} ${name}`;
@@ -239,16 +263,18 @@ test('快速添加：自动带上当前选中的全部分类；没选分类就�
   const row = (name: string) => taskItem(page, t(name));
   const input = page.getByLabel('快速添加任务');
 
+  // 输入栏不显示占位提示文字
+  await expect(input).not.toHaveAttribute('placeholder', /.*/);
+
   // 选一个
   await toggleCategory(page, work);
-  await expect(input).toHaveAttribute('placeholder', `添加到「${work}」，回车创建`);
+  await expect(input).not.toHaveAttribute('placeholder', /.*/);
   await quickAdd(page, t('单选'));
   await expect(row('单选')).toContainText(work);
   await expect(row('单选')).not.toContainText(home);
 
   // 选两个：新任务同时带上两个分类（取代原来"只选一个才自动归入"的规则）
   await toggleCategory(page, home);
-  await expect(input).toHaveAttribute('placeholder', `添加到「${work}」「${home}」，回车创建`);
   await quickAdd(page, t('多选'));
   await expect(row('多选')).toContainText(work);
   await expect(row('多选')).toContainText(home);
@@ -267,7 +293,6 @@ test('快速添加：自动带上当前选中的全部分类；没选分类就�
   // 都不选：不带分类
   await toggleCategory(page, work);
   await toggleCategory(page, home);
-  await expect(input).toHaveAttribute('placeholder', '添加任务，回车创建');
   await quickAdd(page, t('不选'));
   await expect(row('不选')).not.toContainText(work);
   await expect(row('不选')).not.toContainText(home);
@@ -292,9 +317,14 @@ test('标星：列表行与面板里都可切换；范围"收藏"= 标星任务�
   await quickAdd(page, t('明天'), { deadline: localDate(1) });
   await quickAdd(page, t('已完成'), { deadline: localDate(3) });
 
-  // 列表行里的星标
+  // 列表行里的星标：未标星的也一直显示（空心星），不靠悬停
   const star = (name: string) =>
     taskItem(page, t(name)).getByRole('button', { name: /^(标星|取消标星)$/ });
+  await page.mouse.move(0, 0);
+  await expect(star('明天')).toBeVisible();
+  await expect(star('明天')).toHaveCSS('opacity', '1');
+  await expect(star('明天')).toHaveAttribute('aria-pressed', 'false');
+  await expect(star('明天').locator('svg')).toHaveAttribute('fill', 'none');
   await star('后天').click();
   await expect(star('后天')).toHaveAttribute('aria-pressed', 'true');
   await expect(star('后天')).toHaveAccessibleName('取消标星');
@@ -554,16 +584,26 @@ test('标题栏：总览 / 分类胶囊（✕ 取消、点名字编辑）/ 收�
   await expect(page.getByTestId('title-capsule')).toHaveCount(5);
   await expect(page.locator('main')).not.toContainText(names[5]!);
 
-  // 点胶囊上的名字：打开这个分类的编辑（名称、描述、颜色）
+  // 点胶囊上的名字：编辑表单在标题栏下方原地展开（不是浮层），下面的内容被顶下去
   const capsuleName = (name: string) =>
     page.getByTestId('title-capsule').getByRole('button', { name, exact: true });
+  const beforeEdit = await statusY();
   await capsuleName(names[0]!).click();
   const form = page.getByRole('form', { name: `编辑分类「${names[0]}」` }).last();
   await expect(form.getByLabel('分类名称')).toHaveValue(names[0]!);
+  const editor = page.locator('.title-editor');
+  await expect(editor).toHaveCSS('position', 'static');
+  await expect(editor).toHaveCSS('box-shadow', 'none');
+  const barBox = (await bar.boundingBox())!;
+  expect((await editor.boundingBox())!.y).toBeGreaterThanOrEqual(barBox.y + barBox.height - 1);
+  expect(await statusY()).toBeGreaterThan(beforeEdit + 100);
   await form.getByLabel('分类描述').fill('标题栏里改的');
   await form.getByRole('button', { name: '保存分类' }).click();
   await expect(form).toHaveCount(0);
-  await expect(capsuleName(names[0]!)).toHaveAttribute('title', '标题栏里改的');
+  expect(await statusY()).toBe(beforeEdit);
+  // 描述只在编辑表单里显示，没有悬停提示
+  await expect(capsuleName(names[0]!)).not.toHaveAttribute('title', /.*/);
+  await expect(page.getByRole('main')).not.toContainText('标题栏里改的');
 
   // 收藏：标题永远只显示"收藏"，分类筛选照常生效，侧边栏开关保持高亮
   await selectScope(page, '收藏');

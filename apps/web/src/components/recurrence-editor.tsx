@@ -133,7 +133,7 @@ export function RecurrenceEditor({
 
   return (
     <fieldset className="field recurrence" aria-label="重复">
-      <label className="switch" title="重复">
+      <label className="switch">
         <input
           type="checkbox"
           role="switch"

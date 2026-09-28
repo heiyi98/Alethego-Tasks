@@ -5,13 +5,20 @@
  *   N = (截止日期 − 今天) 的日历天数 + 1，今天算第 1 天。
  * 日期型和设了具体时刻的任务落格方式完全相同。标尺是自然天数；斐波那契数列只是当初挑选刻度时的参考。
  *
- * 矩阵横轴共 14 格、全部等宽，中线落在"两周"这条分界线上：
- *   紧急一侧（中线向右）：N = 8–14 → 6–7 → 4–5 → 3 → 2 → 1（今天）→ 逾期区
- *   不紧急一侧（中线向左）：N = 15–21 → 22–30 → 31–60 → 61–90 → 91–180 → 181–270 → 271–365
+ * 矩阵分"短期""长期"两种模式，都是 6 个等宽的格子，竖直中线在 6 格正中；
+ * 逾期区不算在 6 格里，是接在最右边的额外一段（1/4 格宽）。
+ *   短期（今天到两周），从左到右：N = 8–14、6–7、4–5 ｜中线｜ 3、2、1
+ *   长期，从左到右：N = 91–180、31–90、15–30 ｜中线｜ 8–14、4–7、1–3
+ * 每种模式下中线右边三格为"紧急"。
  */
 
-/** 紧急一侧各档 N 的上界：1天、2天、3天、5天、一周、两周 */
-export const URGENT_SIDE_BOUNDARY_DAYS = {
+export type MatrixMode = 'short' | 'long';
+
+/** 默认模式 */
+export const DEFAULT_MATRIX_MODE: MatrixMode = 'short';
+
+/** 短期模式各格 N 的上界（从右到左）：1天、2天、3天、5天、一周、两周 */
+export const SHORT_TERM_BOUNDARY_DAYS = {
   oneDay: 1,
   twoDays: 2,
   threeDays: 3,
@@ -20,16 +27,45 @@ export const URGENT_SIDE_BOUNDARY_DAYS = {
   twoWeeks: 14,
 } as const;
 
-/** 不紧急一侧各档 N 的上界，按自然周、月、季度取值，调整刻度只需改这里 */
-export const NOT_URGENT_SIDE_BOUNDARY_DAYS = {
-  threeWeeks: 21,
+/** 长期模式各格 N 的上界（从右到左）：3天、一周、两周、一个月、一季度、半年 */
+export const LONG_TERM_BOUNDARY_DAYS = {
+  threeDays: 3,
+  oneWeek: 7,
+  twoWeeks: 14,
   oneMonth: 30,
-  twoMonths: 60,
   oneQuarter: 90,
   halfYear: 180,
-  threeQuarters: 270,
-  oneYear: 365,
 } as const;
+
+/**
+ * 每种模式的格子：下标 i = 从右往左第 i 格（0 = 最右的普通格），值为该格 N 的上界（含）。
+ * 第 i 格 = MODE_TIER_DAYS[i-1] < N ≤ MODE_TIER_DAYS[i]。
+ */
+export const MODE_TIER_DAYS: Readonly<Record<MatrixMode, readonly number[]>> = {
+  short: Object.values(SHORT_TERM_BOUNDARY_DAYS),
+  long: Object.values(LONG_TERM_BOUNDARY_DAYS),
+};
+
+/** 每种模式的格子数（6） */
+export const MATRIX_CELLS = 6;
+
+/** 中线右边的格子数：这些格子是"紧急" */
+export const URGENT_CELLS = MATRIX_CELLS / 2;
+
+/** 紧急的上界：短期 N ≤ 3，长期 N ≤ 14（逾期一律紧急） */
+export function urgentThresholdDays(mode: MatrixMode): number {
+  return MODE_TIER_DAYS[mode][URGENT_CELLS - 1]!;
+}
+
+/** 这种模式下图上能显示的最大 N：短期 14，长期 180；更远的不画 */
+export function modeMaxDays(mode: MatrixMode): number {
+  return MODE_TIER_DAYS[mode][MATRIX_CELLS - 1]!;
+}
+
+/**
+ * 进入四象限清单的最大 N（一年）。清单里显示哪些任务与模式无关：超过一年的远期任务不进清单。
+ */
+export const QUADRANT_LIST_MAX_DAYS = 365;
 
 /** 超过一年的扩展刻度（N 的上界）：两年、三年、五年、七年、十年。只用于数值描述，不进入矩阵。 */
 export const EXTENDED_BOUNDARY_DAYS = {
@@ -40,28 +76,9 @@ export const EXTENDED_BOUNDARY_DAYS = {
   tenYears: 3650,
 } as const;
 
-/**
- * 基本向量：数组下标即档位序号 tierIndex，值为该档 N 的上界（含）。
- * 第 0 档 = N 为 1（今天）；第 i 档 = BASE_TIER_DAYS[i-1] < N ≤ BASE_TIER_DAYS[i]。
- */
-export const BASE_TIER_DAYS: readonly number[] = [
-  ...Object.values(URGENT_SIDE_BOUNDARY_DAYS),
-  ...Object.values(NOT_URGENT_SIDE_BOUNDARY_DAYS),
-];
-
 export const EXTENDED_TIER_DAYS: readonly number[] = Object.values(EXTENDED_BOUNDARY_DAYS);
 
-/** 紧急与不紧急的分界：N ≤ 14（含逾期）为紧急 */
-export const URGENT_THRESHOLD_DAYS = URGENT_SIDE_BOUNDARY_DAYS.twoWeeks;
-
-/** 紧急区的最后一档（N 的上界 = 两周） */
-export const LAST_URGENT_TIER_INDEX = BASE_TIER_DAYS.indexOf(URGENT_THRESHOLD_DAYS);
-
-/** 基本向量的最大序号；无截止时间的任务归入此档（不紧急端的最远端） */
-export const MAX_TIER_INDEX = BASE_TIER_DAYS.length - 1;
-
 /**
- * 逾期区（只针对普通任务）是一条 3 天的时间轴，分三条道：逾期 0 天（当天已过点）、1 天、2 天。
- * 逾期满这个天数的任务退场，只在清单的"已错过"里可见。
+ * 逾期区（只针对普通任务）：逾期满这个天数的任务退场，只在清单的"已错过"里可见。
  */
 export const OVERDUE_MATRIX_GRACE_DAYS = 3;

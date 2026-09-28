@@ -103,12 +103,11 @@ test('循环任务：代表实例按时刻切换；过点未勾选立刻记为�
   const row = taskItem(page, title);
   await expect(row.locator('.task-deadline')).toHaveText('本次 10月6日 周二 09:00 · 还剩1天');
 
-  // 矩阵：N = 2 → "2天–1天"那一格；循环任务永远不进逾期区
+  // 矩阵（短期）：N = 2 → "2天–1天"那一格；循环任务永远不进逾期区
   await switchMode(page, 'matrix');
   const dot = page.locator(`.matrix-node[aria-label^="${title}，"]`);
-  await expect(dot).toHaveAttribute('data-column', '11');
+  await expect(dot).toHaveAttribute('data-column', '4');
   await expect(dot).toHaveAttribute('data-row', '4');
-  await expect(dot).not.toHaveAttribute('data-overdue-lane', /.*/);
 
   // 清单里勾选完成的是"本次"，任务本身不完成，代表顺延到后天
   await switchMode(page, 'list');
@@ -149,18 +148,17 @@ test('循环任务：当前实例一过它的时刻，代表立刻换成下一�
   await waitSaved(page);
   await collapse(page);
 
-  // 15:54：今天 16:00 的实例还没到时刻 → 它就是代表（N = 1，最右的普通格）
+  // 15:54：今天 16:00 的实例还没到时刻 → 它就是代表（N = 1，短期最右的普通格）
   const row = taskItem(page, title);
   await expect(row.locator('.task-deadline')).toHaveText('本次 今天 16:00');
   await switchMode(page, 'matrix');
   const dot = page.locator(`.matrix-node[aria-label^="${title}，"]`);
-  await expect(dot).toHaveAttribute('data-column', '12');
+  await expect(dot).toHaveAttribute('data-column', '5');
 
   // 16:01：代表立刻换成明天 16:00；今天 16:00 进入历史，记为未完成
   await page.clock.setFixedTime(new Date('2026-10-05T16:01:00+08:00'));
   await page.reload();
-  await expect(dot).toHaveAttribute('data-column', '11');
-  await expect(dot).not.toHaveAttribute('data-overdue-lane', /.*/);
+  await expect(dot).toHaveAttribute('data-column', '4');
   await switchMode(page, 'list');
   await selectStatus(page, '未完成');
   await expect(row.locator('.task-deadline')).toHaveText('本次 10月6日 周二 16:00 · 还剩1天');
@@ -234,4 +232,88 @@ test('重复规则编辑：每 N 天 / 每 N 周与星期、次数；非法规�
     `tasks?id=eq.${taskId}&select=recurrence_rule`,
   );
   expect(still!.recurrence_rule).toBe('FREQ=MONTHLY;BYMONTHDAY=1');
+});
+
+test('循环任务历史：几百条记录时展开五行高、可滚动看到最早的一条；改开始时间从新的开始时间补齐', async ({
+  page,
+  request,
+}) => {
+  await page.clock.setFixedTime(MONDAY_1554);
+  const id = runId();
+  const title = `${id} 长期打卡`;
+  await page.goto('/');
+  await quickAdd(page, title);
+  const taskId = await openTask(page, title);
+  const panel = editPanel(page);
+  await panel.getByRole('switch', { name: '重复' }).check();
+  await rule(page).getByLabel('重复频率').selectOption('daily');
+  await waitSaved(page);
+  // 打开开关时默认从今天 09:00 开始，已过点 → 立刻有一条
+  await expect(historyRows(page)).toHaveText(['10月5日 周一 09:00']);
+
+  // 把开始时间改到半年前：从新的开始时间补齐，不是只从今天往后记
+  await rule(page).getByLabel('开始时间').fill('2026-04-01T09:00');
+  await waitSaved(page);
+  const count = async () =>
+    (await queryRest<unknown[]>(request, `recurrence_occurrences?task_id=eq.${taskId}`)).length;
+  await expect.poll(count).toBe(188); // 4/1 … 10/5
+  await expect(historyRows(page)).toHaveCount(2);
+
+  // 展开：五行高，可以上下滚动，滚到底是最早的 4 月 1 日
+  await history(page).getByRole('button', { name: '展开历史' }).click();
+  await expect(historyRows(page)).toHaveCount(188);
+  const list = history(page).locator('.history-rows');
+  const rowH = (await historyRows(page).first().boundingBox())!.height;
+  expect(Math.round((await list.boundingBox())!.height / rowH)).toBe(5);
+  await list.hover();
+  await page.mouse.wheel(0, 100_000);
+  await expect.poll(() => list.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+  await expect(historyRows(page).last()).toHaveText('4月1日 周三 09:00');
+  await expect(historyRows(page).last()).toBeInViewport();
+});
+
+test('改循环规则：已发生的记录保持不变，之后新规则下到点的实例继续被记录', async ({
+  page,
+  request,
+}) => {
+  const id = runId();
+  const title = `${id} 改规则`;
+  await page.clock.setFixedTime(MONDAY_1554);
+  await page.goto('/');
+  await quickAdd(page, title);
+  const taskId = await openTask(page, title);
+  const panel = editPanel(page);
+  await panel.getByRole('switch', { name: '重复' }).check();
+  await rule(page).getByLabel('重复频率').selectOption('daily');
+  await rule(page).getByLabel('开始时间').fill('2026-10-01T09:00');
+  await waitSaved(page);
+  const records = () =>
+    queryRest<{ occurrence_date: string; status: string }[]>(
+      request,
+      `recurrence_occurrences?task_id=eq.${taskId}&order=occurrence_date&select=occurrence_date,status`,
+    );
+  await expect.poll(async () => (await records()).length).toBe(5); // 10/1 … 10/5 09:00
+  // 补登记 10/3 做了
+  await history(page).getByRole('button', { name: '展开历史' }).click();
+  await history(page).getByRole('checkbox', { name: '完成：10月3日 周六 09:00' }).click();
+  await expect
+    .poll(async () => (await records()).map((r) => r.status))
+    .toEqual(['missed', 'missed', 'completed', 'missed', 'missed']);
+  const before = await records();
+
+  // 改成每 2 天一次（开始时间不变）
+  await rule(page).getByLabel('重复间隔').fill('2');
+  await waitSaved(page);
+  await collapse(page);
+  expect(await records()).toEqual(before);
+
+  // 两天后打开：旧记录都在，新规则下到点的实例（10/7 09:00）继续被记录
+  await page.clock.setFixedTime(new Date('2026-10-07T15:54:00+08:00'));
+  await page.reload();
+  await expect(taskItem(page, title)).toBeVisible();
+  await expect.poll(async () => (await records()).length).toBe(6);
+  const after = await records();
+  expect(after.slice(0, 5)).toEqual(before);
+  expect(after[5]!.status).toBe('missed');
+  expect(new Date(after[5]!.occurrence_date)).toEqual(new Date('2026-10-07T09:00:00+08:00'));
 });

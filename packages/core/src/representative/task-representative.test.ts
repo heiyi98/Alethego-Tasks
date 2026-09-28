@@ -66,13 +66,14 @@ describe('resolveTaskRepresentative', () => {
       occurrenceAt: sh('2026-09-25T07:00:00'),
     });
 
-    // 矩阵只看到标准形状：周五（明天）的实例 → 第 1 档，重要且紧急
+    // 矩阵只看到标准形状：周五（明天）的实例 → N = 2，重要且紧急
     const candidate = toMatrixCandidate(representative!, context);
-    expect(candidate.urgency).toMatchObject({ kind: 'scheduled', tierIndex: 1 });
-    expect(placeOnMatrix(candidate)).toEqual({
+    expect(candidate.urgency).toMatchObject({ kind: 'scheduled', dayNumber: 2 });
+    expect(placeOnMatrix(candidate, 'short')).toEqual({
       visible: true,
       quadrant: 'important_urgent',
       overdueDays: null,
+      slot: { kind: 'cell', column: 4 },
     });
   });
 
@@ -87,7 +88,7 @@ describe('resolveTaskRepresentative', () => {
     expect(representative.occurrenceAt).toEqual(sh('2026-09-25T07:00:00'));
     expect(toMatrixCandidate(representative, context).urgency).toMatchObject({
       kind: 'scheduled',
-      tierIndex: 1,
+      dayNumber: 2,
     });
   });
 
@@ -100,6 +101,6 @@ describe('resolveTaskRepresentative', () => {
     };
     const representative = resolveTaskRepresentative(task, [], context)!;
     expect(representative.occurrenceAt).toEqual(sh('2026-09-24T20:00:00'));
-    expect(toMatrixCandidate(representative, context).urgency).toMatchObject({ tierIndex: 0 });
+    expect(toMatrixCandidate(representative, context).urgency).toMatchObject({ dayNumber: 1 });
   });
 });

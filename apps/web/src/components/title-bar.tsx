@@ -14,7 +14,8 @@ import { selectionHref, toggleCategory } from '@/lib/selection';
  * 页面标题栏（清单页与矩阵页共用）：
  * - 收藏：永远只显示"收藏"（分类筛选照常生效，侧边栏的分类开关保持高亮）
  * - 没选分类：显示"总览"
- * - 选了分类：每个分类一个胶囊（名字 + ✕）。点 ✕ 取消这个分类的选择；点名字打开这个分类的编辑
+ * - 选了分类：每个分类一个胶囊（名字 + ✕）。点 ✕ 取消这个分类的选择；点名字在标题栏下方原地展开
+ *   这个分类的编辑表单（不是浮层）；分类描述只在编辑表单里显示
  *
  * 标题栏由一栏或多栏组成，每栏高度固定；胶囊放不下时另起一栏。栏数不变时下方内容不动。
  */
@@ -48,7 +49,6 @@ export function TitleBar() {
             <button
               type="button"
               className="title-capsule-name"
-              title={category.description || undefined}
               aria-expanded={editing === category.id}
               onClick={() => setEditing(editing === category.id ? null : category.id)}
             >
@@ -69,7 +69,7 @@ export function TitleBar() {
         ))}
       </h1>
       {editingCategory && data && (
-        <div className="title-popover" data-keep-panel>
+        <div className="title-editor" data-keep-panel>
           <CategoryForm
             key={editingCategory.id}
             categories={data.categories}
