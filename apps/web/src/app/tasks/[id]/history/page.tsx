@@ -13,6 +13,7 @@ import { useEffect, useState } from 'react';
 
 import { useRepositories } from '@/components/repositories-provider';
 import { browserTimeZone, errorMessage, formatFullDateTime, recurrenceLabel } from '@/lib/format';
+import { lastListUrl } from '@/lib/list-url';
 
 /**
  * 循环任务的历史记录：每一次实例的完成 / 未完成状态。
@@ -38,6 +39,8 @@ export default function TaskHistoryPage() {
   const [timeZone] = useState(browserTimeZone);
   const [load, setLoad] = useState<LoadState>({ kind: 'loading' });
   const [saving, setSaving] = useState<string | null>(null);
+  const [backHref, setBackHref] = useState('/');
+  useEffect(() => setBackHref(lastListUrl()), []);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -84,9 +87,10 @@ export default function TaskHistoryPage() {
     }
   }
 
+  // 任务编辑在列表 / 矩阵的面板中进行，这里返回上次浏览的列表
   const backLink = (
-    <Link href={`/tasks/${id}`} className="back-link">
-      ← 返回任务
+    <Link href={backHref} className="back-link">
+      ← 返回
     </Link>
   );
 

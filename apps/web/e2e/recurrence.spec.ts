@@ -1,24 +1,24 @@
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
-import { localDateTime, openTask, quickAdd, runId } from './helpers';
-
-/** 直接查询数据库（taskapp schema）验证落库结果 */
-async function queryRest<T>(request: APIRequestContext, path: string): Promise<T> {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-  const response = await request.get(`${url}/rest/v1/${path}`, {
-    headers: { apikey: key, Authorization: `Bearer ${key}`, 'Accept-Profile': 'taskapp' },
-  });
-  return (await response.json()) as T;
-}
+import {
+  collapse,
+  dateInput,
+  editPanel,
+  localDateTime,
+  openTask,
+  pickImportance,
+  queryRest,
+  quickAdd,
+  runId,
+  taskItem,
+  waitSaved,
+} from './helpers';
 
 const rule = (page: Page) => page.getByRole('group', { name: '重复规则' });
 const summary = (page: Page) => page.getByTestId('recurrence-summary');
 
-async function save(page: Page) {
-  await page.getByRole('button', { name: '保存' }).click();
-  await expect(page.getByRole('status')).toHaveText('已保存');
-}
+const historyLink = (page: Page, count: number) =>
+  editPanel(page).getByRole('link', { name: `历史记录（${count} 次）` });
 
 test('循环开关：每天重复；勾选完成当前实例而非任务本身；历史记录可手动修改；关闭后记录保留', async ({
   page,
@@ -28,37 +28,35 @@ test('循环开关：每天重复；勾选完成当前实例而非任务本身�
   const title = `${id} 每天喝水`;
   await page.goto('/');
   await quickAdd(page, title);
-  await openTask(page, title);
-  const taskId = page.url().split('/tasks/')[1]!;
+  const taskId = await openTask(page, title);
+  const panel = editPanel(page);
 
-  // 打开开关：截止时间与"已完成"让位给重复规则
-  await expect(page.getByLabel('截止时间')).toBeVisible();
-  await page.getByRole('switch', { name: '重复' }).check();
-  await expect(page.getByLabel('截止时间')).toHaveCount(0);
-  await expect(page.getByRole('checkbox', { name: '已完成' })).toHaveCount(0);
+  // 打开开关：截止日期与"标记完成"让位给重复规则
+  await expect(dateInput(panel)).toBeVisible();
+  await panel.getByRole('switch', { name: '重复' }).check();
+  await expect(dateInput(panel)).toHaveCount(0);
+  await expect(panel.getByRole('button', { name: '标记为完成' })).toHaveCount(0);
 
   await rule(page).getByLabel('重复频率').selectOption('daily');
   await rule(page).getByLabel('开始时间').fill(localDateTime(-3, '08:00'));
-  await page
-    .getByRole('group', { name: '重要性' })
-    .getByRole('button', { name: '4', exact: true })
-    .click();
+  await pickImportance(panel, 4);
   await expect(summary(page)).toContainText('每天');
   await expect(summary(page)).toContainText('当前实例');
-  await save(page);
+  await waitSaved(page);
 
-  // 保存后归档：3 天前、前天、昨天（未完成）+ 今天（待完成）
-  await expect(page.getByRole('link', { name: '历史记录（4 次）→' })).toBeVisible();
+  // 自动保存后归档：3 天前、前天、昨天（未完成）+ 今天（待完成）；时钟图标进入历史记录
+  await expect(historyLink(page, 4)).toBeVisible();
+  await collapse(page);
 
   // 矩阵：代表实例是今天 → 最右侧的"今天"列
   await page.goto('/matrix');
-  const dot = page.locator(`a.matrix-node[aria-label^="${title}，"]`);
+  const dot = page.locator(`.matrix-node[aria-label^="${title}，"]`);
   await expect(dot).toHaveAttribute('data-column', '13');
   await expect(dot).toHaveAttribute('data-row', '4');
 
   // 列表：勾选完成的是"本次"，任务仍在待办中，代表实例顺延到明天
   await page.goto('/');
-  const row = page.locator('.task-row', { hasText: title });
+  const row = taskItem(page, title);
   await expect(row).toContainText('本次 今天 08:00');
   await expect(row).toContainText('↻ 每天');
   await page.getByRole('checkbox', { name: `完成本次：${title}` }).click();
@@ -86,13 +84,18 @@ test('循环开关：每天重复；勾选完成当前实例而非任务本身�
   await page.reload();
   await expect(statuses).toHaveText(['已完成', '未完成', '已完成', '未完成']);
 
+  // 历史记录页返回上次浏览的列表 / 矩阵（这里最后看的是矩阵）
+  await page.getByRole('link', { name: '← 返回' }).click();
+  await expect(page).toHaveURL(/\/matrix$/);
+  await page.goto('/');
+
   // 关闭循环：任务恢复为普通任务，历史记录保留
-  await page.goto(`/tasks/${taskId}`);
-  await page.getByRole('switch', { name: '重复' }).uncheck();
-  await expect(page.getByLabel('截止时间')).toBeVisible();
-  await save(page);
-  await expect(page.getByRole('link', { name: '历史记录（4 次）→' })).toBeVisible();
-  await page.getByRole('link', { name: '历史记录（4 次）→' }).click();
+  await openTask(page, title);
+  await panel.getByRole('switch', { name: '重复' }).uncheck();
+  await expect(dateInput(panel)).toBeVisible();
+  await waitSaved(page);
+  await expect(historyLink(page, 4)).toBeVisible();
+  await historyLink(page, 4).click();
   await expect(page.getByText('循环已关闭，历史记录保留')).toBeVisible();
   await expect(statuses).toHaveCount(4);
 
@@ -111,10 +114,10 @@ test('重复规则编辑：每周几、每月几号与最后一天、次数；�
   const title = `${id} 规则编辑`;
   await page.goto('/');
   await quickAdd(page, title);
-  await openTask(page, title);
-  const taskId = page.url().split('/tasks/')[1]!;
+  const taskId = await openTask(page, title);
+  const panel = editPanel(page);
 
-  await page.getByRole('switch', { name: '重复' }).check();
+  await panel.getByRole('switch', { name: '重复' }).check();
   await rule(page).getByLabel('开始时间').fill(localDateTime(1, '19:30'));
 
   // 每周：清空所有星期 → 不能保存
@@ -125,8 +128,17 @@ test('重复规则编辑：每周几、每月几号与最后一天、次数；�
     if ((await button.getAttribute('aria-pressed')) === 'true') await button.click();
   }
   await expect(summary(page)).toContainText('请至少选择一个星期几');
-  await page.getByRole('button', { name: '保存' }).click();
-  await expect(page.getByRole('status')).toHaveText('请至少选择一个星期几');
+  // 不合法的规则不会自动保存
+  await expect(panel).toHaveAttribute('data-save-state', 'invalid');
+  const [unsaved] = await queryRest<{ recurrence_rule: string | null }[]>(
+    request,
+    `tasks?id=eq.${taskId}&select=recurrence_rule`,
+  );
+  // 数据库里仍是上一次合法的规则（或尚未写入规则），不会出现没有星期几的每周规则
+  expect(
+    unsaved!.recurrence_rule === null ||
+      !/^FREQ=WEEKLY(;|$)(?!.*BYDAY)/.test(unsaved!.recurrence_rule),
+  ).toBe(true);
 
   for (const name of ['周一', '周三', '周五']) await weekdays.getByRole('button', { name }).click();
   await expect(summary(page)).toContainText('每周一、三、五');
@@ -142,7 +154,7 @@ test('重复规则编辑：每周几、每月几号与最后一天、次数；�
   await rule(page).getByLabel('结束方式').selectOption('count');
   await rule(page).getByLabel('重复次数').fill('5');
   await expect(summary(page)).toContainText('每月1号和最后一天，共 5 次');
-  await save(page);
+  await waitSaved(page);
 
   const [saved] = await queryRest<{ recurrence_rule: string }[]>(
     request,
@@ -150,13 +162,12 @@ test('重复规则编辑：每周几、每月几号与最后一天、次数；�
   );
   expect(saved!.recurrence_rule).toBe('FREQ=MONTHLY;BYMONTHDAY=1,-1;COUNT=5');
 
-  // 重新打开页面，规则能被正确读回
+  // 刷新后重新展开，规则能被正确读回
   await page.reload();
+  await openTask(page, title);
   await expect(summary(page)).toContainText('每月1号和最后一天，共 5 次');
+  await collapse(page);
 
   // 列表中显示规则说明
-  await page.goto('/');
-  await expect(page.locator('.task-row', { hasText: title })).toContainText(
-    '↻ 每月1号和最后一天，共 5 次',
-  );
+  await expect(taskItem(page, title)).toContainText('↻ 每月1号和最后一天，共 5 次');
 });

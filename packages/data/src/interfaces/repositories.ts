@@ -66,8 +66,9 @@ export interface ITaskRepository {
 
 export interface NewCategory {
   name: string;
-  /** #RRGGBB，在同一用户的分类内不可重复 */
+  /** #RRGGBB，在同一用户的分类内不可重复（冲突时抛出 DataError('conflict')） */
   color: string;
+  description?: string;
 }
 
 export type CategoryPatch = Partial<NewCategory>;

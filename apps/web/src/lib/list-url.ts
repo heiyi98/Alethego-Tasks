@@ -1,4 +1,4 @@
-/** 记住列表页的筛选 URL，从详情页返回 / 删除后回到同一筛选视图。仅为便利功能，存储不可用时退回首页。 */
+/** 记住列表 / 矩阵页的 URL（含筛选），从历史记录页返回时回到同一视图。仅为便利功能，存储不可用时退回首页。 */
 const KEY = 'alethego:list-url';
 
 export function rememberListUrl(url: string): void {

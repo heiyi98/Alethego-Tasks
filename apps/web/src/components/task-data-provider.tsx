@@ -12,7 +12,7 @@ import { browserTimeZone, errorMessage } from '@/lib/format';
 
 /**
  * 全局任务数据：侧边栏（计数）与各列表 / 矩阵页共享同一份数据和同一套筛选逻辑。
- * 路由变化时重新加载，从详情页返回后计数与列表都是最新的。
+ * 路由变化时重新加载，面板改动后计数与列表都是最新的。
  */
 
 interface TaskDataValue {
@@ -23,15 +23,8 @@ interface TaskDataValue {
   reload: () => Promise<void>;
   /** 勾选完成：普通任务切换自身完成状态；循环任务完成当前代表实例 */
   toggleComplete: (task: Task) => Promise<void>;
-  /** 快速添加；categoryId 非空时新任务归入该分类 */
-  createTask: (title: string, categoryId: string | null) => Promise<CreateResult>;
   actionError: string | null;
 }
-
-export type CreateResult =
-  | { ok: true }
-  /** created：任务是否已创建（仅归入分类失败时为 true） */
-  | { ok: false; created: boolean; message: string };
 
 const TaskDataContext = createContext<TaskDataValue | null>(null);
 
@@ -79,23 +72,9 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  async function createTask(title: string, categoryId: string | null): Promise<CreateResult> {
-    let created = false;
-    try {
-      const task = await repositories.tasks.create({ title });
-      created = true;
-      if (categoryId) await repositories.categories.setTaskCategories(task.id, [categoryId]);
-      return { ok: true };
-    } catch (e) {
-      return { ok: false, created, message: errorMessage(e) };
-    } finally {
-      await reload();
-    }
-  }
-
   return (
     <TaskDataContext.Provider
-      value={{ data, error, now, timeZone, reload, toggleComplete, createTask, actionError }}
+      value={{ data, error, now, timeZone, reload, toggleComplete, actionError }}
     >
       {children}
     </TaskDataContext.Provider>

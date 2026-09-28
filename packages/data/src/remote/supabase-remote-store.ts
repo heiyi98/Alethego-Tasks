@@ -27,7 +27,12 @@ import type {
 } from '../interfaces/repositories';
 import type { IRemoteStore } from '../interfaces/stores';
 import { LOCAL_OWNER_ID } from '../owner';
-import { validateNewTask, validatePeopleDrafts, validateTaskPatch } from '../validation';
+import {
+  validateCategoryInput,
+  validateNewTask,
+  validatePeopleDrafts,
+  validateTaskPatch,
+} from '../validation';
 import type { TableUpdate } from './database.types';
 import {
   categoryFromRow,
@@ -166,6 +171,7 @@ export class SupabaseCategoryRepository implements ICategoryRepository {
   }
 
   async create(input: NewCategory) {
+    input = validateCategoryInput(input);
     return categoryFromRow(
       unwrap(
         await this.client
@@ -179,6 +185,7 @@ export class SupabaseCategoryRepository implements ICategoryRepository {
   }
 
   async update(id: string, patch: CategoryPatch) {
+    patch = validateCategoryInput(patch);
     return categoryFromRow(
       unwrap(
         await this.client

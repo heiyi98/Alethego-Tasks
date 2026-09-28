@@ -1,0 +1,166 @@
+'use client';
+
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
+
+import { IconButton, UndoIcon, WarningIcon, XIcon, CheckIcon } from './icons';
+
+/**
+ * 全局反馈：
+ * - 撤销提示条：不可逆动作（删除任务 / 删除人物 / 清空描述）执行后短暂显示，点撤销即恢复
+ * - 确认框：以图标为主，只用于"放弃新建"与"删除分类"
+ */
+
+const TOAST_MS = 5000;
+
+interface Toast {
+  id: number;
+  message: string;
+  onUndo?: () => void | Promise<void>;
+}
+
+interface ConfirmRequest {
+  message: string;
+  detail?: string;
+  confirmLabel: string;
+  cancelLabel: string;
+  destructive?: boolean;
+  resolve: (ok: boolean) => void;
+}
+
+interface FeedbackValue {
+  showUndo: (message: string, onUndo: () => void | Promise<void>) => void;
+  /** 没有撤销的提示（例如创建失败） */
+  notify: (message: string) => void;
+  confirm: (options: Omit<ConfirmRequest, 'resolve'>) => Promise<boolean>;
+}
+
+const FeedbackContext = createContext<FeedbackValue | null>(null);
+
+let toastSeq = 0;
+
+export function FeedbackProvider({ children }: { children: ReactNode }) {
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const [request, setRequest] = useState<ConfirmRequest | null>(null);
+  const timers = useRef(new Map<number, ReturnType<typeof setTimeout>>());
+
+  const dismiss = useCallback((id: number) => {
+    setToasts((all) => all.filter((t) => t.id !== id));
+    clearTimeout(timers.current.get(id));
+    timers.current.delete(id);
+  }, []);
+
+  const push = useCallback(
+    (message: string, onUndo?: () => void | Promise<void>) => {
+      const id = ++toastSeq;
+      setToasts((all) => [...all.slice(-2), { id, message, onUndo }]);
+      timers.current.set(
+        id,
+        setTimeout(() => dismiss(id), TOAST_MS),
+      );
+    },
+    [dismiss],
+  );
+  const showUndo = useCallback(
+    (message: string, onUndo: () => void | Promise<void>) => push(message, onUndo),
+    [push],
+  );
+  const notify = useCallback((message: string) => push(message), [push]);
+
+  const confirm = useCallback(
+    (options: Omit<ConfirmRequest, 'resolve'>) =>
+      new Promise<boolean>((resolve) => setRequest({ ...options, resolve })),
+    [],
+  );
+
+  const answer = useCallback(
+    (ok: boolean) => {
+      request?.resolve(ok);
+      setRequest(null);
+    },
+    [request],
+  );
+
+  useEffect(() => {
+    if (!request) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.stopPropagation();
+        answer(false);
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [request, answer]);
+
+  return (
+    <FeedbackContext.Provider value={{ showUndo, notify, confirm }}>
+      {children}
+
+      <div className="toast-stack" data-keep-panel aria-live="polite">
+        {toasts.map((toast) => (
+          <div key={toast.id} className="toast" role="status">
+            <span className="toast-message">{toast.message}</span>
+            {toast.onUndo && (
+              <IconButton
+                label="撤销"
+                className="toast-undo"
+                onClick={async () => {
+                  dismiss(toast.id);
+                  await toast.onUndo?.();
+                }}
+              >
+                <UndoIcon />
+              </IconButton>
+            )}
+            <IconButton label="关闭提示" className="toast-close" onClick={() => dismiss(toast.id)}>
+              <XIcon size={14} />
+            </IconButton>
+          </div>
+        ))}
+      </div>
+
+      {request && (
+        <div className="dialog-backdrop" data-keep-panel data-dialog-open>
+          <div className="dialog" role="alertdialog" aria-modal="true" aria-label={request.message}>
+            <span className={`dialog-icon${request.destructive ? ' dialog-icon-danger' : ''}`}>
+              <WarningIcon size={28} />
+            </span>
+            <p className="dialog-message">{request.message}</p>
+            {request.detail && <p className="dialog-detail">{request.detail}</p>}
+            <div className="dialog-actions">
+              <IconButton
+                label={request.cancelLabel}
+                className="dialog-button"
+                autoFocus
+                onClick={() => answer(false)}
+              >
+                <XIcon />
+              </IconButton>
+              <IconButton
+                label={request.confirmLabel}
+                className={`dialog-button${request.destructive ? ' dialog-button-danger' : ' dialog-button-primary'}`}
+                onClick={() => answer(true)}
+              >
+                <CheckIcon />
+              </IconButton>
+            </div>
+          </div>
+        </div>
+      )}
+    </FeedbackContext.Provider>
+  );
+}
+
+export function useFeedback(): FeedbackValue {
+  const value = useContext(FeedbackContext);
+  if (!value) throw new Error('useFeedback 必须在 FeedbackProvider 内使用');
+  return value;
+}

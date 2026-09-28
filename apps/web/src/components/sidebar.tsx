@@ -5,8 +5,9 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
 
-import { CategoryCreateForm } from './category-create-form';
+import { CategoryForm } from './category-form';
 import { CategoryDot } from './category-dot';
+import { IconButton, PencilIcon } from './icons';
 import { useTaskData } from './task-data-provider';
 import { STATUS_LABELS, STATUS_ORDER } from '@/lib/format';
 
@@ -27,7 +28,8 @@ export function Sidebar() {
   const { data, now, timeZone, reload } = useTaskData();
   const pathname = usePathname();
   const router = useRouter();
-  const [creating, setCreating] = useState(false);
+  // 同一时间只打开一个分类表单：'new' = 新建，其他值 = 正在编辑的分类 id
+  const [editing, setEditing] = useState<string | null>(null);
 
   const counts = useMemo(() => {
     if (!data) return null;
@@ -86,8 +88,28 @@ export function Sidebar() {
         <ul>
           {data?.categories.map((category) => {
             const href = `/category/${category.id}`;
+            if (editing === category.id) {
+              return (
+                <li key={category.id}>
+                  <CategoryForm
+                    categories={data.categories}
+                    category={category}
+                    onCancel={() => setEditing(null)}
+                    onSaved={async () => {
+                      setEditing(null);
+                      await reload();
+                    }}
+                    onDeleted={async () => {
+                      setEditing(null);
+                      if (pathname === href) router.push('/');
+                      await reload();
+                    }}
+                  />
+                </li>
+              );
+            }
             return (
-              <li key={category.id}>
+              <li key={category.id} className="sidebar-category">
                 <Link
                   href={href}
                   className="sidebar-item"
@@ -101,22 +123,29 @@ export function Sidebar() {
                     <span className="sidebar-count">{counts.byCategory.get(category.id) ?? 0}</span>
                   )}
                 </Link>
+                <IconButton
+                  label={`编辑分类「${category.name}」`}
+                  className="sidebar-edit"
+                  onClick={() => setEditing(category.id)}
+                >
+                  <PencilIcon size={14} />
+                </IconButton>
               </li>
             );
           })}
         </ul>
-        {creating && data ? (
-          <CategoryCreateForm
+        {editing === 'new' && data ? (
+          <CategoryForm
             categories={data.categories}
-            onCancel={() => setCreating(false)}
-            onCreated={async (category) => {
-              setCreating(false);
+            onCancel={() => setEditing(null)}
+            onSaved={async (category) => {
+              setEditing(null);
               await reload();
               router.push(`/category/${category.id}`);
             }}
           />
         ) : (
-          <button type="button" className="sidebar-add" onClick={() => setCreating(true)}>
+          <button type="button" className="sidebar-add" onClick={() => setEditing('new')}>
             + 新建分类
           </button>
         )}

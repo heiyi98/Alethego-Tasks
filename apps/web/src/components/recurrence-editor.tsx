@@ -3,22 +3,17 @@
 import {
   LAST_DAY_OF_MONTH,
   WEEKDAYS,
-  buildRecurrenceRule,
   defaultRecurrenceSpec,
   describeRecurrence,
   monthDayOf,
-  parseRecurrenceRule,
   resolveRepresentativeInstance,
   untilFromLocalDate,
-  validateRecurrenceSpec,
   weekdayName,
   weekdayOf,
   type RecurrenceEnd,
   type RecurrenceFrequency,
   type RecurrenceOccurrence,
   type RecurrenceRuleSpec,
-  type RecurrenceSpecError,
-  type Task,
 } from '@alethego/core';
 
 import {
@@ -28,60 +23,16 @@ import {
   toDateTimeLocalValue,
   toDateValue,
 } from '@/lib/format';
+import { recurrencePatch, type RecurrenceFormState } from '@/lib/recurrence-form';
 
 /**
  * 循环开关与重复规则编辑。循环不是独立的任务类型，只是任务上的一个开关：
  * 打开后设置 RRULE + 起始时间，关闭后任务恢复为普通任务，已产生的历史记录保留。
  */
 
-export interface RecurrenceFormState {
-  enabled: boolean;
-  /** 可编辑的规则；为 null 时表示使用 customRule（超出界面可编辑范围的规则） */
-  spec: RecurrenceRuleSpec | null;
-  customRule: string | null;
-  /** 起始时间，datetime-local 格式 */
-  dtstart: string;
-}
-
-export function recurrenceFormFromTask(task: Task): RecurrenceFormState {
-  const spec = task.recurrenceRule ? parseRecurrenceRule(task.recurrenceRule) : null;
-  return {
-    enabled: task.recurrenceRule !== null,
-    spec,
-    customRule: task.recurrenceRule && !spec ? task.recurrenceRule : null,
-    dtstart: toDateTimeLocalValue(task.recurrenceDtstart),
-  };
-}
-
-const SPEC_ERRORS: Record<RecurrenceSpecError, string> = {
-  no_weekday: '请至少选择一个星期几',
-  no_month_day: '请至少选择一个日期',
-  bad_interval: '重复间隔需为正整数',
-  bad_count: '重复次数需为正整数',
-};
-
-export type RecurrencePatch =
-  | { ok: true; recurrenceRule: string | null; recurrenceDtstart?: Date }
-  | { ok: false; error: string };
-
-/** 表单状态 → 任务字段；关闭开关只清空规则（起始时间保留，历史记录不受影响） */
-export function recurrencePatch(state: RecurrenceFormState): RecurrencePatch {
-  if (!state.enabled) return { ok: true, recurrenceRule: null };
-  const dtstart = fromDateTimeLocalValue(state.dtstart);
-  if (!dtstart) return { ok: false, error: '请设置循环的开始时间' };
-  if (!state.spec) {
-    return state.customRule
-      ? { ok: true, recurrenceRule: state.customRule, recurrenceDtstart: dtstart }
-      : { ok: false, error: '请设置重复规则' };
-  }
-  const error = validateRecurrenceSpec(state.spec);
-  if (error) return { ok: false, error: SPEC_ERRORS[error] };
-  return { ok: true, recurrenceRule: buildRecurrenceRule(state.spec), recurrenceDtstart: dtstart };
-}
-
-/** 打开开关时的默认起始时间：任务的截止时间，没有则为今天 09:00 */
-function defaultDtstart(task: Task): Date {
-  if (task.deadlineAt) return task.deadlineAt;
+/** 打开开关时的默认起始时间：任务的截止时间（若有），否则为今天 09:00 */
+function defaultDtstart(fallback: Date | null): Date {
+  if (fallback) return fallback;
   const date = new Date();
   date.setHours(9, 0, 0, 0);
   return date;
@@ -97,14 +48,15 @@ const FREQUENCY_UNITS: Record<RecurrenceFrequency, string> = {
 const MONTH_DAYS = Array.from({ length: 31 }, (_, i) => i + 1);
 
 export function RecurrenceEditor({
-  task,
+  fallbackStart,
   value,
   onChange,
   records,
   now,
   timeZone,
 }: {
-  task: Task;
+  /** 打开开关时默认的起始时间（通常是任务的截止时间）；没有则取今天 09:00 */
+  fallbackStart: Date | null;
   value: RecurrenceFormState;
   onChange: (next: RecurrenceFormState) => void;
   /** 该任务已有的实例记录，用于预览"当前实例" */
@@ -119,7 +71,7 @@ export function RecurrenceEditor({
       onChange({ ...value, enabled: false });
       return;
     }
-    const dtstart = dtstartDate ?? defaultDtstart(task);
+    const dtstart = dtstartDate ?? defaultDtstart(fallbackStart);
     onChange({
       enabled: true,
       dtstart: toDateTimeLocalValue(dtstart),
@@ -172,15 +124,15 @@ export function RecurrenceEditor({
 
   return (
     <fieldset className="field recurrence" aria-label="重复">
-      <label className="switch">
+      <label className="switch" title="重复">
         <input
           type="checkbox"
           role="switch"
+          aria-label="重复"
           checked={value.enabled}
           onChange={(event) => toggle(event.target.checked)}
         />
         <span className="switch-track" aria-hidden />
-        重复
       </label>
 
       {value.enabled && (
@@ -275,7 +227,10 @@ export function RecurrenceEditor({
                   onChange({
                     ...value,
                     customRule: null,
-                    spec: defaultRecurrenceSpec(dtstartDate ?? defaultDtstart(task), timeZone),
+                    spec: defaultRecurrenceSpec(
+                      dtstartDate ?? defaultDtstart(fallbackStart),
+                      timeZone,
+                    ),
                   })
                 }
               >
@@ -324,7 +279,7 @@ export function RecurrenceEditor({
               {value.spec.end.kind === 'until' && (
                 <input
                   type="date"
-                  aria-label="截止日期"
+                  aria-label="结束日期"
                   value={toDateValue(value.spec.end.until)}
                   onChange={(event) => {
                     const date = fromDateValue(event.target.value);

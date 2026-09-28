@@ -9,10 +9,11 @@ import {
   type StatusFilter,
 } from '@alethego/core';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 
 import { CategoryDot } from './category-dot';
 import { CategoryTags, StatusTags } from './filter-tags';
+import { usePanels } from './panel-provider';
 import { QuickAdd } from './quick-add';
 import { useTaskData } from './task-data-provider';
 import { TaskRow } from './task-row';
@@ -96,6 +97,23 @@ export function TaskListView({ mode }: { mode: TaskListMode }) {
     [data, status, selectedTags, now, timeZone],
   );
 
+  // 正在编辑的任务即使改完后不再符合筛选（例如标记完成），也先留在原位，收起面板后再消失
+  const { active } = usePanels();
+  const openTaskId = active?.kind === 'edit' && active.surface === 'inline' ? active.taskId : null;
+  const lastOrder = useRef<string[]>([]);
+  const shownTasks = useMemo(() => {
+    const list = [...visibleTasks];
+    const openTask = openTaskId ? data?.tasks.find((t) => t.id === openTaskId) : undefined;
+    if (openTask && !list.some((t) => t.id === openTask.id)) {
+      const index = lastOrder.current.indexOf(openTask.id);
+      list.splice(index < 0 ? list.length : Math.min(index, list.length), 0, openTask);
+    }
+    return list;
+  }, [visibleTasks, openTaskId, data]);
+  useEffect(() => {
+    lastOrder.current = shownTasks.map((t) => t.id);
+  }, [shownTasks]);
+
   const categoriesById = useMemo(() => new Map(data?.categories.map((c) => [c.id, c])), [data]);
 
   return (
@@ -105,6 +123,9 @@ export function TaskListView({ mode }: { mode: TaskListMode }) {
           {mode.kind === 'category' && <CategoryDot color={mode.category.color} />}
           {mode.kind === 'overview' ? STATUS_LABELS[mode.status] : mode.category.name}
         </h1>
+        {mode.kind === 'category' && mode.category.description && (
+          <p className="page-description">{mode.category.description}</p>
+        )}
       </header>
 
       <QuickAdd category={quickAddCategory} />
@@ -129,13 +150,13 @@ export function TaskListView({ mode }: { mode: TaskListMode }) {
 
       {!data && !error && <p className="muted">加载中…</p>}
 
-      {data && visibleTasks.length === 0 && (
+      {data && shownTasks.length === 0 && (
         <p className="muted empty">没有{status === 'all' ? '' : STATUS_LABELS[status]}任务</p>
       )}
 
-      {data && visibleTasks.length > 0 && (
+      {data && shownTasks.length > 0 && (
         <ul className="task-list" aria-label="任务列表">
-          {visibleTasks.map((task) => {
+          {shownTasks.map((task) => {
             const occurrences = data.occurrencesByTask.get(task.id) ?? [];
             return (
               <TaskRow

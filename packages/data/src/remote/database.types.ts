@@ -64,6 +64,7 @@ export interface Database {
           owner_id: string;
           name: string;
           color: string;
+          description: string;
           created_at: string;
         };
         Insert: {
@@ -71,6 +72,7 @@ export interface Database {
           owner_id?: string;
           name: string;
           color: string;
+          description?: string;
           created_at?: string;
         };
         Update: {
@@ -78,6 +80,7 @@ export interface Database {
           owner_id?: string;
           name?: string;
           color?: string;
+          description?: string;
           created_at?: string;
         };
         Relationships: [];

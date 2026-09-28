@@ -5,6 +5,8 @@ export interface Category {
   name: string;
   /** #RRGGBB */
   color: string;
+  /** 分类描述，可为空字符串 */
+  description: string;
   createdAt: Date;
 }
 

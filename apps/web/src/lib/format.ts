@@ -69,14 +69,17 @@ const pad = (n: number) => String(n).padStart(2, '0');
 
 /** 列表中的截止时间：今天 / 明天 / 昨天 + 时刻，其余显示日期 */
 export function formatDeadline(deadline: Date, now: Date, timeZone: string): string {
-  const time = `${pad(deadline.getHours())}:${pad(deadline.getMinutes())}`;
+  // 只精确到天的截止时间存为当天 23:59:59.999，显示时不带时刻
+  const dateOnly =
+    deadline.getHours() === 23 && deadline.getMinutes() === 59 && deadline.getSeconds() === 59;
+  const time = dateOnly ? '' : ` ${pad(deadline.getHours())}:${pad(deadline.getMinutes())}`;
   const days = calendarDaysBetween(now, deadline, timeZone);
-  if (days === 0) return `今天 ${time}`;
-  if (days === 1) return `明天 ${time}`;
-  if (days === -1) return `昨天 ${time}`;
+  if (days === 0) return `今天${time}`;
+  if (days === 1) return `明天${time}`;
+  if (days === -1) return `昨天${time}`;
   const date = `${deadline.getMonth() + 1}月${deadline.getDate()}日`;
   const year = deadline.getFullYear() === now.getFullYear() ? '' : `${deadline.getFullYear()}年`;
-  return `${year}${date} ${time}`;
+  return `${year}${date}${time}`;
 }
 
 /** Date → <input type="datetime-local"> 的值（本地时间） */

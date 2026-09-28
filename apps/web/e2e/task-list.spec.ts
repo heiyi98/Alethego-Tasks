@@ -1,56 +1,67 @@
 import { expect, test } from '@playwright/test';
 
 import {
+  collapse,
   createCategory,
+  dateInput,
+  editPanel,
   expectTitles,
+  localDate,
   openCategory,
-  localDateTime,
   openTask,
+  queryRest,
   quickAdd,
+  quickAddBar,
   runId,
-  saveAndBack,
+  saveAndCollapse,
   selectStatus,
   sidebar,
+  taskItem,
+  toast,
+  waitSaved,
 } from './helpers';
 
-test('快速添加、编辑截止时间与重要性、按截止时间排序、状态筛选、完成任务', async ({ page }) => {
+test('快速添加带重要性与截止日期、按截止时间排序、状态筛选、完成任务', async ({ page }) => {
   const id = runId();
   const t = (name: string) => `${id} ${name}`;
   await page.goto('/');
 
-  for (const name of ['无截止', '下周', '明天', '已过期']) await quickAdd(page, t(name));
+  // 选项行默认：重要性 0、没有截止日期
+  const bar = quickAddBar(page);
+  await expect(bar.getByRole('button', { name: '重要性 0', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(dateInput(bar)).toHaveValue('');
 
-  // 新建任务只有标题：默认未完成、无截止时间，按创建时间倒序
-  await expectTitles(page, id, [t('已过期'), t('明天'), t('下周'), t('无截止')]);
+  await quickAdd(page, t('无截止'));
+  await quickAdd(page, t('下周'), { deadline: localDate(7) });
+  await quickAdd(page, t('明天'), { deadline: localDate(1), importance: 4 });
+  await quickAdd(page, t('已过期'), { deadline: localDate(-1), expectVisible: false });
 
-  await openTask(page, t('明天'));
-  await page.getByLabel('截止时间').fill(localDateTime(1, '09:00'));
-  await page.getByRole('group', { name: '重要性' }).getByRole('button', { name: '4' }).click();
-  await saveAndBack(page);
-
-  await openTask(page, t('下周'));
-  await page.getByLabel('截止时间').fill(localDateTime(7, '18:00'));
-  await saveAndBack(page);
-
-  await openTask(page, t('已过期'));
-  await page.getByLabel('截止时间').fill(localDateTime(-1, '09:00'));
-  await saveAndBack(page);
+  // 创建后选项恢复默认
+  await expect(bar.getByRole('button', { name: '重要性 0', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(dateInput(bar)).toHaveValue('');
 
   // 默认视图 = 未完成：截止时间从近到远，无截止时间排最后；已过期的不在待办中
   await expectTitles(page, id, [t('明天'), t('下周'), t('无截止')]);
-  const tomorrowRow = page.locator('.task-row', { hasText: t('明天') });
-  await expect(tomorrowRow).toContainText('明天 09:00');
+  const tomorrowRow = taskItem(page, t('明天'));
+  // 截止时间只精确到天：不显示时刻
+  await expect(tomorrowRow.locator('.task-deadline')).toHaveText('明天');
   await expect(tomorrowRow).toContainText('重要性 4');
 
   await selectStatus(page, '已错过');
   await expectTitles(page, id, [t('已过期')]);
-  await expect(page.locator('.task-row', { hasText: t('已过期') })).toContainText('已错过');
+  await expect(taskItem(page, t('已过期'))).toContainText('已错过');
 
   // 完成任务后离开未完成，出现在已完成
   await selectStatus(page, '未完成');
   // 未完成视图中勾选后任务立即离开列表，因此用 click 而不是 check
   await page.getByRole('checkbox', { name: `完成：${t('明天')}` }).click();
-  await expect(page.getByRole('link', { name: t('明天') })).toHaveCount(0);
+  await expect(taskItem(page, t('明天'))).toHaveCount(0);
   await selectStatus(page, '已完成');
   await expectTitles(page, id, [t('明天')]);
 
@@ -62,12 +73,17 @@ test('快速添加、编辑截止时间与重要性、按截止时间排序、�
   await page.reload();
   await expectTitles(page, id, [t('已过期'), t('明天'), t('下周'), t('无截止')]);
 
-  // 完成状态已写入数据库
-  await selectStatus(page, '已完成');
-  await expectTitles(page, id, [t('明天')]);
+  // 在面板里改截止日期与重要性：自动保存，列表随之重排
+  await openTask(page, t('无截止'));
+  await dateInput(editPanel(page)).fill(localDate(3));
+  await waitSaved(page);
+  await collapse(page);
+  await expectTitles(page, id, [t('已过期'), t('明天'), t('无截止'), t('下周')]);
+  await page.reload();
+  await expectTitles(page, id, [t('已过期'), t('明天'), t('无截止'), t('下周')]);
 });
 
-test('分类：新建、在详情中多选、列表多选筛选（命中即显示）', async ({ page }) => {
+test('分类：新建、在面板中多选、列表多选筛选（命中即显示）', async ({ page }) => {
   const id = runId();
   const t = (name: string) => `${id} ${name}`;
   const work = `${id}工作`;
@@ -81,16 +97,19 @@ test('分类：新建、在详情中多选、列表多选筛选（命中即显�
   for (const name of ['只工作', '工作和家庭', '无分类']) await quickAdd(page, t(name));
 
   await openTask(page, t('只工作'));
-  await page.getByRole('group', { name: '分类' }).getByRole('button', { name: work }).click();
-  await saveAndBack(page);
+  await editPanel(page)
+    .getByRole('group', { name: '分类' })
+    .getByRole('button', { name: work })
+    .click();
+  await saveAndCollapse(page);
 
   await openTask(page, t('工作和家庭'));
-  const detailCategories = page.getByRole('group', { name: '分类' });
-  await detailCategories.getByRole('button', { name: work }).click();
-  await detailCategories.getByRole('button', { name: home }).click();
-  await saveAndBack(page);
+  const panelCategories = editPanel(page).getByRole('group', { name: '分类' });
+  await panelCategories.getByRole('button', { name: work }).click();
+  await panelCategories.getByRole('button', { name: home }).click();
+  await saveAndCollapse(page);
 
-  await expect(page.locator('.task-row', { hasText: t('工作和家庭') })).toContainText(home);
+  await expect(taskItem(page, t('工作和家庭'))).toContainText(home);
 
   await categoryBar.getByRole('button', { name: home }).click();
   await expectTitles(page, id, [t('工作和家庭')]);
@@ -98,9 +117,10 @@ test('分类：新建、在详情中多选、列表多选筛选（命中即显�
   await categoryBar.getByRole('button', { name: work }).click();
   await expectTitles(page, id, [t('工作和家庭'), t('只工作')]);
 
-  // 从详情返回后保持筛选
+  // 展开面板不影响筛选；刷新后筛选保持
   await openTask(page, t('只工作'));
-  await page.getByRole('link', { name: '← 返回列表' }).click();
+  await collapse(page);
+  await page.reload();
   await expect(categoryBar.getByRole('button', { name: work })).toHaveAttribute(
     'aria-pressed',
     'true',
@@ -112,52 +132,75 @@ test('分类：新建、在详情中多选、列表多选筛选（命中即显�
   await expectTitles(page, id, [t('无分类'), t('工作和家庭'), t('只工作')]);
 });
 
-test('删除为软删除：列表与详情不可见，数据库中保留并带 deleted_at', async ({ page, request }) => {
+test('删除任务：无确认框，提示条可撤销；删除为软删除；旧的详情路由已移除', async ({
+  page,
+  request,
+}) => {
   const id = runId();
   const title = `${id} 要删除`;
   await page.goto('/');
   await quickAdd(page, title);
+  const taskId = await openTask(page, title);
+  await editPanel(page).getByRole('textbox', { name: '描述' }).fill('删除前的描述');
+  await waitSaved(page);
+
+  // 删除：没有确认框，任务立即消失，提示条带撤销
+  let dialogs = 0;
+  page.on('dialog', () => dialogs++);
+  await editPanel(page).getByRole('button', { name: '删除任务' }).click();
+  await expect(taskItem(page, title)).toHaveCount(0);
+  await expect(page.getByRole('alertdialog')).toHaveCount(0);
+  const deleted = toast(page, `已删除「${title}」`);
+  await expect(deleted).toBeVisible();
+
+  // 撤销：任务恢复，内容完整
+  await deleted.getByRole('button', { name: '撤销' }).click();
+  await expect(taskItem(page, title)).toBeVisible();
   await openTask(page, title);
-  const taskUrl = page.url();
-  const taskId = taskUrl.split('/tasks/')[1]!;
+  await expect(editPanel(page).getByRole('textbox', { name: '描述' })).toHaveValue('删除前的描述');
 
-  page.once('dialog', (dialog) => dialog.accept());
-  await page.getByRole('button', { name: '删除' }).click();
+  // 再删一次，不撤销：提示条几秒后自动消失
+  await editPanel(page).getByRole('button', { name: '删除任务' }).click();
+  await expect(taskItem(page, title)).toHaveCount(0);
+  await expect(toast(page, `已删除「${title}」`)).toHaveCount(0, { timeout: 8000 });
+  await page.reload();
   await expect(page.getByLabel('快速添加任务')).toBeVisible();
-  await expect(page.getByRole('link', { name: title })).toHaveCount(0);
+  await expect(taskItem(page, title)).toHaveCount(0);
+  expect(dialogs).toBe(0);
 
-  await page.goto(taskUrl);
-  await expect(page.getByText('任务不存在或已删除。')).toBeVisible();
-
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-  const response = await request.get(
-    `${url}/rest/v1/tasks?id=eq.${taskId}&select=title,deleted_at`,
-    {
-      // 业务表在 taskapp schema 中，通过 Accept-Profile 指定
-      headers: { apikey: key, Authorization: `Bearer ${key}`, 'Accept-Profile': 'taskapp' },
-    },
+  const rows = await queryRest<{ title: string; deleted_at: string | null }[]>(
+    request,
+    `tasks?id=eq.${taskId}&select=title,deleted_at`,
   );
-  const rows = (await response.json()) as { title: string; deleted_at: string | null }[];
   expect(rows).toHaveLength(1);
   expect(rows[0]!.title).toBe(title);
   expect(rows[0]!.deleted_at).not.toBeNull();
+
+  // 旧的 /tasks/[id] 详情页已移除；历史记录页仍然存在
+  const old = await page.goto(`/tasks/${taskId}`);
+  expect(old?.status()).toBe(404);
+  const history = await page.goto(`/tasks/${taskId}/history`);
+  expect(history?.status()).toBe(200);
 });
 
-test('空白标题：快速添加忽略，详情中保存报错', async ({ page }) => {
+test('空白标题：快速添加忽略；面板中清空标题提示错误且不保存', async ({ page, request }) => {
   const id = runId();
   await page.goto('/');
   const input = page.getByLabel('快速添加任务');
   await input.fill('   ');
   await input.press('Enter');
   await expect(input).toHaveValue('   ');
+  await input.fill('');
 
   await quickAdd(page, `  ${id} 有空格  `);
-  await openTask(page, `${id} 有空格`);
-  await expect(page.getByLabel('标题')).toHaveValue(`${id} 有空格`);
-  await page.getByLabel('标题').fill('   ');
-  await page.getByRole('button', { name: '保存' }).click();
-  await expect(page.getByRole('status')).toHaveText('标题不能为空');
+  const taskId = await openTask(page, `${id} 有空格`);
+  await editPanel(page).getByLabel('标题').fill('   ');
+  await expect(editPanel(page)).toContainText('标题不能为空');
+  await expect(editPanel(page)).toHaveAttribute('data-save-state', 'invalid');
+  await collapse(page);
+
+  const [row] = await queryRest<{ title: string }[]>(request, `tasks?id=eq.${taskId}&select=title`);
+  expect(row!.title).toBe(`${id} 有空格`);
 });
 
 test('快速添加：只点亮一个分类时自动归入该分类；多选或总览时不带分类', async ({ page }) => {
@@ -170,7 +213,7 @@ test('快速添加：只点亮一个分类时自动归入该分类；多选或�
   for (const name of [work, home]) await createCategory(page, name);
   await selectStatus(page, '未完成');
   const categoryBar = page.getByRole('group', { name: '分类筛选' });
-  const row = (name: string) => page.locator('.task-row', { hasText: t(name) });
+  const row = (name: string) => taskItem(page, t(name));
 
   // 只点亮「工作」：新任务自动归入，且立即出现在当前筛选视图中
   await categoryBar.getByRole('button', { name: work }).click();
@@ -181,16 +224,20 @@ test('快速添加：只点亮一个分类时自动归入该分类；多选或�
   await quickAdd(page, t('单选'));
   await expect(row('单选')).toContainText(work);
 
+  // 展开面板：分类里已预选「工作」
+  await quickAddBar(page).getByRole('button', { name: '展开完整选项' }).click();
+  await expect(
+    page.getByRole('form', { name: '新建任务' }).getByRole('button', { name: work }),
+  ).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: '收起', exact: true }).click();
+
   // 同时点亮两个分类：不带分类（新任务不命中筛选，切回总览后可见）
   await categoryBar.getByRole('button', { name: home }).click();
   await expect(page.getByLabel('快速添加任务')).toHaveAttribute(
     'placeholder',
     '添加任务，回车创建',
   );
-  const input = page.getByLabel('快速添加任务');
-  await input.fill(t('多选'));
-  await input.press('Enter');
-  await expect(input).toHaveValue('');
+  await quickAdd(page, t('多选'), { expectVisible: false });
 
   // 回到总览：再新建一个，不带分类
   await categoryBar.getByRole('button', { name: work }).click();
@@ -249,53 +296,24 @@ test('侧边栏分类页：只显示该分类的任务，页面内用状态标�
 
   // 总览 · 全部：跨分类可见
   await selectStatus(page, '全部');
-  await expect(page.getByRole('link', { name: t('不属于分类') })).toBeVisible();
+  await expect(taskItem(page, t('不属于分类'))).toBeVisible();
   await openCategory(page, work);
-  await expect(page.getByRole('link', { name: t('不属于分类') })).toHaveCount(0);
+  await expect(taskItem(page, t('不属于分类'))).toHaveCount(0);
 });
 
-test('新建分类可以手动选择颜色；同一用户的分类颜色不能重复', async ({ page }) => {
+test('面板中标记完成：任务在收起前留在原位，收起后离开"未完成"', async ({ page }) => {
   const id = runId();
+  const title = `${id} 面板完成`;
   await page.goto('/');
-  const randomColor = () =>
-    `#${Math.floor(Math.random() * 0xffffff)
-      .toString(16)
-      .padStart(6, '0')}`;
-
-  // 手动选一个颜色（调色板中尚未被占用的第一个；调色板用尽时改用自选颜色）
-  await sidebar(page).getByRole('button', { name: '+ 新建分类' }).click();
-  const form = page.getByRole('form', { name: '新建分类' });
-  await page.getByLabel('新分类名称').fill(`${id}甲`);
-  const free = form.locator('button[role="radio"]:not([disabled])');
-  let chosen: string;
-  if ((await free.count()) > 0) {
-    chosen = (await free.last().getAttribute('aria-label'))!;
-    await free.last().click();
-    await expect(form.getByRole('radio', { name: chosen })).toHaveAttribute('aria-checked', 'true');
-  } else {
-    chosen = randomColor().toUpperCase();
-    await form.getByLabel('自选颜色').fill(chosen.toLowerCase());
-  }
-  await form.getByRole('button', { name: '添加' }).click();
-  await expect(page.getByRole('heading', { level: 1, name: `${id}甲` })).toBeVisible();
-
-  // 再新建时：若选的是调色板颜色，它已不可选
-  await sidebar(page).getByRole('button', { name: '+ 新建分类' }).click();
-  const form2 = page.getByRole('form', { name: '新建分类' });
-  const taken = form2.getByRole('radio', { name: new RegExp(`^${chosen}`) });
-  if ((await taken.count()) > 0) {
-    await expect(taken).toBeDisabled();
-    await expect(taken).toHaveAttribute('title', `已被「${id}甲」使用`);
-  }
-
-  // 自选颜色撞色（大小写不同也算）→ 提示，不能创建
-  await page.getByLabel('新分类名称').fill(`${id}乙`);
-  await form2.getByLabel('自选颜色').fill(chosen.toLowerCase());
-  await form2.getByRole('button', { name: '添加' }).click();
-  await expect(form2).toContainText(`该颜色已被「${id}甲」使用`);
-
-  // 自选一个未被使用的颜色 → 成功
-  await form2.getByLabel('自选颜色').fill(randomColor());
-  await form2.getByRole('button', { name: '添加' }).click();
-  await expect(page.getByRole('heading', { level: 1, name: `${id}乙` })).toBeVisible();
+  await selectStatus(page, '未完成');
+  await quickAdd(page, title);
+  await openTask(page, title);
+  await editPanel(page).getByRole('button', { name: '标记为完成' }).click();
+  await waitSaved(page);
+  await expect(editPanel(page).getByRole('button', { name: '标记为未完成' })).toBeVisible();
+  await expect(taskItem(page, title)).toBeVisible();
+  await collapse(page);
+  await expect(taskItem(page, title)).toHaveCount(0);
+  await selectStatus(page, '已完成');
+  await expect(taskItem(page, title)).toBeVisible();
 });

@@ -8,10 +8,10 @@ import {
   type Category,
   type MatrixPoint,
 } from '@alethego/core';
-import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState, type FocusEvent, type PointerEvent } from 'react';
 
 import { CategoryDot } from './category-dot';
+import { usePanels } from './panel-provider';
 import { QUADRANT_LABELS, TIER_TICK_LABELS, formatDeadline } from '@/lib/format';
 
 /**
@@ -226,7 +226,7 @@ export function TaskMatrix({
   now: Date;
   timeZone: string;
 }) {
-  const router = useRouter();
+  const { open } = usePanels();
   const wrapperRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [tooltip, setTooltip] = useState<Tooltip | null>(null);
@@ -371,7 +371,10 @@ export function TaskMatrix({
 
           {labels.map(({ point, x, y, width, titleWidth }) => {
             const colors = categoriesByTask(point.task.id).map((c) => c.color);
-            const href = `/tasks/${point.task.id}`;
+            const openPanel = () => {
+              hideTooltip();
+              open({ kind: 'edit', taskId: point.task.id, surface: 'floating' });
+            };
             const overdue = point.overdueDays !== null;
             const left = -width / 2;
             const label = [
@@ -381,18 +384,23 @@ export function TaskMatrix({
               QUADRANT_LABELS[point.quadrant],
             ].join('，');
             return (
-              <a
+              <g
                 key={point.task.id}
-                href={href}
+                role="button"
+                tabIndex={0}
                 className={`matrix-node${overdue ? ' matrix-node-overdue' : ''}`}
                 aria-label={label}
                 data-task-id={point.task.id}
                 data-quadrant={point.quadrant}
                 data-column={point.column}
                 data-row={point.row}
-                onClick={(event) => {
-                  event.preventDefault();
-                  router.push(href);
+                data-panel-anchor
+                onClick={openPanel}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    openPanel();
+                  }
                 }}
                 onPointerEnter={(event) => setTooltip({ kind: 'task', point, ...anchor(event) })}
                 onPointerLeave={hideTooltip}
@@ -437,7 +445,7 @@ export function TaskMatrix({
                     </text>
                   )}
                 </g>
-              </a>
+              </g>
             );
           })}
 

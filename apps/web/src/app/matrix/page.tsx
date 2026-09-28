@@ -9,20 +9,26 @@ import {
 } from '@alethego/core';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { Suspense, useMemo } from 'react';
+import { Suspense, useEffect, useMemo } from 'react';
 
 import { CategoryDot } from '@/components/category-dot';
 import { CategoryTags } from '@/components/filter-tags';
+import { usePanels } from '@/components/panel-provider';
+import { EditPanel } from '@/components/task-panels';
 import { useTaskData } from '@/components/task-data-provider';
 import { TaskMatrix } from '@/components/task-matrix';
 import { TaskRow } from '@/components/task-row';
 import { QUADRANT_LABELS } from '@/lib/format';
+import { rememberListUrl } from '@/lib/list-url';
 
 function MatrixPage() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { data, error, now, timeZone } = useTaskData();
+  const { active } = usePanels();
+  const query = searchParams.toString();
+  useEffect(() => rememberListUrl(query ? `${pathname}?${query}` : pathname), [pathname, query]);
 
   const selectedCategoryIds = useMemo(() => {
     const ids = searchParams.get('cat')?.split(',').filter(Boolean) ?? [];
@@ -105,7 +111,7 @@ function MatrixPage() {
                 逾期（3 天内贴右侧显示）
               </span>
               <span className="muted">
-                标题前的色标 = 所属分类，多分类按切片显示；点击任务查看详情
+                标题前的色标 = 所属分类，多分类按切片显示；点击任务可直接编辑
               </span>
             </div>
             {hiddenParts.length > 0 && (
@@ -147,6 +153,11 @@ function MatrixPage() {
             ))}
           </section>
         </>
+      )}
+
+      {/* 矩阵上点击任务：原页面上弹出编辑面板（手机为底部抽屉），不跳转 */}
+      {active?.kind === 'edit' && active.surface === 'floating' && (
+        <EditPanel key={active.taskId} taskId={active.taskId} surface="floating" />
       )}
     </main>
   );

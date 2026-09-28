@@ -2,6 +2,8 @@ import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 
 import { AppShell } from '@/components/app-shell';
+import { FeedbackProvider } from '@/components/feedback-provider';
+import { PanelProvider } from '@/components/panel-provider';
 import { RepositoriesProvider } from '@/components/repositories-provider';
 import { TaskDataProvider } from '@/components/task-data-provider';
 
@@ -18,7 +20,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <body>
         <RepositoriesProvider>
           <TaskDataProvider>
-            <AppShell>{children}</AppShell>
+            <FeedbackProvider>
+              <PanelProvider>
+                <AppShell>{children}</AppShell>
+              </PanelProvider>
+            </FeedbackProvider>
           </TaskDataProvider>
         </RepositoriesProvider>
       </body>

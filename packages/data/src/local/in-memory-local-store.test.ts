@@ -145,3 +145,43 @@ describe('InMemoryLocalStore', () => {
     expect(await store.occurrences.listByTask(task.id)).toHaveLength(3);
   });
 });
+
+describe('分类编辑', () => {
+  it('可以修改名称、描述、颜色；颜色不能与其他分类重复；名称不能为空', async () => {
+    const store = new InMemoryLocalStore();
+    const work = await store.categories.create({ name: '工作', color: '#007AFF' });
+    const home = await store.categories.create({
+      name: ' 家庭 ',
+      color: '#34C759',
+      description: ' 家里的事 ',
+    });
+    expect(home).toMatchObject({ name: '家庭', description: '家里的事' });
+    expect(work.description).toBe('');
+
+    const edited = await store.categories.update(work.id, {
+      name: '公司',
+      description: '上班相关',
+      color: '#ff9500',
+    });
+    expect(edited).toMatchObject({ name: '公司', description: '上班相关', color: '#FF9500' });
+
+    // 保持自己的颜色不算冲突；换成别人的颜色冲突
+    await expect(store.categories.update(work.id, { color: '#FF9500' })).resolves.toBeTruthy();
+    await expect(store.categories.update(work.id, { color: '#34c759' })).rejects.toMatchObject({
+      code: 'conflict',
+    });
+    await expect(store.categories.update(work.id, { name: '  ' })).rejects.toMatchObject({
+      code: 'invalid',
+    });
+  });
+
+  it('删除分类只解除关联，任务保留', async () => {
+    const store = new InMemoryLocalStore();
+    const work = await store.categories.create({ name: '工作', color: '#007AFF' });
+    const task = await store.tasks.create({ title: 't' });
+    await store.categories.setTaskCategories(task.id, [work.id]);
+    await store.categories.delete(work.id);
+    expect(await store.tasks.getById(task.id)).not.toBeNull();
+    expect(await store.categories.listCategoryIdsByTask([task.id])).toEqual(new Map());
+  });
+});

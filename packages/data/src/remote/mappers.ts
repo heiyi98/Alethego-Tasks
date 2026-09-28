@@ -73,6 +73,7 @@ export function categoryFromRow(row: TableRow<'categories'>): Category {
     ownerId: row.owner_id,
     name: row.name,
     color: row.color,
+    description: row.description,
     createdAt: toDate(row.created_at),
   };
 }

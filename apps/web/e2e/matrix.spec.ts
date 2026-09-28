@@ -2,60 +2,39 @@ import { expect, test, type Page } from '@playwright/test';
 
 import {
   createCategory,
-  localDateTime,
-  openTask,
+  editPanel,
+  localDate,
+  pickImportance,
   quickAdd,
   runId,
-  saveAndBack,
   selectStatus,
   sidebar,
+  taskItem,
+  waitSaved,
 } from './helpers';
 
-/** 在详情页设置截止时间 / 重要性 / 分类 */
-async function setupTask(
-  page: Page,
-  title: string,
-  opts: { deadline?: string; importance?: number; category: string },
-) {
-  await openTask(page, title);
-  if (opts.deadline) await page.getByLabel('截止时间').fill(opts.deadline);
-  if (opts.importance !== undefined) {
-    await page
-      .getByRole('group', { name: '重要性' })
-      .getByRole('button', { name: String(opts.importance), exact: true })
-      .click();
-  }
-  await page
-    .getByRole('group', { name: '分类' })
-    .getByRole('button', { name: opts.category })
-    .click();
-  await saveAndBack(page);
-}
+const dot = (page: Page, title: string) => page.locator(`.matrix-node[aria-label^="${title}，"]`);
 
-const dot = (page: Page, title: string) => page.locator(`a.matrix-node[aria-label^="${title}，"]`);
-
-test('矩阵：按紧迫度 × 重要性放置，逾期贴边，远期与未处理不显示，象限列表，点击进入详情', async ({
+test('矩阵：按紧迫度 × 重要性放置，逾期贴边，远期与未处理不显示，象限列表，点击弹出编辑面板', async ({
   page,
 }) => {
   const id = runId();
   const t = (name: string) => `${id} ${name}`;
   const category = `${id}矩阵`;
 
+  // 在分类页快速添加：自动归入该分类，并直接带上截止日期与重要性
   await page.goto('/');
   await createCategory(page, category);
-  await selectStatus(page, '未完成');
 
   const specs = [
-    { name: '明天重要', deadline: localDateTime(1, '09:00'), importance: 5 },
-    { name: '下月不重要', deadline: localDateTime(30, '09:00'), importance: 1 },
+    { name: '明天重要', deadline: localDate(1), importance: 5 },
+    { name: '下月不重要', deadline: localDate(30), importance: 1 },
     { name: '无截止重要', importance: 4 },
-    { name: '逾期两天', deadline: localDateTime(-2, '09:00'), importance: 2 },
-    { name: '远期', deadline: localDateTime(500, '09:00'), importance: 3 },
+    { name: '逾期两天', deadline: localDate(-2), importance: 2, expectVisible: false },
+    { name: '远期', deadline: localDate(500), importance: 3 },
     { name: '未处理' },
   ];
-  for (const spec of specs) await quickAdd(page, t(spec.name));
-  await selectStatus(page, '全部');
-  for (const { name, ...opts } of specs) await setupTask(page, t(name), { ...opts, category });
+  for (const { name, ...options } of specs) await quickAdd(page, t(name), options);
 
   // 进入矩阵，只点亮本用例的分类
   await sidebar(page).getByRole('link', { name: '时间管理矩阵' }).click();
@@ -66,7 +45,7 @@ test('矩阵：按紧迫度 × 重要性放置，逾期贴边，远期与未处�
     .click();
   await expect(page).toHaveURL(/cat=/);
 
-  await expect(page.locator('a.matrix-node')).toHaveCount(4);
+  await expect(page.locator('.matrix-node')).toHaveCount(4);
 
   // Y 轴：重要性 0–5 是六个等宽区间，刻度画在区间边界 0–6 上
   await expect(page.getByTestId('matrix-y-tick')).toHaveText(['0', '1', '2', '3', '4', '5', '6']);
@@ -104,9 +83,31 @@ test('矩阵：按紧迫度 × 重要性放置，逾期贴边，远期与未处�
   await expect(page.getByRole('tooltip')).toContainText('重要性 5');
   await expect(page.getByRole('tooltip')).toContainText(category);
 
-  // 点击圆点进入详情
+  // 点击任务：原页面上弹出编辑面板，不跳转
+  const url = page.url();
   await dot(page, t('明天重要')).click();
-  await expect(page.getByLabel('标题')).toHaveValue(t('明天重要'));
+  const dialog = page.getByRole('dialog', { name: '编辑任务' });
+  await expect(dialog).toBeVisible();
+  await expect(editPanel(page).getByLabel('标题')).toHaveValue(t('明天重要'));
+  expect(page.url()).toBe(url);
+
+  // 在面板里改重要性：自动保存，矩阵上的位置随之变化
+  await pickImportance(editPanel(page), 1);
+  await waitSaved(page);
+  await expect(dot(page, t('明天重要'))).toHaveAttribute('data-row', '1');
+  await expect(dot(page, t('明天重要'))).toHaveAttribute('data-quadrant', 'not_important_urgent');
+
+  // Esc 收起；点背景遮罩也收起
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await dot(page, t('下月不重要')).click();
+  await expect(editPanel(page).getByLabel('标题')).toHaveValue(t('下月不重要'));
+  await page.mouse.click(5, 5);
+  await expect(dialog).toHaveCount(0);
+
+  // 象限列表中的任务在原地展开
+  await quadrant('紧急不重要').getByText(t('明天重要'), { exact: true }).click();
+  await expect(quadrant('紧急不重要').getByRole('form', { name: '编辑任务' })).toBeVisible();
 });
 
 test('矩阵：完成任务后从矩阵消失；分类未命中时不显示', async ({ page }) => {
@@ -115,16 +116,9 @@ test('矩阵：完成任务后从矩阵消失；分类未命中时不显示', as
   const other = `${id}其他`;
   await page.goto('/');
   await createCategory(page, other);
-  await selectStatus(page, '未完成');
 
-  await quickAdd(page, title);
-  await openTask(page, title);
-  await page.getByLabel('截止时间').fill(localDateTime(2, '10:00'));
-  await page
-    .getByRole('group', { name: '重要性' })
-    .getByRole('button', { name: '3', exact: true })
-    .click();
-  await saveAndBack(page);
+  await selectStatus(page, '未完成');
+  await quickAdd(page, title, { deadline: localDate(2), importance: 3 });
 
   await page.goto('/matrix');
   await expect(dot(page, title)).toHaveCount(1);
@@ -135,7 +129,7 @@ test('矩阵：完成任务后从矩阵消失；分类未命中时不显示', as
 
   await page.goto('/');
   await page.getByRole('checkbox', { name: `完成：${title}` }).click();
-  await expect(page.getByRole('link', { name: title })).toHaveCount(0);
+  await expect(taskItem(page, title)).toHaveCount(0);
   await page.goto('/matrix');
   await expect(page.getByRole('img', { name: /时间管理矩阵/ })).toBeVisible();
   await expect(dot(page, title)).toHaveCount(0);

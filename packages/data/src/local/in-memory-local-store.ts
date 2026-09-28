@@ -28,7 +28,12 @@ import type {
 } from '../interfaces/repositories';
 import type { ILocalStore } from '../interfaces/stores';
 import { LOCAL_OWNER_ID } from '../owner';
-import { validateNewTask, validatePeopleDrafts, validateTaskPatch } from '../validation';
+import {
+  validateCategoryInput,
+  validateNewTask,
+  validatePeopleDrafts,
+  validateTaskPatch,
+} from '../validation';
 
 /**
  * 内存版本地存储：用于测试与离线存储实现（IndexedDB / SQLite）落地前的占位。
@@ -145,12 +150,14 @@ class MemoryCategoryRepository implements ICategoryRepository {
   }
 
   async create(input: NewCategory) {
+    input = validateCategoryInput(input);
     this.assertColorAvailable(input.color);
     const category: Category = {
       id: this.state.newId(),
       ownerId: this.state.ownerId,
       name: input.name,
       color: normalizeColor(input.color),
+      description: input.description ?? '',
       createdAt: this.state.now(),
     };
     this.state.categories.set(category.id, category);
@@ -158,6 +165,7 @@ class MemoryCategoryRepository implements ICategoryRepository {
   }
 
   async update(id: string, patch: CategoryPatch) {
+    patch = validateCategoryInput(patch);
     const existing = this.state.categories.get(id) ?? notFound('分类', id);
     if (patch.color !== undefined) this.assertColorAvailable(patch.color, id);
     const updated: Category = {

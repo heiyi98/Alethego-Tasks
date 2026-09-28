@@ -35,3 +35,17 @@ export function validatePeopleDrafts(drafts: readonly TaskPersonDraft[]): TaskPe
   if (!result.ok) throw new DataError('invalid', `第 ${result.index + 1} 个人物缺少姓名`);
   return result.people;
 }
+
+/** 分类名去除首尾空白且不能为空；描述去除首尾空白 */
+export function validateCategoryInput<T extends { name?: string; description?: string }>(
+  input: T,
+): T {
+  const result = { ...input };
+  if (input.name !== undefined) {
+    const name = input.name.trim();
+    if (!name) throw new DataError('invalid', '分类名称不能为空');
+    result.name = name;
+  }
+  if (input.description !== undefined) result.description = input.description.trim();
+  return result;
+}

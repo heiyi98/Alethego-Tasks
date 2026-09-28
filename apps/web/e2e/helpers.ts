@@ -1,4 +1,4 @@
-import { expect, type Page } from '@playwright/test';
+import { expect, type APIRequestContext, type Locator, type Page } from '@playwright/test';
 
 export const TIME_ZONE = 'Asia/Shanghai';
 
@@ -7,8 +7,8 @@ export function runId(): string {
   return `e2e${Math.random().toString(36).slice(2, 8)}`;
 }
 
-/** 距今 offsetDays 天、指定时刻的 datetime-local 值（按 TIME_ZONE） */
-export function localDateTime(offsetDays: number, time: string): string {
+/** 距今 offsetDays 天的本地日期 YYYY-MM-DD（按 TIME_ZONE） */
+export function localDate(offsetDays: number): string {
   const date = new Date(Date.now() + offsetDays * 86_400_000);
   const parts = Object.fromEntries(
     new Intl.DateTimeFormat('en-CA', {
@@ -20,15 +20,61 @@ export function localDateTime(offsetDays: number, time: string): string {
       .formatToParts(date)
       .map((p) => [p.type, p.value]),
   );
-  return `${parts.year}-${parts.month}-${parts.day}T${time}`;
+  return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
-export async function quickAdd(page: Page, title: string) {
+/** 距今 offsetDays 天、指定时刻的 datetime-local 值（按 TIME_ZONE） */
+export function localDateTime(offsetDays: number, time: string): string {
+  return `${localDate(offsetDays)}T${time}`;
+}
+
+/** 直接查询数据库（taskapp schema）验证落库结果 */
+export async function queryRest<T>(request: APIRequestContext, path: string): Promise<T> {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+  const response = await request.get(`${url}/rest/v1/${path}`, {
+    headers: { apikey: key, Authorization: `Bearer ${key}`, 'Accept-Profile': 'taskapp' },
+  });
+  return (await response.json()) as T;
+}
+
+/* ---------------- 快速添加 ---------------- */
+
+export const quickAddBar = (page: Page) => page.locator('form.quick-add');
+
+/** 在一组"重要性"按钮中选择 level */
+export async function pickImportance(scope: Locator, level: number) {
+  await scope
+    .getByRole('group', { name: '重要性' })
+    .getByRole('button', { name: `重要性 ${level}`, exact: true })
+    .click();
+}
+
+export const dateInput = (scope: Locator) => scope.locator('input[aria-label="截止日期"]');
+
+/** 快速添加：可同时设置重要性与截止日期（YYYY-MM-DD），回车创建 */
+export async function quickAdd(
+  page: Page,
+  title: string,
+  options: { importance?: number; deadline?: string; expectVisible?: boolean } = {},
+) {
+  const bar = quickAddBar(page);
   const input = page.getByLabel('快速添加任务');
   await input.fill(title);
+  if (options.importance !== undefined) await pickImportance(bar, options.importance);
+  if (options.deadline) await dateInput(bar).fill(options.deadline);
   await input.press('Enter');
-  await expect(page.getByRole('link', { name: title })).toBeVisible();
+  await expect(input).toHaveValue('');
+  if (options.expectVisible !== false) await expect(taskItem(page, title.trim())).toBeVisible();
 }
+
+/* ---------------- 列表与面板 ---------------- */
+
+/** 列表中标题完全等于 title 的任务项（包含展开后的面板） */
+export const taskItem = (page: Page, title: string) =>
+  page
+    .locator('.task-list > .task-item')
+    .filter({ has: page.locator('.task-title').getByText(title, { exact: true }) });
 
 /** 列表中以 prefix 开头的任务标题，按显示顺序 */
 async function listedTitles(page: Page, prefix: string): Promise<string[]> {
@@ -41,17 +87,40 @@ export async function expectTitles(page: Page, prefix: string, expected: string[
   await expect.poll(() => listedTitles(page, prefix)).toEqual(expected);
 }
 
-export async function openTask(page: Page, title: string) {
-  await page.getByRole('link', { name: title }).click();
-  await expect(page.getByRole('form', { name: '任务详情' })).toBeVisible();
+export const editPanel = (page: Page) => page.getByRole('form', { name: '编辑任务' });
+export const createPanel = (page: Page) => page.getByRole('form', { name: '新建任务' });
+
+/** 在列表中点击任务，原地展开编辑面板；返回任务 id */
+export async function openTask(page: Page, title: string): Promise<string> {
+  const main = taskItem(page, title).locator('.task-main').first();
+  await main.click();
+  await expect(main).toHaveAttribute('aria-expanded', 'true');
+  await expect(editPanel(page).getByLabel('标题')).toHaveValue(title);
+  return (await main.getAttribute('data-task-id'))!;
 }
 
-export async function saveAndBack(page: Page) {
-  await page.getByRole('button', { name: '保存' }).click();
-  await expect(page.getByRole('status')).toHaveText('已保存');
-  await page.getByRole('link', { name: '← 返回列表' }).click();
-  await expect(page.getByLabel('快速添加任务')).toBeVisible();
+/** 等待自动保存完成 */
+export async function waitSaved(page: Page) {
+  await expect(editPanel(page)).toHaveAttribute('data-save-state', 'saved');
 }
+
+/** 点三角收起面板 */
+export async function collapse(page: Page) {
+  await page.getByRole('button', { name: '收起', exact: true }).click();
+  await expect(page.locator('.task-editor')).toHaveCount(0);
+}
+
+/** 等待保存后收起 */
+export async function saveAndCollapse(page: Page) {
+  await waitSaved(page);
+  await collapse(page);
+}
+
+/** 撤销提示条 */
+export const toast = (page: Page, text: string | RegExp) =>
+  page.locator('.toast').filter({ hasText: text });
+
+/* ---------------- 侧边栏 ---------------- */
 
 export const sidebar = (page: Page) => page.getByRole('navigation', { name: '主菜单' });
 
@@ -67,8 +136,9 @@ export async function selectStatus(page: Page, label: string) {
 /** 在侧边栏新建分类（颜色默认取调色板中第一个未被使用的）；创建后会进入该分类页 */
 export async function createCategory(page: Page, name: string) {
   await sidebar(page).getByRole('button', { name: '+ 新建分类' }).click();
-  await page.getByLabel('新分类名称').fill(name);
-  await page.getByRole('form', { name: '新建分类' }).getByRole('button', { name: '添加' }).click();
+  const form = page.getByRole('form', { name: '新建分类' });
+  await form.getByLabel('分类名称').fill(name);
+  await form.getByRole('button', { name: '添加分类' }).click();
   await expect(page.getByRole('heading', { level: 1, name })).toBeVisible();
 }
 
