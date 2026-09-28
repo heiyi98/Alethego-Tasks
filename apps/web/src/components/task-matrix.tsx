@@ -28,8 +28,9 @@ const VIEW_H = 740;
 const M = { top: 30, right: 12, bottom: 46, left: 64 };
 const PLOT_W = VIEW_W - M.left - M.right;
 const PLOT_H = VIEW_H - M.top - M.bottom;
-/** 逾期贴边列更宽，标签内再标注"逾期 N 天" */
-const OVERDUE_WEIGHT = 1.6;
+/** 逾期贴边列只放点位，标题在点位左边向左伸展（标签内标注"逾期 N 天"） */
+const OVERDUE_WEIGHT = 0.8;
+const OVERDUE_POINT_R = 5;
 const OVERDUE_GAP = 6;
 const TIER_W = (PLOT_W - OVERDUE_GAP) / (MATRIX_TIER_COLUMNS + OVERDUE_WEIGHT);
 const ROW_H = PLOT_H / MATRIX_ROWS;
@@ -115,7 +116,7 @@ function Marker({ colors }: { colors: readonly string[] }) {
 
 function describeDeadline(point: MatrixPoint, now: Date, timeZone: string): string {
   if (point.urgency.kind === 'overdue') {
-    return point.overdueDays === 0 ? '今天已逾期' : `逾期 ${point.overdueDays} 天`;
+    return point.overdueDays === 0 ? '今天已过截止时刻' : `逾期 ${point.overdueDays} 天`;
   }
   const shown = point.representative.occurrenceAt ?? point.task.deadlineAt;
   if (!shown) return '无截止时间';
@@ -123,7 +124,8 @@ function describeDeadline(point: MatrixPoint, now: Date, timeZone: string): stri
   return point.representative.occurrenceAt ? `本次 ${text}` : text;
 }
 
-const overdueText = (days: number | null) => (days === 0 ? '今天逾期' : `逾期${days}天`);
+/** 逾期天数按日历天计算；当天已过截止时刻的（0 天）标"今天已过" */
+const overdueText = (days: number | null) => (days === 0 ? '今天已过' : `逾期${days}天`);
 
 /** 估算文本宽度 */
 function textWidth(text: string, fontSize = LABEL_FONT): number {
@@ -167,9 +169,13 @@ function layoutLabels(points: readonly MatrixPoint[]) {
         const suffix = point.overdueDays !== null ? OVERDUE_SUFFIX_WIDTH : 0;
         const chrome = LABEL_TEXT_OFFSET + LABEL_PADDING_RIGHT + suffix;
         const title = Math.min(MAX_TITLE_WIDTH, textWidth(point.task.title));
+        const overdue = point.overdueDays !== null;
         return {
           item: point,
           anchorX: colX(point.column) + colW(point.column) / 2,
+          // 逾期：点位在最右侧，标签贴在点位左边向左伸展，与其他标签互相避让
+          align: overdue ? ('end' as const) : ('center' as const),
+          endOffset: OVERDUE_POINT_R + 4,
           desiredY: rowTop(row) + (1 - point.offsetY) * ROW_H,
           width: chrome + Math.max(title, 12),
           minWidth: chrome + Math.min(title, MIN_TITLE_WIDTH),
@@ -369,7 +375,7 @@ export function TaskMatrix({
               );
             })}
 
-          {labels.map(({ point, x, y, width, titleWidth }) => {
+          {labels.map(({ point, x, y, width, anchorX, titleWidth }) => {
             const colors = categoriesByTask(point.task.id).map((c) => c.color);
             const openPanel = () => {
               hideTooltip();
@@ -407,6 +413,9 @@ export function TaskMatrix({
                 onFocus={(event) => setTooltip({ kind: 'task', point, ...anchor(event) })}
                 onBlur={hideTooltip}
               >
+                {overdue && (
+                  <circle className="overdue-point" cx={anchorX} cy={y} r={OVERDUE_POINT_R} />
+                )}
                 <g transform={`translate(${x} ${y})`}>
                   {/* 命中区域比标签略大 */}
                   <rect

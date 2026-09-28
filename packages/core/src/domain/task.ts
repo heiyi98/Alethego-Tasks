@@ -18,6 +18,8 @@ export interface Task {
   recurrenceRule: string | null;
   recurrenceDtstart: Date | null;
   completedAt: Date | null;
+  /** 标星：只是书签，不影响矩阵位置、排序或任何其他规则 */
+  isStarred: boolean;
   createdAt: Date;
   updatedAt: Date;
   /** 软删除时间；非空即已删除，只在列表/矩阵中隐藏，数据保留 */

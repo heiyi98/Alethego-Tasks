@@ -127,6 +127,28 @@ export const WarningIcon = (p: IconProps) => (
   </Svg>
 );
 
+export const StarIcon = ({ filled, ...p }: IconProps & { filled?: boolean }) => (
+  <Svg {...p} fill={filled ? 'currentColor' : 'none'}>
+    <path d="M12 3.8l2.5 5.1 5.6.8-4 3.9.9 5.6-5-2.6-5 2.6.9-5.6-4-3.9 5.6-.8z" />
+  </Svg>
+);
+/** 矩阵模式（四象限） */
+export const MatrixIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="3.5" y="3.5" width="17" height="17" rx="2.5" />
+    <path d="M12 3.5v17M3.5 12h17" />
+  </Svg>
+);
+/** 清单模式 */
+export const ListIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M9 6.5h11M9 12h11M9 17.5h11" />
+    <circle cx="4.8" cy="6.5" r="1" fill="currentColor" />
+    <circle cx="4.8" cy="12" r="1" fill="currentColor" />
+    <circle cx="4.8" cy="17.5" r="1" fill="currentColor" />
+  </Svg>
+);
+
 /** 只有图标的按钮：必须有 aria-label，悬停显示同样的文字 */
 export function IconButton({
   label,

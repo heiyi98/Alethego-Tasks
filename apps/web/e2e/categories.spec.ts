@@ -3,12 +3,13 @@ import { expect, test, type Page } from '@playwright/test';
 import {
   createCategory,
   editPanel,
-  openCategory,
+  categoryToggle,
   openTask,
   queryRest,
   quickAdd,
   runId,
   selectStatus,
+  toggleCategory,
   sidebar,
   taskItem,
 } from './helpers';
@@ -48,7 +49,7 @@ test('新建分类可以手动选择颜色；同一用户的分类颜色不能�
     await form.getByLabel('自选颜色').fill(chosen.toLowerCase());
   }
   await form.getByRole('button', { name: '添加分类' }).click();
-  await expect(page.getByRole('heading', { level: 1, name: `${id}甲` })).toBeVisible();
+  await expect(categoryToggle(page, `${id}甲`)).toBeVisible();
 
   // 再新建时：若选的是调色板颜色，它已不可选
   await sidebar(page).getByRole('button', { name: '+ 新建分类' }).click();
@@ -69,7 +70,7 @@ test('新建分类可以手动选择颜色；同一用户的分类颜色不能�
   await form2.getByLabel('自选颜色').fill(randomColor());
   await expect(form2.getByRole('alert')).toHaveCount(0);
   await form2.getByRole('button', { name: '添加分类' }).click();
-  await expect(page.getByRole('heading', { level: 1, name: `${id}乙` })).toBeVisible();
+  await expect(categoryToggle(page, `${id}乙`)).toBeVisible();
 });
 
 test('编辑分类：名称、描述、颜色；撞色提示；描述显示在分类页', async ({ page, request }) => {
@@ -101,8 +102,13 @@ test('编辑分类：名称、描述、颜色；撞色提示；描述显示在�
   await form.getByRole('button', { name: '保存分类' }).click();
   await expect(form).toHaveCount(0);
 
-  await openCategory(page, `${second}改`);
+  // 只选中这一个分类时，描述显示在页面标题下方；分类开关的悬停提示也是描述
+  await toggleCategory(page, `${second}改`);
   await expect(page.locator('.page-description')).toHaveText('周末的家务');
+  await expect(categoryToggle(page, `${second}改`)).toHaveAttribute('title', '周末的家务');
+  await toggleCategory(page, first);
+  await expect(page.locator('.page-description')).toHaveCount(0);
+  await toggleCategory(page, first);
 
   const [saved] = await queryRest<{ name: string; description: string; color: string }[]>(
     request,
@@ -117,7 +123,7 @@ test('编辑分类：名称、描述、颜色；撞色提示；描述显示在�
   await expect(again).toContainText('请输入分类名称');
   await again.getByRole('button', { name: '取消' }).click();
   await expect(
-    categoriesRegion(page).getByRole('link', { name: new RegExp(`^${second}改`) }),
+    categoriesRegion(page).getByRole('button', { name: new RegExp(`^${second}改`) }),
   ).toBeVisible();
 });
 
@@ -130,7 +136,9 @@ test('删除分类：图标确认框说明任务保留；取消不删；确认�
   const title = `${id} 分类里的任务`;
   await page.goto('/');
   await createCategory(page, category);
+  await toggleCategory(page, category);
   await quickAdd(page, title);
+  await expect(taskItem(page, title)).toContainText(category);
 
   // 取消：分类仍在
   const form = await editCategory(page, category);
@@ -141,14 +149,12 @@ test('删除分类：图标确认框说明任务保留；取消不删；确认�
   await expect(dialog).toHaveCount(0);
   await expect(form).toBeVisible();
 
-  // 确认：分类消失，正在看的分类页跳回总览
+  // 确认：分类消失，并从当前选择中去掉（回到所有分类）
   await form.getByRole('button', { name: '删除分类' }).click();
   await dialog.getByRole('button', { name: '删除分类' }).click();
-  await expect(
-    categoriesRegion(page).getByRole('link', { name: new RegExp(`^${category}`) }),
-  ).toHaveCount(0);
-  await expect(page.getByLabel('快速添加任务')).toBeVisible();
-  await expect(page.getByRole('heading', { level: 1, name: category })).toHaveCount(0);
+  await expect(categoryToggle(page, category)).toHaveCount(0);
+  await expect(page).not.toHaveURL(/cat=/);
+  await expect(page.getByTestId('page-scope')).toHaveCount(0);
 
   // 任务保留，不再属于任何分类
   await selectStatus(page, '全部');

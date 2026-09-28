@@ -5,6 +5,9 @@
  * 锚点附近都被占时，标签可以整体移到锚点旁边（displaced，表现层画引线指回锚点）；
  * 仍放不下时缩短标签，再放不下的归入所在格子的"+N"溢出项。
  *
+ * align = 'end' 的标签（逾期任务）：点位固定在锚点，标签整体放在点位左边、右端贴近点位；
+ * 点位本身也占用泳道，其他标签不会盖住它。
+ *
  * 单位与像素无关，由表现层决定；Web 与 Mobile 共用。
  */
 
@@ -21,6 +24,10 @@ export interface LabelRequest<T> {
   priority: number;
   /** 溢出时归入的分组（通常是格子），同组溢出项合并为一个"+N" */
   group: string;
+  /** 'center'（默认）：以锚点为中心；'end'：标签右端贴在点位左侧，向左伸展 */
+  align?: 'center' | 'end';
+  /** align = 'end' 时点位的半宽 + 与标签的间距 */
+  endOffset?: number;
 }
 
 export interface BandSpec {
@@ -99,11 +106,49 @@ export function packBandLabels<T>(
   const ordered = [...requests].sort(
     (a, b) => b.priority - a.priority || b.anchorX - a.anchorX || a.desiredY - b.desiredY,
   );
+  function addOverflow(request: LabelRequest<T>) {
+    const group = overflowGroups.get(request.group);
+    if (group) group.items.push(request.item);
+    else
+      overflowGroups.set(request.group, {
+        items: [request.item],
+        anchorX: request.anchorX,
+        desiredY: request.desiredY,
+      });
+  }
   const lanesByDistance = (y: number) =>
     centers.map((c, i) => ({ i, d: Math.abs(c - y) })).sort((a, b) => a.d - b.d);
 
   for (const request of ordered) {
     const lanesNear = lanesByDistance(request.desiredY);
+
+    if (request.align === 'end') {
+      const offset = request.endOffset ?? 0;
+      let done = false;
+      for (const width of [request.width, request.minWidth]) {
+        const labelTo = request.anchorX - offset;
+        const labelFrom = labelTo - width;
+        if (labelFrom < band.left) continue;
+        // 占用范围包含点位本身
+        const occupied = { from: labelFrom, to: request.anchorX + offset };
+        const lane = lanesNear.find(({ i }) => fits(lanes[i]!, occupied, band.gap));
+        if (!lane) continue;
+        lanes[lane.i]!.push(occupied);
+        placed.push({
+          item: request.item,
+          x: (labelFrom + labelTo) / 2,
+          y: centers[lane.i]!,
+          width,
+          anchorX: request.anchorX,
+          displaced: false,
+        });
+        done = true;
+        break;
+      }
+      if (!done) addOverflow(request);
+      continue;
+    }
+
     // 候选顺序：完整宽度 → 缩短；每种宽度先不离开锚点（居中或小幅平移，锚点仍在标签内），
     // 再允许整体移到锚点左 / 右侧（由表现层画引线指回锚点）
     const attempts: { width: number; shift: number; displaced: boolean }[] = [];
@@ -136,16 +181,7 @@ export function packBandLabels<T>(
       }
       if (done) break;
     }
-    if (!done) {
-      const group = overflowGroups.get(request.group);
-      if (group) group.items.push(request.item);
-      else
-        overflowGroups.set(request.group, {
-          items: [request.item],
-          anchorX: request.anchorX,
-          desiredY: request.desiredY,
-        });
-    }
+    if (!done) addOverflow(request);
   }
 
   // "+N" 也尽量放进空位；实在没有空位时放在离锚点最近的泳道（可能与标签相邻重叠）

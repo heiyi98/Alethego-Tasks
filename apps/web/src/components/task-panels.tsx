@@ -9,18 +9,17 @@ import {
 } from '@alethego/core';
 import { loadTaskDetail, saveTaskExtensions, syncOccurrences } from '@alethego/data';
 import Link from 'next/link';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { useFeedback } from './feedback-provider';
-import { CheckCircleIcon, CheckIcon, ClockIcon, IconButton, TrashIcon, XIcon } from './icons';
+import { CheckCircleIcon, ClockIcon, IconButton, TrashIcon } from './icons';
 import { PanelSurface } from './panel-surface';
 import { usePanels } from './panel-provider';
 import { useRepositories } from './repositories-provider';
-import { TaskEditor } from './task-editor';
+import { EditorTitleRow, StarButton, TaskEditor } from './task-editor';
 import { useTaskData } from './task-data-provider';
 import { errorMessage } from '@/lib/format';
 import {
-  isDraftDirty,
   locationDraft,
   newTaskFromForm,
   peopleDrafts,
@@ -73,112 +72,6 @@ export function useCreateTask() {
   );
 }
 
-/** 展开后的新建面板（草稿保存在 PanelProvider 中，收起不丢失） */
-export function CreatePanel({ defaultCategoryIds }: { defaultCategoryIds: string[] }) {
-  const { draft, setDraft, resetDraft, close } = usePanels();
-  const { data, now, timeZone } = useTaskData();
-  const { confirm, showUndo, notify } = useFeedback();
-  const createTask = useCreateTask();
-  const [errors, setErrors] = useState<FormErrors>({});
-  const [message, setMessage] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  const form: TaskFormValue = { ...draft, categoryIds: draft.categoryIds ?? defaultCategoryIds };
-  const onChange = (patch: Partial<TaskFormValue>) => {
-    setErrors({});
-    setMessage(null);
-    setDraft((d) => ({ ...d, ...patch }));
-  };
-
-  async function submit() {
-    const found = validateTaskForm(form);
-    setErrors(found);
-    if (Object.keys(found).length > 0 || busy) return;
-    setBusy(true);
-    const result = await createTask(form);
-    setBusy(false);
-    // 创建失败时保留草稿与面板，显示原因；已创建（哪怕部分信息失败）则清空草稿，避免重复创建
-    if (!result.created) {
-      setMessage(result.message ?? null);
-      return;
-    }
-    resetDraft();
-    close();
-    if (result.message) notify(result.message);
-  }
-
-  async function discard() {
-    if (isDraftDirty(form, defaultCategoryIds)) {
-      const ok = await confirm({
-        message: '放弃这个新任务？',
-        detail: '已填写的内容将被丢弃',
-        confirmLabel: '放弃',
-        cancelLabel: '继续编辑',
-        destructive: true,
-      });
-      if (!ok) return;
-    }
-    resetDraft();
-    close();
-  }
-
-  function removePerson(index: number) {
-    const removed = form.people[index];
-    if (!removed) return;
-    onChange({ people: form.people.filter((_, i) => i !== index) });
-    if (removed.name.trim() || removed.relation.trim()) {
-      showUndo(`已删除人物「${removed.name || removed.relation}」`, () =>
-        setDraft((d) => {
-          const people = [...d.people];
-          people.splice(Math.min(index, people.length), 0, removed);
-          return { ...d, people };
-        }),
-      );
-    }
-  }
-
-  return (
-    <PanelSurface variant="inline" label="新建任务" onClose={close}>
-      <div
-        onKeyDown={(event) => {
-          if (
-            event.key === 'Enter' &&
-            (event.target as HTMLElement).getAttribute('aria-label') === '标题'
-          ) {
-            event.preventDefault();
-            void submit();
-          }
-        }}
-      >
-        <TaskEditor
-          mode="create"
-          value={form}
-          onChange={onChange}
-          errors={errors}
-          categories={data?.categories ?? []}
-          records={[]}
-          now={now}
-          timeZone={timeZone}
-          fallbackStart={null}
-          onToggle={close}
-          onRemovePerson={removePerson}
-          actions={
-            <>
-              <IconButton label="放弃" onClick={discard}>
-                <XIcon />
-              </IconButton>
-              <IconButton label="创建" className="icon-button-primary" onClick={submit}>
-                <CheckIcon />
-              </IconButton>
-            </>
-          }
-        />
-        {message && <p className="field-error">{message}</p>}
-      </div>
-    </PanelSurface>
-  );
-}
-
 /* ------------------------------------------------------------------ */
 /* 编辑（自动保存）                                                     */
 /* ------------------------------------------------------------------ */
@@ -197,7 +90,25 @@ interface Loaded {
  * 编辑已有任务：与新建共用 TaskEditor；改动自动保存（防抖），没有保存 / 还原按钮。
  * 收起（卸载）时立即保存尚未提交的改动。
  */
-export function EditPanel({ taskId, surface }: { taskId: string; surface: 'inline' | 'floating' }) {
+/** 列表中展开时，任务行本身（留在原位、标题变为可编辑）由 TaskRow 提供的部件组成 */
+export interface EditRowParts {
+  /** 加载完成前显示的标题 */
+  title: string;
+  /** 行首的勾选框；普通任务绑定到面板的完成状态，循环任务完成当前实例 */
+  checkbox: (form: TaskFormValue, onChange: (patch: Partial<TaskFormValue>) => void) => ReactNode;
+  /** 标题下方的截止时间、分类等 */
+  meta: ReactNode;
+}
+
+export function EditPanel({
+  taskId,
+  surface,
+  row,
+}: {
+  taskId: string;
+  surface: 'inline' | 'floating';
+  row?: EditRowParts;
+}) {
   const repositories = useRepositories();
   const { data, now, timeZone, reload } = useTaskData();
   const { close } = usePanels();
@@ -231,7 +142,7 @@ export function EditPanel({ taskId, surface }: { taskId: string; surface: 'inlin
           timeZone,
         });
         if (cancelled) return;
-        const initial = taskFormFromDetail(detail);
+        const initial = taskFormFromDetail(detail, timeZone);
         formRef.current = initial;
         savedRef.current = initial;
         taskRef.current = detail.task;
@@ -258,7 +169,7 @@ export function EditPanel({ taskId, surface }: { taskId: string; surface: 'inlin
       const task = taskRef.current;
       if (!current || !saved || !task) return;
 
-      const patch = taskPatchFromForms(current, saved, timeZone, task.deadlineAt);
+      const patch = taskPatchFromForms(current, saved, timeZone);
       const categoriesChanged =
         [...current.categoryIds].sort().join() !== [...saved.categoryIds].sort().join();
       const people = normalizePeopleDrafts(current.people);
@@ -308,6 +219,8 @@ export function EditPanel({ taskId, surface }: { taskId: string; surface: 'inlin
           title: patch.title !== undefined ? current.title : saved.title,
           description: current.description,
           deadline: current.recurrence.enabled ? saved.deadline : current.deadline,
+          deadlineTime: current.recurrence.enabled ? saved.deadlineTime : current.deadlineTime,
+          isStarred: current.isStarred,
           importanceLevel: current.importanceLevel,
           completed: current.recurrence.enabled ? saved.completed : current.completed,
           recurrence: patch.recurrenceRule !== undefined ? current.recurrence : saved.recurrence,
@@ -399,12 +312,29 @@ export function EditPanel({ taskId, surface }: { taskId: string; surface: 'inlin
     });
   }
 
-  if (loadError || !form || !loaded) {
-    return (
-      <PanelSurface variant={surface} label="编辑任务" onClose={close}>
-        <p className="muted panel-message">{loadError ?? '加载中…'}</p>
+  const wrap = (header: ReactNode, body: ReactNode) => (
+    <div
+      className={`edit-panel edit-panel-${surface}`}
+      role="form"
+      aria-label="编辑任务"
+      data-save-state={saveState}
+    >
+      <PanelSurface variant={surface} label="编辑任务" onClose={close} header={header}>
+        {body}
       </PanelSurface>
-    );
+    </div>
+  );
+
+  if (loadError || !form || !loaded) {
+    const header =
+      surface === 'inline' && row ? (
+        <div className="task-row task-row-editing">
+          <div className="task-main-editing">
+            <span className="task-title">{row.title}</span>
+          </div>
+        </div>
+      ) : null;
+    return wrap(header, <p className="muted panel-message">{loadError ?? '加载中…'}</p>);
   }
 
   const errors: FormErrors = validateTaskForm(form);
@@ -412,10 +342,83 @@ export function EditPanel({ taskId, surface }: { taskId: string; surface: 'inlin
   const showHistory = recurring || loaded.records.length > 0;
   const categories: Category[] = data?.categories ?? [];
 
-  return (
-    <PanelSurface variant={surface} label="编辑任务" onClose={close}>
+  const star = (
+    <StarButton
+      starred={form.isStarred}
+      onToggle={() => onChange({ isStarred: !form.isStarred })}
+    />
+  );
+  const completeButton = !form.recurrence.enabled && (
+    <IconButton
+      label={form.completed ? '标记为未完成' : '标记为完成'}
+      className={form.completed ? 'icon-button-active' : ''}
+      aria-pressed={form.completed}
+      onClick={() => onChange({ completed: !form.completed })}
+    >
+      <CheckCircleIcon />
+    </IconButton>
+  );
+  const historyLink = showHistory && (
+    <Link
+      href={`/tasks/${loaded.task.id}/history`}
+      className="icon-button"
+      aria-label={`历史记录（${loaded.records.length} 次）`}
+      title={`历史记录（${loaded.records.length} 次）`}
+    >
+      <ClockIcon />
+    </Link>
+  );
+  const deleteButton = (
+    <IconButton label="删除任务" className="icon-button-danger" onClick={deleteTask}>
+      <TrashIcon />
+    </IconButton>
+  );
+  const setTitle = (title: string) => onChange({ title });
+
+  // 列表中：标题留在原来那一行并变为可编辑（桌面）；手机底部抽屉里另有一行标题
+  const inlineRow = surface === 'inline' && row;
+  const header = inlineRow ? (
+    <div className={`task-row task-row-editing${form.completed ? ' task-completed' : ''}`}>
+      {row.checkbox(form, onChange)}
+      <div className="task-main-editing">
+        <input
+          className="task-title-input desktop-only"
+          aria-label="标题"
+          placeholder="标题"
+          value={form.title}
+          onChange={(event) => setTitle(event.target.value)}
+        />
+        <span className="task-title mobile-only">{form.title}</span>
+        {row.meta}
+      </div>
+      <div className="row-actions desktop-only">
+        {star}
+        {historyLink}
+        {deleteButton}
+      </div>
+    </div>
+  ) : null;
+
+  const titleRow = (
+    <EditorTitleRow
+      className={inlineRow ? 'mobile-only' : ''}
+      value={form.title}
+      onChange={setTitle}
+      actions={
+        <>
+          {star}
+          {completeButton}
+          {historyLink}
+          {deleteButton}
+        </>
+      }
+    />
+  );
+
+  return wrap(
+    header,
+    <>
       <TaskEditor
-        mode="edit"
         value={form}
         onChange={onChange}
         errors={errors}
@@ -424,40 +427,13 @@ export function EditPanel({ taskId, surface }: { taskId: string; surface: 'inlin
         now={now}
         timeZone={timeZone}
         fallbackStart={loaded.task.deadlineAt}
-        saveState={saveState}
         onToggle={close}
         onRemovePerson={removePerson}
-        actions={
-          <>
-            {!form.recurrence.enabled && (
-              <IconButton
-                label={form.completed ? '标记为未完成' : '标记为完成'}
-                className={form.completed ? 'icon-button-active' : ''}
-                aria-pressed={form.completed}
-                onClick={() => onChange({ completed: !form.completed })}
-              >
-                <CheckCircleIcon />
-              </IconButton>
-            )}
-            {showHistory && (
-              <Link
-                href={`/tasks/${loaded.task.id}/history`}
-                className="icon-button"
-                aria-label={`历史记录（${loaded.records.length} 次）`}
-                title={`历史记录（${loaded.records.length} 次）`}
-              >
-                <ClockIcon />
-              </Link>
-            )}
-            <IconButton label="删除任务" className="icon-button-danger" onClick={deleteTask}>
-              <TrashIcon />
-            </IconButton>
-          </>
-        }
+        titleRow={titleRow}
       />
       {saveState === 'error' && saveError && (
         <p className="field-error panel-message">保存失败：{saveError}</p>
       )}
-    </PanelSurface>
+    </>,
   );
 }

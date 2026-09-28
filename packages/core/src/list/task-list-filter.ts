@@ -5,18 +5,27 @@ import { resolveRepresentativeInstance, seriesFromTask } from '../recurrence/rec
 import type { EvaluationContext } from '../time/zoned-time';
 import { listDeadlineOf, sortByDeadline } from './task-list-order';
 
-/** 主列表状态筛选：待办 / 已错过 / 已完成 / 全部。 */
-export type StatusFilter = 'todo' | 'missed' | 'completed' | 'all';
+/**
+ * 主列表状态筛选（左侧菜单上方区块，单选）：全部 / 收藏 / 未完成 / 已完成 / 已错过。
+ * 收藏 = 所有标星任务（不论完成与否），同样可以再配合分类筛选。
+ */
+export type StatusFilter = 'all' | 'starred' | 'todo' | 'completed' | 'missed';
 
-export const STATUS_FILTERS: readonly StatusFilter[] = ['todo', 'missed', 'completed', 'all'];
+export const STATUS_FILTERS: readonly StatusFilter[] = [
+  'all',
+  'starred',
+  'todo',
+  'completed',
+  'missed',
+];
 
-/** 默认视图：全部待办。 */
-export const DEFAULT_STATUS_FILTER: StatusFilter = 'todo';
+/** 默认视图：全部（快速添加只出现在"全部"里） */
+export const DEFAULT_STATUS_FILTER: StatusFilter = 'all';
 
 /** 状态筛选与分类筛选正交组合。 */
 export interface TaskListFilter {
   status: StatusFilter;
-  /** 点亮的分类；为空表示不按分类筛选（总览） */
+  /** 选中的分类（多选，命中其一即显示）；为空表示所有分类 */
   categoryIds: readonly string[];
 }
 
@@ -37,11 +46,13 @@ export function deriveListStatus(
 }
 
 export function matchesStatusFilter(
-  task: Pick<Task, 'deadlineAt' | 'completedAt'>,
+  task: Pick<Task, 'deadlineAt' | 'completedAt' | 'isStarred'>,
   filter: StatusFilter,
   now: Date,
 ): boolean {
-  return filter === 'all' || deriveTaskStatus(task, now) === filter;
+  if (filter === 'all') return true;
+  if (filter === 'starred') return task.isStarred;
+  return deriveTaskStatus(task, now) === filter;
 }
 
 /** 分类多选：命中其一即显示（逻辑或）；未点亮任何分类时不筛选。 */
@@ -69,12 +80,12 @@ export function buildTaskList(
 ): Task[] {
   const rows = sources.tasks
     .filter((task) => !task.deletedAt)
-    .filter(
-      (task) =>
-        filter.status === 'all' ||
-        deriveListStatus(task, sources.occurrencesByTask?.get(task.id) ?? [], context) ===
-          filter.status,
-    )
+    .filter((task) => {
+      if (filter.status === 'all') return true;
+      if (filter.status === 'starred') return task.isStarred;
+      const occurrences = sources.occurrencesByTask?.get(task.id) ?? [];
+      return deriveListStatus(task, occurrences, context) === filter.status;
+    })
     .filter((task) =>
       matchesCategoryFilter(sources.categoryIdsByTask.get(task.id) ?? [], filter.categoryIds),
     )
@@ -88,9 +99,8 @@ export function buildTaskList(
 }
 
 /**
- * 快速添加时自动带上的分类：只点亮了一个分类时（用户体感是"在这个分类清单里"）返回它；
- * 总览或多选时返回 null，新任务不带分类。
+ * 快速添加（只出现在"全部"里）时新任务自动带上的分类：当前选中的全部分类；没选分类就不带。
  */
-export function categoryForQuickAdd(selectedCategoryIds: readonly string[]): string | null {
-  return selectedCategoryIds.length === 1 ? selectedCategoryIds[0]! : null;
+export function categoriesForQuickAdd(selectedCategoryIds: readonly string[]): string[] {
+  return [...new Set(selectedCategoryIds)];
 }

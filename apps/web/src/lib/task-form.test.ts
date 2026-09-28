@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  deadlineFromDateValue,
+  deadlineFromForm,
   emptyTaskForm,
   isDraftDirty,
   newTaskFromForm,
@@ -26,17 +26,33 @@ const daily = {
   dtstart: '2026-10-01T09:00',
 };
 
-describe('截止日期只精确到天', () => {
-  it('日期 → 该日本地日终点', () => {
-    expect(deadlineFromDateValue('2026-10-01', TZ)?.toISOString()).toBe('2026-10-01T15:59:59.999Z');
+describe('截止日期 + 可选时刻', () => {
+  it('没选时刻 → 该日本地日终点（过完当天才算已错过）', () => {
+    expect(deadlineFromForm('2026-10-01', '', TZ)?.toISOString()).toBe('2026-10-01T15:59:59.999Z');
   });
 
-  it('空字符串 → 没有截止日期', () => {
-    expect(deadlineFromDateValue('', TZ)).toBeNull();
+  it('选了时刻 → 那一刻', () => {
+    expect(deadlineFromForm('2026-10-01', '14:30', TZ)?.toISOString()).toBe(
+      '2026-10-01T06:30:00.000Z',
+    );
+  });
+
+  it('没有日期 → 没有截止时间（时刻单独无效）', () => {
+    expect(deadlineFromForm('', '', TZ)).toBeNull();
+    expect(deadlineFromForm('', '14:30', TZ)).toBeNull();
   });
 });
 
 describe('新建', () => {
+  it('带时刻与标星', () => {
+    const task = newTaskFromForm(
+      form({ deadline: '2026-10-01', deadlineTime: '09:00', isStarred: true }),
+      TZ,
+    );
+    expect(task.deadlineAt).toEqual(new Date('2026-10-01T01:00:00Z'));
+    expect(task.isStarred).toBe(true);
+  });
+
   it('标题去空白，截止日期取日终点，默认重要性 0', () => {
     const task = newTaskFromForm(form({ title: '  交房租 ', deadline: '2026-10-01' }), TZ);
     expect(task).toMatchObject({
@@ -44,6 +60,7 @@ describe('新建', () => {
       importanceLevel: 0,
       deadlineAt: new Date('2026-10-01T15:59:59.999Z'),
       recurrenceRule: null,
+      isStarred: false,
     });
   });
 
@@ -80,29 +97,32 @@ describe('校验', () => {
 });
 
 describe('编辑自动保存的差异', () => {
-  const original = new Date('2026-10-01T01:30:00Z'); // 本地 09:30，以前设置过具体时刻
-  const saved = form({ deadline: '2026-10-01', importanceLevel: 2 });
+  const saved = form({ deadline: '2026-10-01', deadlineTime: '09:30', importanceLevel: 2 });
 
   it('没有改动时为空', () => {
-    expect(taskPatchFromForms(saved, saved, TZ, original)).toEqual({});
+    expect(taskPatchFromForms(saved, saved, TZ)).toEqual({});
   });
 
-  it('只包含改动的字段；日期没变时保留原来的时刻', () => {
-    const patch = taskPatchFromForms({ ...saved, importanceLevel: 5 }, saved, TZ, original);
+  it('只包含改动的字段', () => {
+    const patch = taskPatchFromForms({ ...saved, importanceLevel: 5 }, saved, TZ);
     expect(patch).toEqual({ importanceLevel: 5 });
+    expect(taskPatchFromForms({ ...saved, isStarred: true }, saved, TZ)).toEqual({
+      isStarred: true,
+    });
   });
 
-  it('改日期 → 新日期的日终点；清空 → null', () => {
-    expect(
-      taskPatchFromForms({ ...saved, deadline: '2026-10-03' }, saved, TZ, original).deadlineAt,
-    ).toEqual(new Date('2026-10-03T15:59:59.999Z'));
-    expect(
-      taskPatchFromForms({ ...saved, deadline: '' }, saved, TZ, original).deadlineAt,
-    ).toBeNull();
+  it('改日期保留时刻；清除时刻 → 日终点；清空日期 → null', () => {
+    expect(taskPatchFromForms({ ...saved, deadline: '2026-10-03' }, saved, TZ).deadlineAt).toEqual(
+      new Date('2026-10-03T01:30:00Z'),
+    );
+    expect(taskPatchFromForms({ ...saved, deadlineTime: '' }, saved, TZ).deadlineAt).toEqual(
+      new Date('2026-10-01T15:59:59.999Z'),
+    );
+    expect(taskPatchFromForms({ ...saved, deadline: '' }, saved, TZ).deadlineAt).toBeNull();
   });
 
   it('空标题不写入（界面提示错误）', () => {
-    expect(taskPatchFromForms({ ...saved, title: '  ' }, saved, TZ, original)).toEqual({});
+    expect(taskPatchFromForms({ ...saved, title: '  ' }, saved, TZ)).toEqual({});
   });
 
   it('循环任务不写截止时间与完成状态', () => {
@@ -111,19 +131,16 @@ describe('编辑自动保存的差异', () => {
       { ...recurringSaved, deadline: '2026-12-01', completed: true },
       recurringSaved,
       TZ,
-      null,
     );
     expect(patch).toEqual({});
   });
 
   it('标记完成写入完成时间，取消写 null', () => {
-    expect(
-      taskPatchFromForms({ ...saved, completed: true }, saved, TZ, original).completedAt,
-    ).toBeInstanceOf(Date);
+    expect(taskPatchFromForms({ ...saved, completed: true }, saved, TZ).completedAt).toBeInstanceOf(
+      Date,
+    );
     const done = { ...saved, completed: true };
-    expect(
-      taskPatchFromForms({ ...done, completed: false }, done, TZ, original).completedAt,
-    ).toBeNull();
+    expect(taskPatchFromForms({ ...done, completed: false }, done, TZ).completedAt).toBeNull();
   });
 
   it('人物比较忽略空行与首尾空白', () => {

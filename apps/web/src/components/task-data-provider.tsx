@@ -23,6 +23,8 @@ interface TaskDataValue {
   reload: () => Promise<void>;
   /** 勾选完成：普通任务切换自身完成状态；循环任务完成当前代表实例 */
   toggleComplete: (task: Task) => Promise<void>;
+  /** 切换标星（书签） */
+  toggleStar: (task: Task) => Promise<void>;
   actionError: string | null;
 }
 
@@ -72,9 +74,21 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  async function toggleStar(task: Task) {
+    const isStarred = !task.isStarred;
+    replaceTask({ ...task, isStarred }); // 乐观更新
+    try {
+      replaceTask(await repositories.tasks.update(task.id, { isStarred }));
+      setActionError(null);
+    } catch (e) {
+      setActionError(errorMessage(e));
+      await reload();
+    }
+  }
+
   return (
     <TaskDataContext.Provider
-      value={{ data, error, now, timeZone, reload, toggleComplete, actionError }}
+      value={{ data, error, now, timeZone, reload, toggleComplete, toggleStar, actionError }}
     >
       {children}
     </TaskDataContext.Provider>

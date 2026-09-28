@@ -1,22 +1,33 @@
 'use client';
 
-import { usePathname } from 'next/navigation';
-import { useEffect, useState, type ReactNode } from 'react';
+import { usePathname, useSearchParams } from 'next/navigation';
+import { Suspense, useEffect, useState, type ReactNode } from 'react';
 
+import { ModeToggle } from './mode-toggle';
 import { Sidebar } from './sidebar';
+
+/** 切换页面或状态后收起抽屉；分类是多选开关，切换分类时抽屉保持打开 */
+function CloseDrawerOnNavigate({ onNavigate }: { onNavigate: () => void }) {
+  const pathname = usePathname();
+  const status = useSearchParams().get('status');
+  useEffect(() => onNavigate(), [pathname, status, onNavigate]);
+  return null;
+}
 
 /** 左侧菜单 + 右侧内容。窄屏下菜单收进抽屉，由顶部按钮打开。 */
 export function AppShell({ children }: { children: ReactNode }) {
-  const pathname = usePathname();
   const [drawerOpen, setDrawerOpen] = useState(false);
-
-  // 切换页面后收起抽屉
-  useEffect(() => setDrawerOpen(false), [pathname]);
+  const [closeDrawer] = useState(() => () => setDrawerOpen(false));
 
   return (
     <div className={`app-shell${drawerOpen ? ' drawer-open' : ''}`}>
+      <Suspense>
+        <CloseDrawerOnNavigate onNavigate={closeDrawer} />
+      </Suspense>
       <div className="app-sidebar">
-        <Sidebar />
+        <Suspense>
+          <Sidebar />
+        </Suspense>
       </div>
       {drawerOpen && (
         <button
@@ -37,6 +48,10 @@ export function AppShell({ children }: { children: ReactNode }) {
           >
             ☰
           </button>
+          <span className="mobile-brand">Alethego</span>
+          <Suspense>
+            <ModeToggle />
+          </Suspense>
         </div>
         {children}
       </div>

@@ -16,8 +16,13 @@ describe('InMemoryLocalStore', () => {
       deadlineAt: null,
       importanceLevel: 0,
       recurrenceRule: null,
+      isStarred: false,
       deletedAt: null,
     });
+
+    // 标星只是书签，可随时切换
+    expect((await store.tasks.update(task.id, { isStarred: true })).isStarred).toBe(true);
+    expect((await store.tasks.getById(task.id))!.isStarred).toBe(true);
 
     // 之后在详情中补充字段
     const deadline = new Date('2026-09-30T10:00:00Z');

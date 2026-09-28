@@ -23,6 +23,7 @@ const task = (id: string, fields: Partial<Task> = {}): Task => ({
   recurrenceRule: null,
   recurrenceDtstart: null,
   completedAt: null,
+  isStarred: false,
   createdAt: new Date(Date.UTC(2026, 8, 1) + seq++),
   updatedAt: new Date(Date.UTC(2026, 8, 1)),
   deletedAt: null,

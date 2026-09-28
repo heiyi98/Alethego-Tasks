@@ -35,6 +35,7 @@ export function taskFromRow(row: TableRow<'tasks'>): Task {
     recurrenceRule: row.recurrence_rule,
     recurrenceDtstart: toNullableDate(row.recurrence_dtstart),
     completedAt: toNullableDate(row.completed_at),
+    isStarred: row.is_starred,
     createdAt: toDate(row.created_at),
     updatedAt: toDate(row.updated_at),
     deletedAt: toNullableDate(row.deleted_at),
@@ -50,6 +51,7 @@ export function taskToInsert(input: NewTask, ownerId: string): TableInsert<'task
     importance_level: input.importanceLevel ?? 0,
     recurrence_rule: input.recurrenceRule ?? null,
     recurrence_dtstart: toNullableIso(input.recurrenceDtstart),
+    is_starred: input.isStarred ?? false,
   };
 }
 
@@ -64,6 +66,7 @@ export function taskPatchToUpdate(patch: TaskPatch): TableUpdate<'tasks'> {
     update.recurrence_dtstart = toNullableIso(patch.recurrenceDtstart);
   }
   if (patch.completedAt !== undefined) update.completed_at = toNullableIso(patch.completedAt);
+  if (patch.isStarred !== undefined) update.is_starred = patch.isStarred;
   return update;
 }
 

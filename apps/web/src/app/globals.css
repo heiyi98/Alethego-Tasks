@@ -803,7 +803,10 @@ a {
 }
 
 .sidebar-brand {
-  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px 0 10px;
   font-size: 17px;
   font-weight: 600;
 }
@@ -1661,4 +1664,166 @@ a {
 /* 面板里的重复开关与字段图标垂直居中对齐 */
 .editor-field .switch {
   min-height: 36px;
+}
+
+/* ---------- 左侧菜单：状态单选 + 分类开关 ---------- */
+.sidebar-toggle {
+  width: 100%;
+  border: none;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sidebar-toggle[aria-pressed='true'] {
+  background: var(--quaternary-fill);
+  font-weight: 600;
+}
+
+.sidebar-toggle[aria-pressed='true'] .category-dot {
+  box-shadow:
+    0 0 0 2px var(--system-background),
+    0 0 0 3.5px currentColor;
+}
+
+.sidebar-icon-starred {
+  color: var(--system-orange);
+}
+
+.mode-toggle {
+  color: var(--accent);
+}
+
+.mobile-brand {
+  flex: 1;
+  font-weight: 600;
+  align-self: center;
+  padding-left: 10px;
+}
+
+.page-scope {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: -8px 0 12px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.page-scope-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* ---------- 标星 ---------- */
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: -6px -8px -6px 0;
+}
+
+.star-button {
+  color: var(--system-gray3);
+}
+
+.task-item:not(:hover) .task-row > .row-actions .star-button:not(.star-button-on) {
+  opacity: 0;
+}
+
+.star-button:focus-visible {
+  opacity: 1 !important;
+}
+
+.star-button-on,
+.star-button-on:hover {
+  color: var(--system-orange);
+}
+
+/* ---------- 列表中展开：标题行留在原位变为可编辑 ---------- */
+.task-row-editing {
+  align-items: center;
+}
+
+.task-main-editing {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.task-title-input {
+  width: 100%;
+  margin: -3px 0 -1px -6px;
+  padding: 2px 6px;
+  border: none;
+  border-radius: 6px;
+  outline: none;
+  background: transparent;
+  font-weight: 600;
+}
+
+.task-title-input:focus {
+  background: var(--tertiary-fill);
+}
+
+.task-item-open .panel-inline {
+  margin-top: 0;
+}
+
+.quick-add-expanded .quick-add-input input {
+  padding-right: 140px;
+  font-weight: 600;
+}
+
+.quick-add-actions {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.time-input {
+  width: 96px;
+}
+
+/* 只在手机底部抽屉 / 只在桌面显示的元素（同一数据的两种摆放） */
+.mobile-only {
+  display: none !important;
+}
+
+/* ---------- 矩阵：逾期点位 ---------- */
+.overdue-point {
+  fill: var(--danger);
+  stroke: var(--system-background);
+  stroke-width: 2;
+}
+
+@media (hover: none) {
+  .task-item:not(:hover) .task-row > .row-actions .star-button:not(.star-button-on) {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 760px) {
+  .desktop-only {
+    display: none !important;
+  }
+
+  .editor-title-row.mobile-only {
+    display: flex !important;
+  }
+
+  span.mobile-only {
+    display: inline !important;
+  }
+
+  .quick-add-expanded .quick-add-input input {
+    padding-right: 12px;
+  }
 }

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { Task } from '../domain/task';
 import {
   buildTaskList,
-  categoryForQuickAdd,
+  categoriesForQuickAdd,
   matchesCategoryFilter,
   matchesStatusFilter,
 } from './task-list-filter';
@@ -22,6 +22,7 @@ const task = (title: string, fields: Partial<Task> = {}): Task => ({
   recurrenceRule: null,
   recurrenceDtstart: null,
   completedAt: null,
+  isStarred: false,
   createdAt: new Date(Date.UTC(2026, 8, 1) + seq++),
   updatedAt: new Date(Date.UTC(2026, 8, 1)),
   deletedAt: null,
@@ -45,7 +46,7 @@ const titles = (list: Task[]) => list.map((t) => t.title);
 
 describe('matchesStatusFilter', () => {
   it('按派生状态筛选，all 不筛选', () => {
-    const missed = { deadlineAt: sh('2026-09-24T09:00:00'), completedAt: null };
+    const missed = { deadlineAt: sh('2026-09-24T09:00:00'), completedAt: null, isStarred: false };
     expect(matchesStatusFilter(missed, 'missed', context.now)).toBe(true);
     expect(matchesStatusFilter(missed, 'todo', context.now)).toBe(false);
     expect(matchesStatusFilter(missed, 'all', context.now)).toBe(true);
@@ -133,10 +134,46 @@ describe('循环任务在列表中的状态', () => {
   });
 });
 
-describe('categoryForQuickAdd', () => {
-  it('只点亮一个分类时自动带上它；总览或多选时不带', () => {
-    expect(categoryForQuickAdd(['work'])).toBe('work');
-    expect(categoryForQuickAdd([])).toBeNull();
-    expect(categoryForQuickAdd(['work', 'home'])).toBeNull();
+describe('categoriesForQuickAdd', () => {
+  it('带上当前选中的全部分类；没选分类就不带', () => {
+    expect(categoriesForQuickAdd(['work'])).toEqual(['work']);
+    expect(categoriesForQuickAdd(['work', 'home'])).toEqual(['work', 'home']);
+    expect(categoriesForQuickAdd([])).toEqual([]);
+  });
+});
+
+describe('收藏', () => {
+  const starredTasks = [
+    task('星标待办', { isStarred: true, deadlineAt: sh('2026-09-27T09:00:00') }),
+    task('星标已完成', {
+      isStarred: true,
+      deadlineAt: sh('2026-09-20T09:00:00'),
+      completedAt: sh('2026-09-19T09:00:00'),
+    }),
+    task('星标已删除', { isStarred: true, deletedAt: sh('2026-09-24T00:00:00') }),
+    task('没标星', { deadlineAt: sh('2026-09-26T09:00:00') }),
+  ];
+  const cats = new Map([['星标待办', ['work']]]);
+  const build = (categoryIds: string[]) =>
+    titles(
+      buildTaskList(
+        { tasks: starredTasks, categoryIdsByTask: cats },
+        { status: 'starred', categoryIds },
+        context,
+      ),
+    );
+
+  it('显示所有标星任务（不论完成与否），不含已删除，排序规则不变', () => {
+    expect(build([])).toEqual(['星标已完成', '星标待办']);
+  });
+
+  it('可以再配合分类多选', () => {
+    expect(build(['work'])).toEqual(['星标待办']);
+    expect(build(['home'])).toEqual([]);
+  });
+
+  it('matchesStatusFilter 同样按标星判断', () => {
+    expect(matchesStatusFilter(starredTasks[0]!, 'starred', context.now)).toBe(true);
+    expect(matchesStatusFilter(starredTasks[3]!, 'starred', context.now)).toBe(false);
   });
 });

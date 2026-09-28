@@ -12,14 +12,16 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useMemo } from 'react';
 
 import { CategoryDot } from '@/components/category-dot';
-import { CategoryTags } from '@/components/filter-tags';
 import { usePanels } from '@/components/panel-provider';
+import { useSelection } from '@/components/selection';
 import { EditPanel } from '@/components/task-panels';
 import { useTaskData } from '@/components/task-data-provider';
 import { TaskMatrix } from '@/components/task-matrix';
+import { PageHeader } from '@/components/task-list-view';
 import { TaskRow } from '@/components/task-row';
-import { QUADRANT_LABELS } from '@/lib/format';
+import { QUADRANT_LABELS, STATUS_LABELS } from '@/lib/format';
 import { rememberListUrl } from '@/lib/list-url';
+import { MATRIX_STATUSES, selectionHref } from '@/lib/selection';
 
 function MatrixPage() {
   const router = useRouter();
@@ -27,23 +29,16 @@ function MatrixPage() {
   const searchParams = useSearchParams();
   const { data, error, now, timeZone } = useTaskData();
   const { active } = usePanels();
+  const selection = useSelection();
+  const { status, categoryIds } = selection;
   const query = searchParams.toString();
   useEffect(() => rememberListUrl(query ? `${pathname}?${query}` : pathname), [pathname, query]);
 
-  const selectedCategoryIds = useMemo(() => {
-    const ids = searchParams.get('cat')?.split(',').filter(Boolean) ?? [];
-    const existing = new Set(data?.categories.map((c) => c.id));
-    return data ? ids.filter((id) => existing.has(id)) : ids;
-  }, [searchParams, data]);
-
-  function toggleCategory(categoryId: string) {
-    const next = selectedCategoryIds.includes(categoryId)
-      ? selectedCategoryIds.filter((id) => id !== categoryId)
-      : [...selectedCategoryIds, categoryId];
-    router.replace(next.length > 0 ? `${pathname}?cat=${next.join(',')}` : pathname, {
-      scroll: false,
-    });
-  }
+  // 已完成 / 已错过在矩阵上没有对应内容：自动切回清单
+  const matrixStatus = MATRIX_STATUSES.includes(status);
+  useEffect(() => {
+    if (!matrixStatus) router.replace(selectionHref({ ...selection, mode: 'list' }));
+  }, [matrixStatus, router, selection]);
 
   const categoriesById = useMemo(() => new Map(data?.categories.map((c) => [c.id, c])), [data]);
   const categoriesOf = (taskId: string): Category[] =>
@@ -51,17 +46,19 @@ function MatrixPage() {
       .map((id) => categoriesById.get(id))
       .filter((c) => c !== undefined);
 
-  // 分类多选点亮：命中其一即显示；命中的任务标记仍按全部分类切片
+  // 左侧菜单的选择：分类命中其一即显示；"收藏"只显示标星任务；"全部""未完成"显示矩阵原本的任务
   const layout = useMemo(() => {
     if (!data) return null;
-    const tasks = data.tasks.filter((task) =>
-      matchesCategoryFilter(data.categoryIdsByTask.get(task.id) ?? [], selectedCategoryIds),
+    const tasks = data.tasks.filter(
+      (task) =>
+        matchesCategoryFilter(data.categoryIdsByTask.get(task.id) ?? [], categoryIds) &&
+        (status !== 'starred' || task.isStarred),
     );
     return buildMatrixLayout(
       { tasks, occurrencesByTask: data.occurrencesByTask },
       { now, timeZone },
     );
-  }, [data, selectedCategoryIds, now, timeZone]);
+  }, [data, categoryIds, status, now, timeZone]);
 
   const groups = useMemo(() => (layout ? groupPointsByQuadrant(layout.points) : null), [layout]);
 
@@ -75,24 +72,16 @@ function MatrixPage() {
 
   return (
     <main className="page page-wide">
-      <header className="page-header">
-        <h1>时间管理矩阵</h1>
-      </header>
-
-      {data && data.categories.length > 0 && (
-        <section className="filters" aria-label="筛选">
-          <CategoryTags
-            categories={data.categories}
-            selected={selectedCategoryIds}
-            onToggle={toggleCategory}
-          />
-        </section>
-      )}
+      {!matrixStatus && <p className="muted">正在切换到清单…</p>}
+      <PageHeader
+        title={STATUS_LABELS[status]}
+        categories={categoryIds.map((id) => categoriesById.get(id)).filter((c) => c !== undefined)}
+      />
 
       {error && <p className="notice notice-error">加载失败：{error}</p>}
       {!data && !error && <p className="muted">加载中…</p>}
 
-      {layout && groups && (
+      {matrixStatus && layout && groups && (
         <>
           <section className="matrix-card" aria-label="矩阵">
             <TaskMatrix
@@ -116,7 +105,8 @@ function MatrixPage() {
             </div>
             {hiddenParts.length > 0 && (
               <p className="muted matrix-hidden" data-testid="matrix-hidden">
-                另有 {hiddenParts.join('、')}，未显示在矩阵上，可在<Link href="/">列表</Link>
+                另有 {hiddenParts.join('、')}，未显示在矩阵上，可在
+                <Link href={selectionHref({ ...selection, mode: 'list' })}>清单</Link>
                 中查看。
               </p>
             )}

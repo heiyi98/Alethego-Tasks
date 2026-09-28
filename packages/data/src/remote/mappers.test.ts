@@ -13,6 +13,7 @@ const row = {
   recurrence_rule: null,
   recurrence_dtstart: null,
   completed_at: null,
+  is_starred: true,
   created_at: '2026-09-25T00:00:00+00:00',
   updated_at: '2026-09-25T00:00:00+00:00',
   deleted_at: null,
@@ -26,6 +27,7 @@ describe('task mappers', () => {
       deadlineAt: new Date('2026-09-26T10:00:00Z'),
       importanceLevel: 3,
       completedAt: null,
+      isStarred: true,
       deletedAt: null,
     });
   });
@@ -43,7 +45,13 @@ describe('task mappers', () => {
       importance_level: 0,
       recurrence_rule: null,
       recurrence_dtstart: null,
+      is_starred: false,
     });
+  });
+
+  it('标星写入 is_starred', () => {
+    expect(taskToInsert({ title: 'x', isStarred: true }, 'o').is_starred).toBe(true);
+    expect(taskPatchToUpdate({ isStarred: false })).toEqual({ is_starred: false });
   });
 
   it('补丁只包含传入的字段，null 会被显式写入', () => {

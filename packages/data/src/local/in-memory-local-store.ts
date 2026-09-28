@@ -99,6 +99,7 @@ class MemoryTaskRepository implements ITaskRepository {
       recurrenceRule: valid.recurrenceRule ?? null,
       recurrenceDtstart: valid.recurrenceDtstart ?? null,
       completedAt: null,
+      isStarred: valid.isStarred ?? false,
       createdAt: now,
       updatedAt: now,
       deletedAt: null,

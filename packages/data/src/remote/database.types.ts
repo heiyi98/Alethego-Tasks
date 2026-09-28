@@ -24,6 +24,7 @@ export interface Database {
           recurrence_rule: string | null;
           recurrence_dtstart: string | null;
           completed_at: string | null;
+          is_starred: boolean;
           created_at: string;
           updated_at: string;
           deleted_at: string | null;
@@ -38,6 +39,7 @@ export interface Database {
           recurrence_rule?: string | null;
           recurrence_dtstart?: string | null;
           completed_at?: string | null;
+          is_starred?: boolean;
           created_at?: string;
           updated_at?: string;
           deleted_at?: string | null;
@@ -52,6 +54,7 @@ export interface Database {
           recurrence_rule?: string | null;
           recurrence_dtstart?: string | null;
           completed_at?: string | null;
+          is_starred?: boolean;
           created_at?: string;
           updated_at?: string;
           deleted_at?: string | null;

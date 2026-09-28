@@ -17,11 +17,17 @@ export function PanelSurface({
   variant,
   label,
   onClose,
+  header,
   children,
 }: {
   variant: 'inline' | 'floating';
   label: string;
   onClose: () => void;
+  /**
+   * 面板从它下方展开的那一行（列表中的任务行 / 快速添加的输入栏）。它属于面板的一部分：
+   * 点它不算"点面板外面"。
+   */
+  header?: ReactNode;
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -72,7 +78,8 @@ export function PanelSurface({
   }
 
   return (
-    <>
+    <div className={`panel-root panel-root-${variant}`} ref={ref}>
+      {header}
       <div
         className={`panel-backdrop panel-backdrop-${variant}`}
         data-panel-backdrop
@@ -80,7 +87,6 @@ export function PanelSurface({
         aria-hidden
       />
       <div
-        ref={ref}
         className={`panel-surface panel-${variant}`}
         role="dialog"
         aria-modal={variant === 'floating' ? true : undefined}
@@ -92,6 +98,6 @@ export function PanelSurface({
         </div>
         {children}
       </div>
-    </>
+    </div>
   );
 }

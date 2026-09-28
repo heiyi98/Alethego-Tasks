@@ -106,3 +106,50 @@ describe('packBandLabels', () => {
     expect(placed[0]!.x + placed[0]!.width / 2).toBeLessThanOrEqual(1000);
   });
 });
+
+describe('packBandLabels：逾期标签在点位左侧', () => {
+  const end = (item: string, extra: Partial<LabelRequest<string>> = {}) =>
+    req(item, 980, { align: 'end', endOffset: 10, priority: 14, group: 'overdue', ...extra });
+
+  it('标签右端贴在点位左侧，向左伸展，不标记 displaced', () => {
+    const { placed } = packBandLabels([end('late')], band);
+    expect(placed).toEqual([
+      { item: 'late', x: 980 - 10 - 60, y: 40, width: 120, anchorX: 980, displaced: false },
+    ]);
+  });
+
+  it('向左伸展的标签与其他任务的标签互相避让（包括点位本身）', () => {
+    const oneLane: BandSpec = { ...band, height: 30 };
+    // 另一个任务锚在 900，标签 [840, 960] 与逾期标签 [850, 970] 重叠，只有一条泳道 → 放不下
+    const { placed, overflow } = packBandLabels(
+      [end('late'), req('today', 900, { priority: 13 })],
+      oneLane,
+    );
+    const late = placed.find((p) => p.item === 'late')!;
+    const today = placed.find((p) => p.item === 'today');
+    if (today) {
+      expect(Math.abs(today.x - late.x) >= (today.width + late.width) / 2).toBe(true);
+    } else {
+      expect(overflow.flatMap((o) => o.items)).toContain('today');
+    }
+  });
+
+  it('多个逾期任务分到不同泳道；放不下时缩短，再放不下归入"+N"', () => {
+    const { placed, overflow } = packBandLabels(
+      Array.from({ length: 6 }, (_, i) => end(`late${i}`)),
+      band,
+    );
+    expect(placed).toHaveLength(4);
+    expect(new Set(placed.map((p) => p.y)).size).toBe(4);
+    expect(placed.every((p) => p.x + p.width / 2 === 970)).toBe(true);
+    expect(overflow).toEqual([
+      expect.objectContaining({ group: 'overdue', items: ['late4', 'late5'] }),
+    ]);
+  });
+
+  it('左侧空间不足完整宽度时改用最小宽度', () => {
+    const narrow: BandSpec = { ...band, left: 900 };
+    const { placed } = packBandLabels([end('late', { width: 120, minWidth: 50 })], narrow);
+    expect(placed[0]!.width).toBe(50);
+  });
+});

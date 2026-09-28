@@ -60,7 +60,8 @@ test('循环开关：每天重复；勾选完成当前实例而非任务本身�
   await expect(row).toContainText('本次 今天 08:00');
   await expect(row).toContainText('↻ 每天');
   await page.getByRole('checkbox', { name: `完成本次：${title}` }).click();
-  await expect(row).toContainText('本次 明天 08:00');
+  // 循环任务按当前代表实例计算剩余天数
+  await expect(row.locator('.task-deadline')).toHaveText(/^本次 \d+月\d+日 周. 08:00 · 还剩1天$/);
 
   const [taskRow] = await queryRest<{ completed_at: string | null }[]>(
     request,

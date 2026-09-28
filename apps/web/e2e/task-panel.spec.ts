@@ -13,6 +13,7 @@ import {
   quickAddBar,
   runId,
   taskItem,
+  titleBox,
   toast,
   waitSaved,
 } from './helpers';
@@ -46,7 +47,12 @@ test('展开面板新建：三角旋转、收起不丢内容（三角 / 点外�
   const collapseButton = panel.getByRole('button', { name: '收起', exact: true });
   await expect(collapseButton).toHaveAttribute('aria-expanded', 'true');
   await expect(collapseButton.locator('svg')).toHaveCSS('transform', /matrix\(-1, .*-1, 0, 0\)/);
-  await expect(panel.getByLabel('标题')).toHaveValue(title);
+  // 快速添加时，输入栏本身就是标题：面板从它下方延展出来，没有单独的标题栏
+  await expect(panel.getByLabel('快速添加任务')).toHaveValue(title);
+  await expect(panel.getByRole('textbox', { name: '标题', exact: true })).toHaveCount(0);
+  const inputBox = (await panel.getByLabel('快速添加任务').boundingBox())!;
+  const surfaceBox = (await panel.getByRole('dialog', { name: '新建任务' }).boundingBox())!;
+  expect(surfaceBox.y).toBeGreaterThanOrEqual(inputBox.y + inputBox.height - 1);
   await expect(panel.getByRole('button', { name: '重要性 3', exact: true })).toHaveAttribute(
     'aria-pressed',
     'true',
@@ -109,13 +115,13 @@ test('放弃新建：有内容时确认一次（可取消），空草稿直接�
 
   // 有内容：确认框（图标按钮），取消后继续编辑
   await expandToggle(page).click();
-  await createPanel(page).getByLabel('标题').fill(`${id} 要放弃`);
+  await createPanel(page).getByLabel('快速添加任务').fill(`${id} 要放弃`);
   await createPanel(page).getByRole('button', { name: '放弃' }).click();
   const dialog = page.getByRole('alertdialog', { name: '放弃这个新任务？' });
   await expect(dialog).toBeVisible();
   await dialog.getByRole('button', { name: '继续编辑' }).click();
   await expect(dialog).toHaveCount(0);
-  await expect(createPanel(page).getByLabel('标题')).toHaveValue(`${id} 要放弃`);
+  await expect(createPanel(page).getByLabel('快速添加任务')).toHaveValue(`${id} 要放弃`);
 
   // Esc 只关闭确认框，不收起面板
   await createPanel(page).getByRole('button', { name: '放弃' }).click();
@@ -140,7 +146,7 @@ test('同一时间只展开一个面板；打开另一个时当前的收起（�
   await quickAdd(page, b);
 
   await expandToggle(page).click();
-  await createPanel(page).getByLabel('标题').fill(`${id} 草稿`);
+  await createPanel(page).getByLabel('快速添加任务').fill(`${id} 草稿`);
 
   await openTask(page, a);
   await expect(createPanel(page)).toHaveCount(0);
@@ -148,10 +154,10 @@ test('同一时间只展开一个面板；打开另一个时当前的收起（�
 
   await openTask(page, b);
   await expect(page.locator('.task-editor')).toHaveCount(1);
-  await expect(taskItem(page, a).locator('.task-main')).toHaveAttribute('aria-expanded', 'false');
+  await expect(taskItem(page, a)).not.toHaveClass(/task-item-open/);
 
-  // 再点任务本身：收起
-  await taskItem(page, b).locator('.task-main').click();
+  // 点三角收起
+  await page.getByRole('button', { name: '收起', exact: true }).click();
   await expect(page.locator('.task-editor')).toHaveCount(0);
   await expect(page.getByLabel('快速添加任务')).toHaveValue(`${id} 草稿`);
 });
@@ -252,7 +258,7 @@ test('收起时立即保存尚未提交的改动', async ({ page, request }) => 
   await page.goto('/');
   await quickAdd(page, title);
   const taskId = await openTask(page, title);
-  await editPanel(page).getByLabel('标题').fill(`${title}！`);
+  await titleBox(editPanel(page)).fill(`${title}！`);
   // 不等防抖，直接按 Esc 收起
   await page.keyboard.press('Escape');
   await expect(taskItem(page, `${title}！`)).toBeVisible();
@@ -285,6 +291,9 @@ test('手机：面板为底部抽屉，点背景或下滑收起', async ({ page 
       })
       .toEqual([844, 390]);
   await expectDocked();
+  // 抽屉顶部自带一行可编辑的标题（列表行在遮罩后面）
+  await expect(titleBox(surface)).toBeVisible();
+  await expect(titleBox(surface)).toHaveValue(title);
 
   // 点背景遮罩收起
   await page.mouse.click(195, 40);

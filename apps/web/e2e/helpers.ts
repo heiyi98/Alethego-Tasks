@@ -40,7 +40,7 @@ export async function queryRest<T>(request: APIRequestContext, path: string): Pr
 
 /* ---------------- 快速添加 ---------------- */
 
-export const quickAddBar = (page: Page) => page.locator('form.quick-add');
+export const quickAddBar = (page: Page) => page.locator('.quick-add');
 
 /** 在一组"重要性"按钮中选择 level */
 export async function pickImportance(scope: Locator, level: number) {
@@ -51,18 +51,27 @@ export async function pickImportance(scope: Locator, level: number) {
 }
 
 export const dateInput = (scope: Locator) => scope.locator('input[aria-label="截止日期"]');
+export const timeInput = (scope: Locator) => scope.locator('input[aria-label="截止时刻"]');
+
+/** 点日期旁的时钟图标，选择具体到分钟的时刻（HH:MM） */
+export async function setTime(scope: Locator, time: string) {
+  const input = timeInput(scope);
+  if ((await input.count()) === 0) await scope.getByRole('button', { name: '选择时刻' }).click();
+  await input.fill(time);
+}
 
 /** 快速添加：可同时设置重要性与截止日期（YYYY-MM-DD），回车创建 */
 export async function quickAdd(
   page: Page,
   title: string,
-  options: { importance?: number; deadline?: string; expectVisible?: boolean } = {},
+  options: { importance?: number; deadline?: string; time?: string; expectVisible?: boolean } = {},
 ) {
   const bar = quickAddBar(page);
   const input = page.getByLabel('快速添加任务');
   await input.fill(title);
   if (options.importance !== undefined) await pickImportance(bar, options.importance);
   if (options.deadline) await dateInput(bar).fill(options.deadline);
+  if (options.time) await setTime(bar, options.time);
   await input.press('Enter');
   await expect(input).toHaveValue('');
   if (options.expectVisible !== false) await expect(taskItem(page, title.trim())).toBeVisible();
@@ -90,13 +99,19 @@ export async function expectTitles(page: Page, prefix: string, expected: string[
 export const editPanel = (page: Page) => page.getByRole('form', { name: '编辑任务' });
 export const createPanel = (page: Page) => page.getByRole('form', { name: '新建任务' });
 
-/** 在列表中点击任务，原地展开编辑面板；返回任务 id */
+/** 面板中的标题输入框（列表中展开时就是原来那一行的标题） */
+export const titleBox = (scope: Locator) =>
+  scope.getByRole('textbox', { name: '标题', exact: true });
+
+/** 在列表中点击任务标题：这一行留在原位变为可编辑，面板从它下方展开；返回任务 id */
 export async function openTask(page: Page, title: string): Promise<string> {
-  const main = taskItem(page, title).locator('.task-main').first();
+  const item = taskItem(page, title);
+  const main = item.locator('.task-main').first();
+  const id = (await main.getAttribute('data-task-id'))!;
   await main.click();
-  await expect(main).toHaveAttribute('aria-expanded', 'true');
-  await expect(editPanel(page).getByLabel('标题')).toHaveValue(title);
-  return (await main.getAttribute('data-task-id'))!;
+  await expect(item).toHaveClass(/task-item-open/);
+  await expect(titleBox(editPanel(page))).toHaveValue(title);
+  return id;
 }
 
 /** 等待自动保存完成 */
@@ -124,29 +139,42 @@ export const toast = (page: Page, text: string | RegExp) =>
 
 export const sidebar = (page: Page) => page.getByRole('navigation', { name: '主菜单' });
 
-/** 侧边栏"总览"区块：全部 / 未完成 / 已完成 / 已错过（链接名后面跟着计数） */
+/** 侧边栏"状态"区块（单选）：全部 / 收藏 / 未完成 / 已完成 / 已错过（链接名后面跟着计数） */
 export async function selectStatus(page: Page, label: string) {
   await sidebar(page)
-    .getByRole('region', { name: '总览' })
+    .getByRole('region', { name: '状态' })
     .getByRole('link', { name: new RegExp(`^${label}`) })
     .click();
   await expect(page.getByRole('heading', { level: 1, name: label })).toBeVisible();
 }
 
-/** 在侧边栏新建分类（颜色默认取调色板中第一个未被使用的）；创建后会进入该分类页 */
+/** 侧边栏"分类"区块中的分类开关（可多选累加） */
+export const categoryToggle = (page: Page, name: string) =>
+  sidebar(page)
+    .getByRole('region', { name: '分类' })
+    .getByRole('button', { name: new RegExp(`^${name}`) });
+
+/** 切换某个分类的选中状态，并等待 URL / 按钮状态更新 */
+export async function toggleCategory(page: Page, name: string) {
+  const toggle = categoryToggle(page, name);
+  const before = await toggle.getAttribute('aria-pressed');
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-pressed', before === 'true' ? 'false' : 'true');
+}
+
+/** 在侧边栏新建分类（颜色默认取调色板中第一个未被使用的）；创建后不改变当前的选择 */
 export async function createCategory(page: Page, name: string) {
   await sidebar(page).getByRole('button', { name: '+ 新建分类' }).click();
   const form = page.getByRole('form', { name: '新建分类' });
   await form.getByLabel('分类名称').fill(name);
   await form.getByRole('button', { name: '添加分类' }).click();
-  await expect(page.getByRole('heading', { level: 1, name })).toBeVisible();
+  await expect(categoryToggle(page, name)).toBeVisible();
 }
 
-/** 侧边栏"分类"区块中的某个分类 */
-export async function openCategory(page: Page, name: string) {
+/** 清单 / 矩阵切换（LOGO 右边的图标按钮） */
+export async function switchMode(page: Page, to: 'matrix' | 'list') {
   await sidebar(page)
-    .getByRole('region', { name: '分类' })
-    .getByRole('link', { name: new RegExp(`^${name}`) })
+    .getByRole('link', { name: to === 'matrix' ? '切换到矩阵' : '切换到清单' })
     .click();
-  await expect(page.getByRole('heading', { level: 1, name })).toBeVisible();
+  await expect(page).toHaveURL(to === 'matrix' ? /\/matrix/ : /localhost:\d+\/(\?|$)/);
 }

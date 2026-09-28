@@ -1,12 +1,13 @@
 'use client';
 
 import type { Category, RecurrenceOccurrence } from '@alethego/core';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 
 import { CategoryDot } from './category-dot';
 import {
   CalendarIcon,
   ChevronDownIcon,
+  ClockIcon,
   FieldIcon,
   FlagIcon,
   IconButton,
@@ -14,13 +15,14 @@ import {
   PersonAddIcon,
   PersonIcon,
   RepeatIcon,
+  StarIcon,
   TagIcon,
   TextIcon,
   TrashIcon,
   XIcon,
 } from './icons';
 import { RecurrenceEditor } from './recurrence-editor';
-import { IMPORTANCE_LEVELS, fromDateValue } from '@/lib/format';
+import { IMPORTANCE_LEVELS, fromDateValue, toDateValue } from '@/lib/format';
 import { newRowKey, type FormErrors, type TaskFormValue } from '@/lib/task-form';
 
 /**
@@ -36,12 +38,15 @@ export function QuickOptionsRow({
   onToggle,
   toggleLabel,
 }: {
-  value: Pick<TaskFormValue, 'importanceLevel' | 'deadline' | 'recurrence'>;
+  value: Pick<TaskFormValue, 'importanceLevel' | 'deadline' | 'deadlineTime' | 'recurrence'>;
   onChange: (patch: Partial<TaskFormValue>) => void;
   expanded: boolean;
   onToggle: () => void;
   toggleLabel: string;
 }) {
+  // 时刻输入框：已选时刻时一直显示；否则点时钟图标后显示
+  const [timeOpen, setTimeOpen] = useState(false);
+  const showTime = value.deadlineTime !== '' || timeOpen;
   return (
     <div className="quick-options">
       <div className="option" role="group" aria-label="重要性">
@@ -75,13 +80,55 @@ export function QuickOptionsRow({
             title="截止日期"
             className={`date-input${value.deadline ? '' : ' date-input-empty'}`}
             value={value.deadline}
-            onChange={(event) => onChange({ deadline: event.target.value })}
+            onChange={(event) =>
+              // 清空日期时一并清空时刻
+              onChange(
+                event.target.value
+                  ? { deadline: event.target.value }
+                  : { deadline: '', deadlineTime: '' },
+              )
+            }
           />
-          {value.deadline && (
+          {showTime ? (
+            <>
+              <input
+                type="time"
+                aria-label="截止时刻"
+                title="截止时刻"
+                className={`date-input time-input${value.deadlineTime ? '' : ' date-input-empty'}`}
+                value={value.deadlineTime}
+                autoFocus={timeOpen && !value.deadlineTime}
+                onChange={(event) => onChange({ deadlineTime: event.target.value })}
+              />
+              <IconButton
+                label="清除时刻"
+                className="icon-button-small"
+                onClick={() => {
+                  setTimeOpen(false);
+                  onChange({ deadlineTime: '' });
+                }}
+              >
+                <XIcon size={14} />
+              </IconButton>
+            </>
+          ) : (
+            <IconButton
+              label="选择时刻"
+              className="icon-button-small"
+              onClick={() => {
+                setTimeOpen(true);
+                // 还没选日期时默认今天
+                if (!value.deadline) onChange({ deadline: toDateValue(new Date()) });
+              }}
+            >
+              <ClockIcon size={16} />
+            </IconButton>
+          )}
+          {value.deadline && !showTime && (
             <IconButton
               label="清除截止日期"
               className="icon-button-small"
-              onClick={() => onChange({ deadline: '' })}
+              onClick={() => onChange({ deadline: '', deadlineTime: '' })}
             >
               <XIcon size={14} />
             </IconButton>
@@ -102,8 +149,49 @@ export function QuickOptionsRow({
   );
 }
 
+/** 标题行：标题输入框 + 右侧操作图标 */
+export function EditorTitleRow({
+  value,
+  onChange,
+  actions,
+  className = '',
+  placeholder = '标题',
+}: {
+  value: string;
+  onChange: (title: string) => void;
+  actions: ReactNode;
+  className?: string;
+  placeholder?: string;
+}) {
+  return (
+    <div className={`editor-title-row ${className}`}>
+      <input
+        className="editor-title"
+        aria-label="标题"
+        placeholder={placeholder}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      <div className="editor-actions">{actions}</div>
+    </div>
+  );
+}
+
+/** 标星切换（列表行、面板中共用） */
+export function StarButton({ starred, onToggle }: { starred: boolean; onToggle: () => void }) {
+  return (
+    <IconButton
+      label={starred ? '取消标星' : '标星'}
+      className={`star-button${starred ? ' star-button-on' : ''}`}
+      aria-pressed={starred}
+      onClick={onToggle}
+    >
+      <StarIcon filled={starred} />
+    </IconButton>
+  );
+}
+
 export function TaskEditor({
-  mode,
   value,
   onChange,
   errors,
@@ -112,12 +200,10 @@ export function TaskEditor({
   now,
   timeZone,
   fallbackStart,
-  actions,
   onToggle,
   onRemovePerson,
-  saveState,
+  titleRow,
 }: {
-  mode: 'create' | 'edit';
   value: TaskFormValue;
   onChange: (patch: Partial<TaskFormValue>) => void;
   errors: FormErrors;
@@ -127,14 +213,15 @@ export function TaskEditor({
   timeZone: string;
   /** 打开循环开关时默认的起始时间 */
   fallbackStart: Date | null;
-  /** 标题右侧的操作图标（新建：对勾 / 叉；编辑：完成 / 历史 / 删除） */
-  actions: ReactNode;
+  /**
+   * 面板顶部的标题行。列表中展开时标题留在原来那一行（由外层渲染），这里只在手机底部抽屉中显示；
+   * 矩阵弹出的面板没有列表行，始终显示。
+   */
+  titleRow?: ReactNode;
   /** 收起面板（三角） */
   onToggle: () => void;
   /** 删除第 index 个人物（由控制器负责撤销提示） */
   onRemovePerson: (index: number) => void;
-  /** 自动保存状态，写在 data-save-state 上 */
-  saveState?: string;
 }) {
   const toggleCategory = (id: string) =>
     onChange({
@@ -147,24 +234,8 @@ export function TaskEditor({
     onChange({ people: value.people.map((p) => (p.key === key ? { ...p, ...patch } : p)) });
 
   return (
-    <div
-      className="task-editor"
-      data-mode={mode}
-      data-save-state={saveState ?? 'idle'}
-      aria-label={mode === 'create' ? '新建任务' : '编辑任务'}
-      role="form"
-    >
-      <div className="editor-title-row">
-        <input
-          className="editor-title"
-          aria-label="标题"
-          placeholder={mode === 'create' ? '新任务' : '标题'}
-          value={value.title}
-          autoFocus={mode === 'create'}
-          onChange={(event) => onChange({ title: event.target.value })}
-        />
-        <div className="editor-actions">{actions}</div>
-      </div>
+    <div className="task-editor">
+      {titleRow}
       {errors.title && <p className="field-error">{errors.title}</p>}
 
       <QuickOptionsRow

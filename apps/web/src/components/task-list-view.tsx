@@ -1,85 +1,30 @@
 'use client';
 
-import {
-  buildTaskList,
-  categoryForQuickAdd,
-  deriveListStatus,
-  listDeadlineOf,
-  type Category,
-  type StatusFilter,
-} from '@alethego/core';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { buildTaskList, deriveListStatus, listDeadlineOf } from '@alethego/core';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useRef } from 'react';
 
 import { CategoryDot } from './category-dot';
-import { CategoryTags, StatusTags } from './filter-tags';
 import { usePanels } from './panel-provider';
 import { QuickAdd } from './quick-add';
+import { useSelection } from './selection';
 import { useTaskData } from './task-data-provider';
 import { TaskRow } from './task-row';
-import { DEFAULT_STATUS, STATUS_LABELS, isStatusFilter } from '@/lib/format';
+import { STATUS_LABELS } from '@/lib/format';
 import { rememberListUrl } from '@/lib/list-url';
 
 /**
- * 列表页主体，两种主导航共用：
- * - overview：状态由菜单决定，页面内用分类标签（多选）再筛选
- * - category：分类由菜单决定，页面内用状态标签再筛选
- * 两者都落到同一个 buildTaskList(状态, 分类) 上。
+ * 清单模式：内容 = 左侧菜单所选状态 ∩（命中任一所选分类）。页面内没有任何筛选标签。
+ * 快速添加只出现在"全部"里。
  */
-export type TaskListMode =
-  { kind: 'overview'; status: StatusFilter } | { kind: 'category'; category: Category };
-
-export function TaskListView({ mode }: { mode: TaskListMode }) {
+export function TaskListView() {
   const { data, error, actionError, now, timeZone, toggleComplete } = useTaskData();
-  const router = useRouter();
+  const selection = useSelection();
+  const { status, categoryIds } = selection;
   const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const query = searchParams.toString();
+  const query = useSearchParams().toString();
 
   useEffect(() => rememberListUrl(query ? `${pathname}?${query}` : pathname), [pathname, query]);
-
-  // 页面内的次级筛选保存在 URL 中，刷新或从详情返回后保持
-  const status: StatusFilter =
-    mode.kind === 'overview'
-      ? mode.status
-      : isStatusFilter(searchParams.get('status'))
-        ? (searchParams.get('status') as StatusFilter)
-        : DEFAULT_STATUS;
-
-  const selectedTags = useMemo(() => {
-    if (mode.kind === 'category') return [mode.category.id];
-    const ids = searchParams.get('cat')?.split(',').filter(Boolean) ?? [];
-    const existing = new Set(data?.categories.map((c) => c.id));
-    return data ? ids.filter((id) => existing.has(id)) : ids;
-  }, [mode, searchParams, data]);
-
-  function replaceQuery(params: URLSearchParams) {
-    const next = params.toString();
-    router.replace(next ? `${pathname}?${next}` : pathname, { scroll: false });
-  }
-
-  function toggleTag(categoryId: string) {
-    const next = selectedTags.includes(categoryId)
-      ? selectedTags.filter((id) => id !== categoryId)
-      : [...selectedTags, categoryId];
-    const params = new URLSearchParams();
-    if (next.length > 0) params.set('cat', next.join(','));
-    replaceQuery(params);
-  }
-
-  function setStatus(next: StatusFilter) {
-    const params = new URLSearchParams();
-    if (next !== DEFAULT_STATUS) params.set('status', next);
-    replaceQuery(params);
-  }
-
-  const quickAddCategory =
-    mode.kind === 'category'
-      ? mode.category
-      : (() => {
-          const id = categoryForQuickAdd(selectedTags);
-          return id ? (data?.categories.find((c) => c.id === id) ?? null) : null;
-        })();
 
   const visibleTasks = useMemo(
     () =>
@@ -90,14 +35,14 @@ export function TaskListView({ mode }: { mode: TaskListMode }) {
               categoryIdsByTask: data.categoryIdsByTask,
               occurrencesByTask: data.occurrencesByTask,
             },
-            { status, categoryIds: selectedTags },
+            { status, categoryIds },
             { now, timeZone },
           )
         : [],
-    [data, status, selectedTags, now, timeZone],
+    [data, status, categoryIds, now, timeZone],
   );
 
-  // 正在编辑的任务即使改完后不再符合筛选（例如标记完成），也先留在原位，收起面板后再消失
+  // 正在编辑的任务即使改完后不再符合筛选（例如标记完成、取消标星），也先留在原位，收起面板后再消失
   const { active } = usePanels();
   const openTaskId = active?.kind === 'edit' && active.surface === 'inline' ? active.taskId : null;
   const lastOrder = useRef<string[]>([]);
@@ -115,34 +60,15 @@ export function TaskListView({ mode }: { mode: TaskListMode }) {
   }, [shownTasks]);
 
   const categoriesById = useMemo(() => new Map(data?.categories.map((c) => [c.id, c])), [data]);
+  const selectedCategories = categoryIds
+    .map((id) => categoriesById.get(id))
+    .filter((c) => c !== undefined);
 
   return (
     <main className="page">
-      <header className="page-header">
-        <h1>
-          {mode.kind === 'category' && <CategoryDot color={mode.category.color} />}
-          {mode.kind === 'overview' ? STATUS_LABELS[mode.status] : mode.category.name}
-        </h1>
-        {mode.kind === 'category' && mode.category.description && (
-          <p className="page-description">{mode.category.description}</p>
-        )}
-      </header>
+      <PageHeader title={STATUS_LABELS[status]} categories={selectedCategories} />
 
-      <QuickAdd category={quickAddCategory} />
-
-      <section className="filters" aria-label="筛选">
-        {mode.kind === 'overview' ? (
-          data && (
-            <CategoryTags
-              categories={data.categories}
-              selected={selectedTags}
-              onToggle={toggleTag}
-            />
-          )
-        ) : (
-          <StatusTags value={status} onChange={setStatus} />
-        )}
-      </section>
+      {status === 'all' && <QuickAdd categories={selectedCategories} />}
 
       {(error ?? actionError) && (
         <p className="notice notice-error">操作失败：{error ?? actionError}</p>
@@ -176,5 +102,36 @@ export function TaskListView({ mode }: { mode: TaskListMode }) {
         </ul>
       )}
     </main>
+  );
+}
+
+/**
+ * 页面标题：所选状态；下方以纯文字说明所选分类（不是可点的标签），
+ * 只选了一个分类且它有描述时一并显示描述。
+ */
+export function PageHeader({
+  title,
+  categories,
+}: {
+  title: string;
+  categories: readonly { id: string; name: string; color: string; description: string }[];
+}) {
+  return (
+    <header className="page-header">
+      <h1>{title}</h1>
+      {categories.length > 0 && (
+        <p className="page-scope" data-testid="page-scope">
+          {categories.map((category) => (
+            <span key={category.id} className="page-scope-item">
+              <CategoryDot color={category.color} />
+              {category.name}
+            </span>
+          ))}
+        </p>
+      )}
+      {categories.length === 1 && categories[0]!.description && (
+        <p className="page-description">{categories[0]!.description}</p>
+      )}
+    </header>
   );
 }

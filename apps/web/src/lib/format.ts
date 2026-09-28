@@ -1,5 +1,8 @@
 import {
+  DEFAULT_STATUS_FILTER,
+  STATUS_FILTERS,
   calendarDaysBetween,
+  endOfLocalDay,
   describeRecurrence,
   parseRecurrenceRule,
   weekdayName,
@@ -11,20 +14,17 @@ import {
 
 export const STATUS_LABELS: Record<StatusFilter, string> = {
   all: '全部',
+  starred: '收藏',
   todo: '未完成',
   completed: '已完成',
   missed: '已错过',
 };
 
-/** 侧边栏"总览"区块与状态标签的显示顺序 */
-export const STATUS_ORDER: readonly StatusFilter[] = ['all', 'todo', 'completed', 'missed'];
+/** 左侧菜单上方区块的显示顺序 */
+export const STATUS_ORDER: readonly StatusFilter[] = STATUS_FILTERS;
 
-/** 默认视图：未完成（全部分类的待办任务） */
-export const DEFAULT_STATUS: StatusFilter = 'todo';
-
-export function isStatusFilter(value: string | null | undefined): value is StatusFilter {
-  return STATUS_ORDER.some((status) => status === value);
-}
+/** 默认视图：全部（快速添加只出现在"全部"里） */
+export const DEFAULT_STATUS: StatusFilter = DEFAULT_STATUS_FILTER;
 
 export const QUADRANT_LABELS: Record<Quadrant, string> = {
   important_urgent: '重要且紧急',
@@ -67,19 +67,39 @@ export function browserTimeZone(): string {
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
-/** 列表中的截止时间：今天 / 明天 / 昨天 + 时刻，其余显示日期 */
+/** 只精确到天的截止时间存为当天本地日终点（23:59:59.999） */
+export function isDateOnlyDeadline(deadline: Date, timeZone: string): boolean {
+  return endOfLocalDay(deadline, timeZone).getTime() === deadline.getTime();
+}
+
+const dayLabel = (date: Date, now: Date, timeZone: string) => {
+  const year = date.getFullYear() === now.getFullYear() ? '' : `${date.getFullYear()}年`;
+  return `${year}${date.getMonth() + 1}月${date.getDate()}日 周${weekdayName(weekdayOf(date, timeZone))}`;
+};
+
+/**
+ * 列表中的截止时间：日期 + 星期（+ 时刻）· 剩余天数。天数按日历天计算，不受时分影响。
+ * - 今天：「今天」（选了时刻时带时刻，时刻已过则为「今天 09:00 · 已过」）
+ * - 以后：「9月30日 周三 · 还剩2天」
+ * - 已过期：「9月26日 周六 · 逾期2天」
+ */
 export function formatDeadline(deadline: Date, now: Date, timeZone: string): string {
-  // 只精确到天的截止时间存为当天 23:59:59.999，显示时不带时刻
-  const dateOnly =
-    deadline.getHours() === 23 && deadline.getMinutes() === 59 && deadline.getSeconds() === 59;
-  const time = dateOnly ? '' : ` ${pad(deadline.getHours())}:${pad(deadline.getMinutes())}`;
+  const time = isDateOnlyDeadline(deadline, timeZone)
+    ? ''
+    : ` ${pad(deadline.getHours())}:${pad(deadline.getMinutes())}`;
   const days = calendarDaysBetween(now, deadline, timeZone);
-  if (days === 0) return `今天${time}`;
-  if (days === 1) return `明天${time}`;
-  if (days === -1) return `昨天${time}`;
-  const date = `${deadline.getMonth() + 1}月${deadline.getDate()}日`;
-  const year = deadline.getFullYear() === now.getFullYear() ? '' : `${deadline.getFullYear()}年`;
-  return `${year}${date}${time}`;
+  if (days === 0) {
+    return deadline.getTime() < now.getTime() ? `今天${time} · 已过` : `今天${time}`;
+  }
+  const label = `${dayLabel(deadline, now, timeZone)}${time}`;
+  return days > 0 ? `${label} · 还剩${days}天` : `${label} · 逾期${-days}天`;
+}
+
+/** Date → <input type="time"> 的值（本地时刻）；只精确到天的截止时间为空字符串 */
+export function toTimeValue(date: Date, timeZone: string): string {
+  return isDateOnlyDeadline(date, timeZone)
+    ? ''
+    : `${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 /** Date → <input type="datetime-local"> 的值（本地时间） */

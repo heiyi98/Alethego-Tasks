@@ -30,6 +30,8 @@ export interface NewTask {
   importanceLevel?: ImportanceLevel;
   recurrenceRule?: string | null;
   recurrenceDtstart?: Date | null;
+  /** 标星（书签），默认 false */
+  isStarred?: boolean;
 }
 
 export type TaskPatch = Partial<
@@ -42,6 +44,7 @@ export type TaskPatch = Partial<
     | 'recurrenceRule'
     | 'recurrenceDtstart'
     | 'completedAt'
+    | 'isStarred'
   >
 >;
 
