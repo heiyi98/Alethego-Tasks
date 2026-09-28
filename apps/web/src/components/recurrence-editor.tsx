@@ -1,11 +1,8 @@
 'use client';
 
 import {
-  LAST_DAY_OF_MONTH,
   WEEKDAYS,
   defaultRecurrenceSpec,
-  describeRecurrence,
-  monthDayOf,
   resolveRepresentativeInstance,
   untilFromLocalDate,
   weekdayName,
@@ -15,7 +12,9 @@ import {
   type RecurrenceOccurrence,
   type RecurrenceRuleSpec,
 } from '@alethego/core';
+import { useState } from 'react';
 
+import { ChevronDownIcon, IconButton } from './icons';
 import {
   formatFullDateTime,
   fromDateTimeLocalValue,
@@ -26,8 +25,9 @@ import {
 import { recurrencePatch, type RecurrenceFormState } from '@/lib/recurrence-form';
 
 /**
- * 循环开关与重复规则编辑。循环不是独立的任务类型，只是任务上的一个开关：
+ * 循环开关与重复规则编辑（每 N 天 / 每 N 周）。循环不是独立的任务类型，只是任务上的一个开关：
  * 打开后设置 RRULE + 起始时间，关闭后任务恢复为普通任务，已产生的历史记录保留。
+ * 规则下方嵌着历史：过去最近两次实例（最近的在上），勾上 = 已完成，可展开查看更早的记录。
  */
 
 /** 打开开关时的默认起始时间：任务的截止时间（若有），否则为今天 09:00 */
@@ -41,17 +41,18 @@ function defaultDtstart(fallback: Date | null): Date {
 const FREQUENCY_UNITS: Record<RecurrenceFrequency, string> = {
   daily: '天',
   weekly: '周',
-  monthly: '个月',
-  yearly: '年',
 };
 
-const MONTH_DAYS = Array.from({ length: 31 }, (_, i) => i + 1);
+/** 历史默认显示的行数；展开后的行数 */
+const HISTORY_ROWS = 2;
+const HISTORY_ROWS_EXPANDED = 5;
 
 export function RecurrenceEditor({
   fallbackStart,
   value,
   onChange,
   records,
+  onToggleRecord,
   now,
   timeZone,
 }: {
@@ -59,12 +60,15 @@ export function RecurrenceEditor({
   fallbackStart: Date | null;
   value: RecurrenceFormState;
   onChange: (next: RecurrenceFormState) => void;
-  /** 该任务已有的实例记录，用于预览"当前实例" */
+  /** 该任务已有的实例记录（历史） */
   records: readonly RecurrenceOccurrence[];
+  /** 切换某次实例的完成状态；不传时不显示历史（例如新建时） */
+  onToggleRecord?: (record: RecurrenceOccurrence, completed: boolean) => void;
   now: Date;
   timeZone: string;
 }) {
   const dtstartDate = fromDateTimeLocalValue(value.dtstart);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   function toggle(enabled: boolean) {
     if (!enabled) {
@@ -83,16 +87,13 @@ export function RecurrenceEditor({
   function updateSpec(patch: Partial<RecurrenceRuleSpec>) {
     if (!value.spec) return;
     const spec = { ...value.spec, ...patch };
-    // 仅在切换频率时：若尚未选择具体的星期 / 日期，按起始时间补一个。
+    // 仅在切换频率时：若尚未选择具体的星期，按起始时间补一个。
     // 用户手动清空时不自动补回，交给校验提示。
     const frequencyChanged =
       patch.frequency !== undefined && patch.frequency !== value.spec.frequency;
     if (frequencyChanged && dtstartDate) {
       if (spec.frequency === 'weekly' && spec.weekdays.length === 0) {
         spec.weekdays = [weekdayOf(dtstartDate, timeZone)];
-      }
-      if (spec.frequency === 'monthly' && spec.monthDays.length === 0) {
-        spec.monthDays = [monthDayOf(dtstartDate, timeZone)];
       }
     }
     onChange({ ...value, spec });
@@ -112,8 +113,9 @@ export function RecurrenceEditor({
     updateSpec({ end });
   }
 
+  // 历史：当前代表实例之前的实例记录（包括提前完成的），最近的在上
   const patch = recurrencePatch(value);
-  const preview =
+  const current =
     value.enabled && patch.ok && patch.recurrenceRule && patch.recurrenceDtstart
       ? resolveRepresentativeInstance(
           { rule: patch.recurrenceRule, dtstart: patch.recurrenceDtstart },
@@ -121,6 +123,13 @@ export function RecurrenceEditor({
           { now, timeZone },
         )
       : null;
+  const history = [...records]
+    .filter((r) =>
+      current
+        ? r.occurrenceDate.getTime() < current.occurrenceAt.getTime()
+        : r.occurrenceDate.getTime() <= now.getTime(),
+    )
+    .sort((a, b) => b.occurrenceDate.getTime() - a.occurrenceDate.getTime());
 
   return (
     <fieldset className="field recurrence" aria-label="重复">
@@ -185,32 +194,6 @@ export function RecurrenceEditor({
                         }
                       >
                         {weekdayName(day)}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-
-              {value.spec.frequency === 'monthly' && (
-                <div className="month-days" role="group" aria-label="日期">
-                  {[...MONTH_DAYS, LAST_DAY_OF_MONTH].map((day) => {
-                    const selected = value.spec!.monthDays.includes(day);
-                    return (
-                      <button
-                        key={day}
-                        type="button"
-                        className={`chip chip-square${day === LAST_DAY_OF_MONTH ? ' month-last' : ''}`}
-                        aria-pressed={selected}
-                        aria-label={day === LAST_DAY_OF_MONTH ? '最后一天' : `${day}号`}
-                        onClick={() =>
-                          updateSpec({
-                            monthDays: selected
-                              ? value.spec!.monthDays.filter((d) => d !== day)
-                              : [...value.spec!.monthDays, day],
-                          })
-                        }
-                      >
-                        {day === LAST_DAY_OF_MONTH ? '最后一天' : day}
                       </button>
                     );
                   })}
@@ -294,19 +277,46 @@ export function RecurrenceEditor({
             </div>
           )}
 
-          <p className="recurrence-summary" data-testid="recurrence-summary">
-            {patch.ok ? (
-              <>
-                {value.spec ? describeRecurrence(value.spec, timeZone) : '自定义规则'}
-                {' · '}
-                {preview
-                  ? `当前实例：${formatFullDateTime(preview.occurrenceAt, timeZone)}`
-                  : '按此规则已没有后续实例'}
-              </>
-            ) : (
-              <span className="field-error">{patch.error}</span>
-            )}
-          </p>
+          {onToggleRecord && history.length > 0 && (
+            <div
+              className={`recurrence-history${historyOpen ? ' recurrence-history-open' : ''}`}
+              role="group"
+              aria-label="历史"
+            >
+              <ul
+                className="history-rows"
+                style={{
+                  maxHeight: `calc(var(--history-row-h) * ${historyOpen ? HISTORY_ROWS_EXPANDED : HISTORY_ROWS})`,
+                }}
+              >
+                {(historyOpen ? history : history.slice(0, HISTORY_ROWS)).map((record) => {
+                  const when = formatFullDateTime(record.occurrenceDate, timeZone);
+                  return (
+                    <li key={record.id} className="history-row-inline">
+                      <input
+                        type="checkbox"
+                        className="task-check"
+                        aria-label={`完成：${when}`}
+                        checked={record.status === 'completed'}
+                        onChange={(event) => onToggleRecord(record, event.target.checked)}
+                      />
+                      <span>{when}</span>
+                    </li>
+                  );
+                })}
+              </ul>
+              {history.length > HISTORY_ROWS && (
+                <IconButton
+                  label={historyOpen ? '收起历史' : '展开历史'}
+                  className={`history-toggle${historyOpen ? ' history-toggle-open' : ''}`}
+                  aria-expanded={historyOpen}
+                  onClick={() => setHistoryOpen((open) => !open)}
+                >
+                  <ChevronDownIcon size={16} />
+                </IconButton>
+              )}
+            </div>
+          )}
         </div>
       )}
     </fieldset>

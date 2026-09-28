@@ -90,38 +90,44 @@ describe('occurrencesBetween / nextOccurrence', () => {
   });
 });
 
-describe('resolveRepresentativeInstance', () => {
-  it('周三没做，周四这天代表实例是周五而不是周三', () => {
-    const records = [record('mon', MON, 'completed'), record('wed', WED, 'pending')];
+describe('resolveRepresentativeInstance：最早的、时刻还没过的未完成实例', () => {
+  it('周三没做，周四这天代表实例是周五；截止时间就是实例的时刻', () => {
+    const records = [record('mon', MON, 'completed'), record('wed', WED, 'missed')];
     expect(resolveRepresentativeInstance(gym, records, at('2026-09-24T10:00:00'))).toEqual({
       occurrenceAt: FRI,
-      dueAt: sh('2026-09-25T23:59:59.999'),
+      dueAt: FRI,
     });
   });
 
-  it('不依赖归档：周三记录尚未写入 missed 也不影响切换', () => {
+  it('不依赖归档：周三记录尚未写入也不影响切换', () => {
     expect(resolveRepresentativeInstance(gym, [], at('2026-09-24T00:00:00'))?.occurrenceAt).toEqual(
       FRI,
     );
   });
 
-  it('实例当天之内都是代表实例，即使具体时刻已过', () => {
-    expect(resolveRepresentativeInstance(gym, [], at('2026-09-23T23:59:00'))?.occurrenceAt).toEqual(
+  it('实例时刻一过，立刻换成下一次（不等到午夜）', () => {
+    expect(resolveRepresentativeInstance(gym, [], at('2026-09-23T06:59:00'))?.occurrenceAt).toEqual(
       WED,
+    );
+    expect(resolveRepresentativeInstance(gym, [], at('2026-09-23T07:00:00'))?.occurrenceAt).toEqual(
+      WED,
+    );
+    expect(resolveRepresentativeInstance(gym, [], at('2026-09-23T07:01:00'))?.occurrenceAt).toEqual(
+      FRI,
     );
   });
 
-  it('当天实例已完成 → 顺延到下一次', () => {
+  it('提前完成的实例被跳过 → 顺延到下一次', () => {
     const records = [record('fri', FRI, 'completed')];
     expect(
-      resolveRepresentativeInstance(gym, records, at('2026-09-25T08:00:00'))?.occurrenceAt,
+      resolveRepresentativeInstance(gym, records, at('2026-09-25T06:00:00'))?.occurrenceAt,
     ).toEqual(NEXT_MON);
   });
 
   it('连续多个实例提前完成也能跳过', () => {
     const records = [record('fri', FRI, 'completed'), record('mon', NEXT_MON, 'completed')];
     expect(
-      resolveRepresentativeInstance(gym, records, at('2026-09-25T08:00:00'))?.occurrenceAt,
+      resolveRepresentativeInstance(gym, records, at('2026-09-25T06:00:00'))?.occurrenceAt,
     ).toEqual(sh('2026-09-30T07:00:00'));
   });
 
@@ -137,42 +143,62 @@ describe('resolveRepresentativeInstance', () => {
   });
 });
 
-describe('reconcileOccurrences', () => {
-  it('周四：周三仍是 pending，还不归档（下一实例尚未出现）', () => {
-    const records = [record('mon', MON, 'completed'), record('wed', WED, 'pending')];
-    expect(reconcileOccurrences(gym, records, at('2026-09-24T10:00:00'))).toEqual({
+describe('reconcileOccurrences：实例时刻一过还没勾选，立刻记为未完成', () => {
+  it('周三 07:00 之前：周三还没到时刻，不归档', () => {
+    const records = [record('mon', MON, 'completed')];
+    expect(reconcileOccurrences(gym, records, at('2026-09-23T06:59:00'))).toEqual({
       toCreate: [],
       toMarkMissed: [],
     });
   });
 
-  it('周五当天：周三归档为 missed，并生成周五的 pending 记录（不必等到 07:00）', () => {
+  it('周三 07:01：周三立刻记为 missed（不等下一实例出现）', () => {
+    const records = [record('mon', MON, 'completed')];
+    expect(reconcileOccurrences(gym, records, at('2026-09-23T07:01:00'))).toEqual({
+      toCreate: [{ occurrenceDate: WED, status: 'missed' }],
+      toMarkMissed: [],
+    });
+  });
+
+  it('已有的 pending 记录时刻一过改为 missed', () => {
     const records = [record('mon', MON, 'completed'), record('wed', WED, 'pending')];
-    expect(reconcileOccurrences(gym, records, at('2026-09-25T00:30:00'))).toEqual({
-      toCreate: [{ occurrenceDate: FRI, status: 'pending' }],
+    expect(reconcileOccurrences(gym, records, at('2026-09-23T08:00:00'))).toEqual({
+      toCreate: [],
       toMarkMissed: ['wed'],
     });
   });
 
-  it('长期未打开：补建记录，被取代的直接以 missed 建立', () => {
+  it('长期未打开：补建所有时刻已过的实例，均为 missed', () => {
     expect(reconcileOccurrences(gym, [], at('2026-09-25T12:00:00'))).toEqual({
       toCreate: [
         { occurrenceDate: MON, status: 'missed' },
         { occurrenceDate: WED, status: 'missed' },
-        { occurrenceDate: FRI, status: 'pending' },
+        { occurrenceDate: FRI, status: 'missed' },
       ],
       toMarkMissed: [],
     });
   });
 
-  it('不改动已完成或用户手动修改过的记录', () => {
+  it('提前完成了未来实例，之前时刻已过的实例照样补建为 missed', () => {
+    const records = [record('mon', MON, 'completed'), record('next', NEXT_MON, 'completed')];
+    expect(reconcileOccurrences(gym, records, at('2026-09-25T08:00:00'))).toEqual({
+      toCreate: [
+        { occurrenceDate: WED, status: 'missed' },
+        { occurrenceDate: FRI, status: 'missed' },
+      ],
+      toMarkMissed: [],
+    });
+  });
+
+  it('不改动已完成或用户手动修改过的记录；提前完成的未来实例保持不变', () => {
     const records = [
       record('mon', MON, 'completed'),
       record('wed', WED, 'missed'),
       record('fri', FRI, 'completed'),
+      record('next', NEXT_MON, 'completed'),
     ];
-    expect(reconcileOccurrences(gym, records, at('2026-09-28T09:00:00'))).toEqual({
-      toCreate: [{ occurrenceDate: NEXT_MON, status: 'pending' }],
+    expect(reconcileOccurrences(gym, records, at('2026-09-28T06:00:00'))).toEqual({
+      toCreate: [],
       toMarkMissed: [],
     });
   });

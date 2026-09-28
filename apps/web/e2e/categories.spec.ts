@@ -102,12 +102,13 @@ test('编辑分类：名称、描述、颜色；撞色提示；描述显示在�
   await form.getByRole('button', { name: '保存分类' }).click();
   await expect(form).toHaveCount(0);
 
-  // 只选中这一个分类时，描述显示在页面标题下方；分类开关的悬停提示也是描述
+  // 标题栏胶囊与侧边栏分类开关的悬停提示都是描述
   await toggleCategory(page, `${second}改`);
-  await expect(page.locator('.page-description')).toHaveText('周末的家务');
+  await expect(
+    page.getByTestId('title-capsule').getByRole('button', { name: `${second}改`, exact: true }),
+  ).toHaveAttribute('title', '周末的家务');
   await expect(categoryToggle(page, `${second}改`)).toHaveAttribute('title', '周末的家务');
   await toggleCategory(page, first);
-  await expect(page.locator('.page-description')).toHaveCount(0);
   await toggleCategory(page, first);
 
   const [saved] = await queryRest<{ name: string; description: string; color: string }[]>(
@@ -154,7 +155,8 @@ test('删除分类：图标确认框说明任务保留；取消不删；确认�
   await dialog.getByRole('button', { name: '删除分类' }).click();
   await expect(categoryToggle(page, category)).toHaveCount(0);
   await expect(page).not.toHaveURL(/cat=/);
-  await expect(page.getByTestId('page-scope')).toHaveCount(0);
+  await expect(page.getByTestId('title-capsule')).toHaveCount(0);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('总览');
 
   // 任务保留，不再属于任何分类
   await selectStatus(page, '全部');

@@ -3,13 +3,7 @@ import type { Options as RRuleOptions } from 'rrule';
 
 import type { OccurrenceStatus, RecurrenceOccurrence } from '../domain/occurrence';
 import type { Task } from '../domain/task';
-import {
-  endOfLocalDay,
-  fromWallTime,
-  startOfLocalDay,
-  toWallTime,
-  type EvaluationContext,
-} from '../time/zoned-time';
+import { fromWallTime, toWallTime, type EvaluationContext } from '../time/zoned-time';
 
 // rrule 的 ESM 构建只有具名导出（打包器走这条），而 Node 原生 ESM 加载它的 CommonJS 构建时
 // 只能拿到 default。两种情况都兼容：
@@ -36,7 +30,7 @@ export interface RecurrenceSeries {
 export interface RepresentativeInstance {
   /** 实例对应的时间点 */
   occurrenceAt: Date;
-  /** 实例所在本地日的终点；用作紧迫度计算的截止时间（实例在日期过去之前都不算逾期） */
+  /** 用作紧迫度计算的截止时间：就是实例的时刻（代表实例的时刻总在未来，所以不会逾期） */
   dueAt: Date;
 }
 
@@ -117,12 +111,12 @@ export function nextOccurrence(
 }
 
 /**
- * 代表实例 = 日期未过去的、最早的未完成实例。
+ * 代表实例 = 最早的、时刻还没过的未完成实例。
  *
- * - "日期未过去"按用户时区的日历日判断：今天的实例即使具体时刻已过，今天之内仍是代表实例；
- *   一旦日期过去，它立刻不再是代表实例（不论是否已归档为 missed）。
- * - 已标记完成的实例被跳过，代表实例顺延到下一次。
- * - 与归档（reconcileOccurrences）完全解耦：这里只看日期和完成状态。
+ * - 按时刻判断：当前实例一过它的时刻（now > occurrenceAt），代表立刻换成下一次实例，不等到午夜。
+ * - 已标记完成的实例被跳过（包括提前完成的），代表实例顺延到下一次。
+ * - 代表实例的截止时间就是实例的时刻，因此循环任务永远不会逾期。
+ * - 与归档（reconcileOccurrences）完全解耦：这里只看时刻和完成状态。
  *
  * 序列已结束（COUNT/UNTIL 用尽）时返回 null。
  */
@@ -137,25 +131,22 @@ export function resolveRepresentativeInstance(
     occurrences.filter((o) => o.status === 'completed').map((o) => o.occurrenceDate.getTime()),
   );
 
-  let wall = rule.after(toWallTime(startOfLocalDay(now, timeZone), timeZone), true);
+  let wall = rule.after(toWallTime(now, timeZone), true);
   for (let scanned = 0; wall && scanned < MAX_REPRESENTATIVE_SCAN; scanned++) {
     const occurrenceAt = fromWallTime(wall, timeZone);
-    if (!completed.has(occurrenceAt.getTime())) {
-      return { occurrenceAt, dueAt: endOfLocalDay(occurrenceAt, timeZone) };
-    }
+    if (!completed.has(occurrenceAt.getTime())) return { occurrenceAt, dueAt: occurrenceAt };
     wall = rule.after(wall, false);
   }
   return null;
 }
 
 /**
- * 归档判定：
- * - 实例所在日期到来（本地日期 ≤ 今天）时，应存在一条记录；缺失的记录补建。
- * - 一旦后续实例已经出现，之前仍为 pending 的实例判定为 missed。
- *   补建时若该实例已被后续实例取代，直接以 missed 建立。
+ * 归档判定：一个实例过了它的时刻还没勾选，立刻记为未完成（missed）进入历史。
+ * - 时刻已过（occurrenceAt < now）的实例都应有一条记录；缺失的以 missed 补建。
+ * - 已有的 pending 记录时刻一过即改为 missed。
  *
  * 归档可以滞后执行（例如用户打开应用时才调用），不影响代表实例的选取。
- * 只处理 pending → missed；completed 与用户手动修改过的 missed 记录不会被改动。
+ * 只处理 pending → missed；completed 与用户手动修改过的记录不会被改动。
  */
 export function reconcileOccurrences(
   series: RecurrenceSeries,
@@ -163,28 +154,27 @@ export function reconcileOccurrences(
   context: EvaluationContext,
 ): ReconcileResult {
   const { now, timeZone } = context;
-  const rule = buildRule(series, timeZone);
-  const todayEnd = endOfLocalDay(now, timeZone);
+  const passed = (date: Date) => date.getTime() < now.getTime();
 
-  const latestAppeared = toInstant(rule.before(toWallTime(todayEnd, timeZone), true), timeZone);
-  if (!latestAppeared) return { toCreate: [], toMarkMissed: [] };
-
-  // 只从已有记录中最晚的那一条往后补建，避免每次重新展开整个历史
+  // 只从时刻已过的已有记录中最晚的那一条往后补建，避免每次重新展开整个历史
+  // （提前完成的未来实例不能作为起点，否则会跳过它之前、时刻已过的实例）
   const scanFrom = existing.reduce<Date>(
-    (latest, o) => (o.occurrenceDate > latest ? o.occurrenceDate : latest),
+    (latest, o) =>
+      passed(o.occurrenceDate) && o.occurrenceDate > latest ? o.occurrenceDate : latest,
     series.dtstart,
   );
   const existingKeys = new Set(existing.map((o) => o.occurrenceDate.getTime()));
-  const statusFor = (date: Date): NewOccurrence['status'] =>
-    date.getTime() < latestAppeared.getTime() ? 'missed' : 'pending';
 
-  const toCreate = occurrencesBetween(series, scanFrom, todayEnd, timeZone)
-    .filter((date) => !existingKeys.has(date.getTime()))
-    .slice(-MAX_BACKFILL_OCCURRENCES)
-    .map((occurrenceDate) => ({ occurrenceDate, status: statusFor(occurrenceDate) }));
+  const toCreate: NewOccurrence[] =
+    scanFrom.getTime() < now.getTime()
+      ? occurrencesBetween(series, scanFrom, now, timeZone)
+          .filter((date) => passed(date) && !existingKeys.has(date.getTime()))
+          .slice(-MAX_BACKFILL_OCCURRENCES)
+          .map((occurrenceDate) => ({ occurrenceDate, status: 'missed' }))
+      : [];
 
   const toMarkMissed = existing
-    .filter((o) => o.status === 'pending' && statusFor(o.occurrenceDate) === 'missed')
+    .filter((o) => o.status === 'pending' && passed(o.occurrenceDate))
     .map((o) => o.id);
 
   return { toCreate, toMarkMissed };

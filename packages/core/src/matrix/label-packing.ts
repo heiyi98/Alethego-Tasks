@@ -1,48 +1,42 @@
 /**
- * 矩阵标题标签排布：同一重要性区间（一条横带）内的任务以标题标签显示。
- * 横带被分成若干等高的"泳道"；标签锚定在所属紧迫度列的中心，可以比列更宽，
- * 按优先级（更紧急的先放）依次放进离期望纵向位置最近、且水平方向不与已有标签重叠的泳道。
- * 锚点附近都被占时，标签可以整体移到锚点旁边（displaced，表现层画引线指回锚点）；
- * 仍放不下时缩短标签，再放不下的归入所在格子的"+N"溢出项。
+ * 矩阵任务标签排布：同一重要性区间（一条横带）内的任务以标签显示。
+ * 横带被分成若干等高的"泳道"；标签按优先级（更紧急的先放）依次放进离期望纵向位置最近、
+ * 且水平方向不与已有标签重叠的泳道。
  *
- * align = 'end' 的标签（逾期任务）：点位固定在锚点，并画在标签内部的右端；
- * 标签右端 = 锚点 + endOffset，整体向左伸展（标题在点位左边），同样与其他标签避让。
+ * - 普通任务：整个标签必须落在所属格子内（minX..maxX，表现层已去掉贴近刻度线的留白），
+ *   在格内尽量靠近期望的横向位置（格内自由散布），不会被挤到别的格子里。
+ * - 逾期任务（fixedRight）：点位在标签内部右端，标签右端固定，向左伸展。
+ * - 放不下时依次改用更短的宽度（widths 从宽到窄，最后一项通常是只剩色点）；
+ *   仍放不下时按最窄宽度放在期望位置（可能与其他标签重叠），不会丢失任何任务。
  *
  * 单位与像素无关，由表现层决定；Web 与 Mobile 共用。
  */
 
 export interface LabelRequest<T> {
   item: T;
-  /** 锚点横坐标：所属列的中心 */
-  anchorX: number;
+  /** 标签允许占用的水平范围 */
+  minX: number;
+  maxX: number;
+  /** 期望的标签中心横坐标（格内散布位置） */
+  desiredX: number;
   /** 期望的纵向中心位置 */
   desiredY: number;
-  /** 完整标签宽度与最小可接受宽度（缩短后仍可读） */
-  width: number;
-  minWidth: number;
+  /** 候选宽度，从宽到窄 */
+  widths: readonly number[];
   /** 越大越先放 */
   priority: number;
-  /** 溢出时归入的分组（通常是格子），同组溢出项合并为一个"+N" */
-  group: string;
-  /** 'center'（默认）：以锚点为中心；'end'：标签右端固定在锚点附近，向左伸展 */
-  align?: 'center' | 'end';
-  /** align = 'end' 时标签右端相对锚点的偏移（点位在标签内部时为点位半宽 + 右留白） */
-  endOffset?: number;
+  /** 设定时标签右端固定在这里（逾期任务），标签向左伸展 */
+  fixedRight?: number;
 }
 
 export interface BandSpec {
   top: number;
   height: number;
-  /** 标签可占用的水平范围 */
-  left: number;
-  right: number;
   laneHeight: number;
   /** 上下留白 */
   padding: number;
   /** 同一泳道内相邻标签的最小水平间距 */
   gap: number;
-  /** "+N" 溢出项的宽度 */
-  overflowWidth: number;
 }
 
 export interface PlacedLabel<T> {
@@ -51,22 +45,10 @@ export interface PlacedLabel<T> {
   x: number;
   y: number;
   width: number;
-  anchorX: number;
-  /** 标签没有覆盖锚点（被挤到旁边），表现层应画一条引线指回锚点 */
-  displaced: boolean;
-}
-
-export interface OverflowLabel<T> {
-  group: string;
-  items: T[];
-  x: number;
-  y: number;
-  width: number;
-}
-
-export interface PackedBand<T> {
-  placed: PlacedLabel<T>[];
-  overflow: OverflowLabel<T>[];
+  /** 使用的是 widths 中的第几个（0 = 完整宽度） */
+  widthIndex: number;
+  /** 所有宽度都放不下，按最窄宽度叠放在期望位置 */
+  overlapping: boolean;
 }
 
 interface Interval {
@@ -81,124 +63,148 @@ export function laneCenters(band: BandSpec): number[] {
   return Array.from({ length: count }, (_, i) => start + band.laneHeight * (i + 0.5));
 }
 
-/** 以锚点为中心的区间，超出左右边界时向内平移 */
-function intervalAt(anchorX: number, width: number, band: BandSpec): Interval {
-  let from = anchorX - width / 2;
-  from = Math.max(band.left, Math.min(from, band.right - width));
-  return { from, to: from + width };
-}
-
 function fits(lane: readonly Interval[], candidate: Interval, gap: number): boolean {
   return lane.every(
     (other) => candidate.to + gap <= other.from || candidate.from >= other.to + gap,
   );
 }
 
-export function packBandLabels<T>(
+const EPSILON = 1e-9;
+
+/** 在一条泳道的 [minX, maxX] 内为宽度 width 找一个不重叠、离期望中心最近的位置 */
+function findSlot(
+  lane: readonly Interval[],
+  request: LabelRequest<unknown>,
+  width: number,
+  gap: number,
+): Interval | null {
+  if (request.fixedRight !== undefined) {
+    const candidate = { from: request.fixedRight - width, to: request.fixedRight };
+    if (candidate.from < request.minX - EPSILON) return null;
+    return fits(lane, candidate, gap) ? candidate : null;
+  }
+  if (width > request.maxX - request.minX + EPSILON) return null;
+  const clampFrom = (from: number) => Math.max(request.minX, Math.min(from, request.maxX - width));
+  const starts = [
+    clampFrom(request.desiredX - width / 2),
+    ...lane.flatMap((other) => [other.to + gap, other.from - gap - width]),
+  ];
+  let best: Interval | null = null;
+  let bestDistance = Infinity;
+  for (const from of starts) {
+    if (from < request.minX - EPSILON || from + width > request.maxX + EPSILON) continue;
+    const candidate = { from, to: from + width };
+    if (!fits(lane, candidate, gap)) continue;
+    const distance = Math.abs(from + width / 2 - request.desiredX);
+    if (distance < bestDistance) {
+      best = candidate;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}
+
+function packOnce<T>(
   requests: readonly LabelRequest<T>[],
   band: BandSpec,
-): PackedBand<T> {
+  firstWidth: (request: LabelRequest<T>) => number,
+): PlacedLabel<T>[] {
   const centers = laneCenters(band);
   const lanes: Interval[][] = centers.map(() => []);
   const placed: PlacedLabel<T>[] = [];
-  const overflowGroups = new Map<string, { items: T[]; anchorX: number; desiredY: number }>();
 
   const ordered = [...requests].sort(
-    (a, b) => b.priority - a.priority || b.anchorX - a.anchorX || a.desiredY - b.desiredY,
+    (a, b) => b.priority - a.priority || b.desiredX - a.desiredX || a.desiredY - b.desiredY,
   );
-  function addOverflow(request: LabelRequest<T>) {
-    const group = overflowGroups.get(request.group);
-    if (group) group.items.push(request.item);
-    else
-      overflowGroups.set(request.group, {
-        items: [request.item],
-        anchorX: request.anchorX,
-        desiredY: request.desiredY,
-      });
-  }
   const lanesByDistance = (y: number) =>
     centers.map((c, i) => ({ i, d: Math.abs(c - y) })).sort((a, b) => a.d - b.d);
 
   for (const request of ordered) {
-    const lanesNear = lanesByDistance(request.desiredY);
-
-    if (request.align === 'end') {
-      const offset = request.endOffset ?? 0;
-      let done = false;
-      for (const width of [request.width, request.minWidth]) {
-        const labelTo = Math.min(request.anchorX + offset, band.right);
-        const labelFrom = labelTo - width;
-        if (labelFrom < band.left) continue;
-        const occupied = { from: labelFrom, to: labelTo };
-        const lane = lanesNear.find(({ i }) => fits(lanes[i]!, occupied, band.gap));
-        if (!lane) continue;
-        lanes[lane.i]!.push(occupied);
-        placed.push({
-          item: request.item,
-          x: (labelFrom + labelTo) / 2,
-          y: centers[lane.i]!,
-          width,
-          anchorX: request.anchorX,
-          displaced: false,
-        });
-        done = true;
-        break;
-      }
-      if (!done) addOverflow(request);
-      continue;
-    }
-
-    // 候选顺序：完整宽度 → 缩短；每种宽度先不离开锚点（居中或小幅平移，锚点仍在标签内），
-    // 再允许整体移到锚点左 / 右侧（由表现层画引线指回锚点）
-    const attempts: { width: number; shift: number; displaced: boolean }[] = [];
-    for (const width of [request.width, request.minWidth]) {
-      const reach = Math.max(0, width / 2 - band.gap * 2);
-      const side = width / 2 + band.gap * 2;
-      for (const shift of [0, -reach, reach]) attempts.push({ width, shift, displaced: false });
-      for (const shift of [-side, side, -(side + width / 2), side + width / 2]) {
-        attempts.push({ width, shift, displaced: true });
-      }
-    }
-
+    const near = lanesByDistance(request.desiredY);
     let done = false;
-    for (const attempt of attempts) {
-      for (const { i } of lanesNear) {
-        const interval = intervalAt(request.anchorX + attempt.shift, attempt.width, band);
-        if (!fits(lanes[i]!, interval, band.gap)) continue;
-        lanes[i]!.push(interval);
-        const x = (interval.from + interval.to) / 2;
+    for (
+      let widthIndex = firstWidth(request);
+      widthIndex < request.widths.length && !done;
+      widthIndex++
+    ) {
+      const width = request.widths[widthIndex]!;
+      for (const { i } of near) {
+        const slot = findSlot(lanes[i]!, request, width, band.gap);
+        if (!slot) continue;
+        lanes[i]!.push(slot);
         placed.push({
           item: request.item,
-          x,
+          x: (slot.from + slot.to) / 2,
           y: centers[i]!,
-          width: attempt.width,
-          anchorX: request.anchorX,
-          displaced: request.anchorX < interval.from || request.anchorX > interval.to,
+          width,
+          widthIndex,
+          overlapping: false,
         });
         done = true;
         break;
       }
-      if (done) break;
     }
-    if (!done) addOverflow(request);
+    if (!done) {
+      // 实在放不下：最窄宽度叠放在期望位置所在的泳道（仍在自己的格子 / 道内）
+      const widthIndex = request.widths.length - 1;
+      const width = request.widths[widthIndex]!;
+      const from =
+        request.fixedRight !== undefined
+          ? request.fixedRight - width
+          : Math.max(request.minX, Math.min(request.desiredX - width / 2, request.maxX - width));
+      const lane = near[0]!.i;
+      lanes[lane]!.push({ from, to: from + width });
+      placed.push({
+        item: request.item,
+        x: from + width / 2,
+        y: centers[lane]!,
+        width,
+        widthIndex,
+        overlapping: true,
+      });
+    }
   }
+  return placed;
+}
 
-  // "+N" 也尽量放进空位；实在没有空位时放在离锚点最近的泳道（可能与标签相邻重叠）
-  const overflow: OverflowLabel<T>[] = [];
-  for (const [group, { items, anchorX, desiredY }] of overflowGroups) {
-    const interval = intervalAt(anchorX, band.overflowWidth, band);
-    const order = lanesByDistance(desiredY);
-    const free = order.find(({ i }) => fits(lanes[i]!, interval, band.gap));
-    const lane = (free ?? order[order.length - 1]!).i;
-    lanes[lane]!.push(interval);
-    overflow.push({
-      group,
-      items,
-      x: (interval.from + interval.to) / 2,
-      y: centers[lane]!,
-      width: band.overflowWidth,
-    });
+/** 同一格子（范围相同）的请求视为一组 */
+const groupOf = (request: LabelRequest<unknown>) =>
+  request.fixedRight !== undefined
+    ? `end:${request.fixedRight}`
+    : `${request.minX}:${request.maxX}`;
+
+/**
+ * 排布一条横带。某个格子太挤、出现叠放时，这一格的标签整体改从更短的宽度开始重排
+ * （大家都截短，而不是先来的占满、后来的叠在一起），直到不再叠放或已经是最短宽度。
+ */
+export function packBandLabels<T>(
+  requests: readonly LabelRequest<T>[],
+  band: BandSpec,
+): PlacedLabel<T>[] {
+  const start = new Map<string, number>();
+  const firstWidth = (request: LabelRequest<T>) =>
+    Math.min(start.get(groupOf(request)) ?? 0, request.widths.length - 1);
+  // 挤的格子里不再按散布位置居中，而是从格子左端依次排开，才能并排放下
+  const arrange = () =>
+    requests.map((r) =>
+      r.fixedRight === undefined && (start.get(groupOf(r)) ?? 0) > 0
+        ? { ...r, desiredX: r.minX }
+        : r,
+    );
+
+  let placed = packOnce(arrange(), band, firstWidth);
+  for (let round = 0; round < 8; round++) {
+    const crowded = new Set(
+      placed
+        .filter((p) => p.overlapping)
+        .map((p) => groupOf(requests.find((r) => r.item === p.item)!)),
+    );
+    const shrinkable = [...crowded].filter((group) =>
+      requests.some((r) => groupOf(r) === group && firstWidth(r) < r.widths.length - 1),
+    );
+    if (shrinkable.length === 0) break;
+    for (const group of shrinkable) start.set(group, (start.get(group) ?? 0) + 1);
+    placed = packOnce(arrange(), band, firstWidth);
   }
-
-  return { placed, overflow };
+  return placed;
 }

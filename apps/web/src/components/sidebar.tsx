@@ -21,12 +21,13 @@ const SCOPE_ICONS: Record<ListScope, string> = {
 
 /**
  * 左侧菜单：
- * - 上区「范围」：全部 / 收藏，单选
+ * - 上区：总览 / 收藏，单选。总览 = 没有选任何分类，点它会清空分类选择
  * - 下区「分类」：每个分类是一个开关，可多选累加；一个都不选 = 所有分类
  * 状态（全部 / 未完成 / 已完成 / 已错过）不在菜单里，在清单页面内的添加栏下面。
  *
  * 数字：清单模式下按页面当前选中的状态计数（点了之后看到几个就是几个）；
- * 矩阵模式没有状态行，按"未完成"计数。范围项在当前所选分类内计数，分类项在当前范围内计数。
+ * 矩阵模式没有状态行，按"未完成"计数。总览不分分类计数，收藏在当前所选分类内计数，
+ * 分类项在当前范围内计数。
  */
 export function Sidebar() {
   const { data, now, timeZone, reload } = useTaskData();
@@ -46,9 +47,11 @@ export function Sidebar() {
     const context = { now, timeZone };
     const count = (scope: ListScope, categoryIds: readonly string[]) =>
       buildTaskList(sources, { scope, status: countStatus, categoryIds }, context).length;
-    const byScope = Object.fromEntries(
-      SCOPE_ORDER.map((scope) => [scope, count(scope, selection.categoryIds)]),
-    ) as Record<ListScope, number>;
+    // 总览 = 没有选任何分类；收藏在当前所选分类内计数
+    const byScope: Record<ListScope, number> = {
+      all: count('all', []),
+      starred: count('starred', selection.categoryIds),
+    };
     const byCategory = new Map(data.categories.map((c) => [c.id, count(selection.scope, [c.id])]));
     return { byScope, byCategory };
   }, [data, now, timeZone, countStatus, selection.scope, selection.categoryIds]);
@@ -65,11 +68,16 @@ export function Sidebar() {
       <section className="sidebar-section" aria-label="范围">
         <ul>
           {SCOPE_ORDER.map((scope) => {
-            const selected = selection.scope === scope;
+            // 总览 = 没有选任何分类：点它会清空当前所有分类选择
+            const selected =
+              selection.scope === scope &&
+              (scope === 'starred' || selection.categoryIds.length === 0);
+            const target =
+              scope === 'all' ? { ...selection, scope, categoryIds: [] } : { ...selection, scope };
             return (
               <li key={scope}>
                 <Link
-                  href={selectionHref({ ...selection, scope })}
+                  href={selectionHref(target)}
                   replace
                   scroll={false}
                   className="sidebar-item"

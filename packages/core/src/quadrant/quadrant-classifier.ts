@@ -30,7 +30,7 @@ function isUnprocessed(candidate: MatrixCandidate): boolean {
 }
 
 /**
- * 象限判定。紧急 / 不紧急以矩阵中线（R = 14 天）为界：R ≤ 14 天（含逾期）为紧急。
+ * 象限判定。紧急 / 不紧急以矩阵中线（两周）为界：N ≤ 14（含逾期）为紧急。
  * 四个象限均为合法区域；
  * 唯一没有象限的情况是"重要性为 0 且无截止时间"，返回 null。
  */
@@ -50,7 +50,8 @@ export function placeOnMatrix(candidate: MatrixCandidate): MatrixPlacement {
   const { urgency } = candidate;
   if (urgency.kind === 'far') return { visible: false, reason: 'far_future' };
   if (urgency.kind === 'overdue') {
-    if (urgency.overdueDays > OVERDUE_MATRIX_GRACE_DAYS) {
+    // 逾期区三条道：逾期 0 / 1 / 2 天；满 3 天退场
+    if (urgency.overdueDays >= OVERDUE_MATRIX_GRACE_DAYS) {
       return { visible: false, reason: 'overdue_expired' };
     }
     return { visible: true, quadrant, overdueDays: urgency.overdueDays };

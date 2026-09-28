@@ -8,31 +8,25 @@ import {
   matchesScope,
   type Category,
 } from '@alethego/core';
-import { usePathname, useSearchParams } from 'next/navigation';
-import { Suspense, useEffect, useMemo } from 'react';
+import { Suspense, useMemo } from 'react';
 
 import { usePanels } from '@/components/panel-provider';
 import { useSelection } from '@/components/selection';
 import { EditPanel } from '@/components/task-panels';
 import { useTaskData } from '@/components/task-data-provider';
 import { TaskMatrix } from '@/components/task-matrix';
-import { PageHeader } from '@/components/task-list-view';
 import { TaskRow } from '@/components/task-row';
-import { QUADRANT_LABELS, SCOPE_LABELS } from '@/lib/format';
-import { rememberListUrl } from '@/lib/list-url';
+import { TitleBar } from '@/components/title-bar';
+import { QUADRANT_LABELS } from '@/lib/format';
 
 /**
  * 矩阵模式：没有添加栏和状态行，只受左侧范围（全部 / 收藏）和分类的选择影响。
  * 矩阵本身只显示未完成的任务（逾期 3 天内贴在最右格）。
  */
 function MatrixPage() {
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const { data, error, now, timeZone } = useTaskData();
+  const { data, error, now, timeZone, toggleComplete } = useTaskData();
   const { active } = usePanels();
   const { scope, categoryIds } = useSelection();
-  const query = searchParams.toString();
-  useEffect(() => rememberListUrl(query ? `${pathname}?${query}` : pathname), [pathname, query]);
 
   const categoriesById = useMemo(() => new Map(data?.categories.map((c) => [c.id, c])), [data]);
   const categoriesOf = (taskId: string): Category[] =>
@@ -57,10 +51,7 @@ function MatrixPage() {
 
   return (
     <main className="page page-wide">
-      <PageHeader
-        title={SCOPE_LABELS[scope]}
-        categories={categoryIds.map((id) => categoriesById.get(id)).filter((c) => c !== undefined)}
-      />
+      <TitleBar />
 
       {error && <p className="notice notice-error">加载失败：{error}</p>}
       {!data && !error && <p className="muted">加载中…</p>}
@@ -98,6 +89,7 @@ function MatrixPage() {
                         categories={categoriesOf(point.task.id)}
                         now={now}
                         timeZone={timeZone}
+                        onToggleComplete={toggleComplete}
                         deadline={point.representative.occurrenceAt ?? point.task.deadlineAt}
                       />
                     ))}

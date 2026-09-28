@@ -18,11 +18,11 @@ async function gymTask(store: InMemoryLocalStore) {
 }
 
 describe('syncOccurrences', () => {
-  it('生成已出现实例的记录，被取代的直接归档为 missed；重复执行无副作用', async () => {
+  it('时刻已过的实例都有记录，没勾选的立刻记为 missed；重复执行无副作用', async () => {
     const store = new InMemoryLocalStore();
     const task = await gymTask(store);
     const first = await syncOccurrences(store.occurrences, task, at('2026-09-25T10:00:00'));
-    expect(first.map((o) => o.status)).toEqual(['missed', 'missed', 'pending']);
+    expect(first.map((o) => o.status)).toEqual(['missed', 'missed', 'missed']);
     const again = await syncOccurrences(store.occurrences, task, at('2026-09-25T10:00:00'));
     expect(again).toEqual(first);
   });
@@ -41,7 +41,7 @@ describe('completeCurrentOccurrence', () => {
   it('完成当前代表实例，不改任务本身的 completed_at；代表实例随之顺延', async () => {
     const store = new InMemoryLocalStore();
     const task = await gymTask(store);
-    const context = at('2026-09-25T10:00:00'); // 周五
+    const context = at('2026-09-25T06:00:00'); // 周五 07:00 之前
     const records = await syncOccurrences(store.occurrences, task, context);
 
     const done = await completeCurrentOccurrence(store.occurrences, task, records, context);

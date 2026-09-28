@@ -363,12 +363,6 @@ a {
   font-size: 13px;
 }
 
-.matrix-axis-title {
-  fill: var(--viz-muted);
-  font-size: 13px;
-  text-anchor: middle;
-}
-
 .matrix-tooltip {
   position: absolute;
   transform: translate(-50%, calc(-100% - 6px));
@@ -532,23 +526,6 @@ a {
   padding: 4px 8px;
 }
 
-.month-days {
-  display: grid;
-  grid-template-columns: repeat(7, minmax(34px, 1fr));
-  gap: 4px;
-  max-width: 340px;
-}
-
-.month-last {
-  grid-column: span 3;
-}
-
-.recurrence-summary {
-  margin: 0;
-  font-size: 13px;
-  color: var(--muted);
-}
-
 .button-link {
   margin-left: 6px;
   padding: 0;
@@ -556,45 +533,6 @@ a {
   background: none;
   color: var(--accent);
   cursor: pointer;
-}
-
-.history-header h1 {
-  margin: 0 0 4px;
-  font-size: 20px;
-}
-
-.history-header p {
-  margin: 0 0 16px;
-}
-
-.history-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 14px;
-}
-
-.history-row + .history-row {
-  border-top: 1px solid var(--border);
-}
-
-.history-main {
-  display: flex;
-  flex-direction: column;
-}
-
-.history-status {
-  font-size: 13px;
-  color: var(--muted);
-}
-
-.history-status[data-status='completed'] {
-  color: var(--success);
-}
-
-.history-status[data-status='missed'] {
-  color: var(--danger);
 }
 
 .segmented {
@@ -689,44 +627,11 @@ a {
 
 .node-title {
   fill: var(--label);
-  font-size: 13px;
-}
-
-.node-overdue {
-  fill: var(--critical);
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.matrix-leader line {
-  stroke: var(--system-gray2);
-  stroke-width: 1;
-}
-
-.matrix-leader circle {
-  fill: var(--system-gray);
+  font-size: 12px;
 }
 
 .marker-uncategorized {
   fill: var(--viz-uncategorized);
-}
-
-.matrix-overflow {
-  cursor: default;
-  outline: none;
-}
-
-.matrix-overflow rect {
-  fill: var(--tertiary-fill);
-}
-
-.matrix-overflow text {
-  fill: var(--secondary-label);
-  font-size: 12px;
-}
-
-.matrix-overflow:focus-visible rect {
-  stroke: var(--accent);
 }
 
 /* ---------- 应用外壳：左侧菜单 + 右侧内容 ---------- */
@@ -1393,12 +1298,6 @@ a {
   font-size: 13px;
 }
 
-.page-description {
-  margin: -8px 0 16px;
-  color: var(--muted);
-  white-space: pre-wrap;
-}
-
 /* ---------- 撤销提示条 ---------- */
 .toast-stack {
   position: fixed;
@@ -1676,21 +1575,6 @@ a {
   padding-left: 10px;
 }
 
-.page-scope {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 12px;
-  margin: -8px 0 12px;
-  font-size: 14px;
-  color: var(--muted);
-}
-
-.page-scope-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-
 /* ---------- 标星 ---------- */
 .row-actions {
   display: flex;
@@ -1810,5 +1694,140 @@ a {
 
   .quick-add-expanded .quick-add-input input {
     padding-right: 12px;
+  }
+}
+
+/* ---------- 标题栏：总览 / 收藏 / 分类胶囊；每栏高度固定，放不下时另起一栏 ---------- */
+.page-header h1.title-bar {
+  --title-row-h: 44px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  align-content: flex-start;
+  column-gap: 8px;
+  row-gap: 0;
+  min-height: var(--title-row-h);
+  margin: 0 0 12px;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.title-bar-text {
+  height: var(--title-row-h);
+  line-height: var(--title-row-h);
+}
+
+.title-capsule {
+  display: inline-flex;
+  align-items: center;
+  height: 34px;
+  margin: 5px 0;
+  padding: 0 2px 0 12px;
+  border-radius: 999px;
+  background: var(--tertiary-fill);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.title-capsule-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+.title-capsule-name:hover {
+  color: var(--accent);
+}
+
+.title-capsule-remove {
+  width: 30px;
+  height: 30px;
+}
+
+.page-header {
+  position: relative;
+}
+
+.title-popover {
+  position: absolute;
+  z-index: 30;
+  top: 100%;
+  left: 0;
+  width: 280px;
+  margin-top: -6px;
+  border-radius: var(--radius);
+  box-shadow:
+    0 0 0 1px var(--border),
+    0 10px 30px rgba(0, 0, 0, 0.12);
+}
+
+.title-popover .category-form {
+  margin: 0;
+  background: var(--surface);
+}
+
+/* ---------- 循环任务：嵌在面板里的历史 ---------- */
+.recurrence-history {
+  --history-row-h: 30px;
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.history-rows {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+}
+
+.history-row-inline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: var(--history-row-h);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.history-row-inline .task-check {
+  margin-top: 0;
+}
+
+.history-toggle svg {
+  transition: transform 0.2s ease;
+}
+
+.history-toggle-open svg {
+  transform: rotate(180deg);
+}
+
+/* ---------- 清单页 / 添加栏的展开面板：字段直接铺开，没有外框、阴影和独立圆角 ---------- */
+@media (min-width: 761px) {
+  .panel-inline,
+  .task-item .panel-inline,
+  .task-item-open .panel-inline {
+    margin: 0;
+    padding: 0 14px 12px;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    animation: none;
+  }
+
+  .quick-add-expanded .panel-inline {
+    padding: 4px 0 8px;
+  }
+
+  .task-item .panel-inline {
+    padding-left: 42px;
   }
 }

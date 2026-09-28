@@ -15,7 +15,7 @@ import {
 } from '@alethego/core';
 
 export const SCOPE_LABELS: Record<ListScope, string> = {
-  all: '全部',
+  all: '总览',
   starred: '收藏',
 };
 

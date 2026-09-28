@@ -70,6 +70,7 @@ export function TaskRow({
         <EditPanel
           taskId={task.id}
           surface="inline"
+          focusTitle={active.focusTitle ?? false}
           row={{
             title: task.title,
             meta,
@@ -95,7 +96,21 @@ export function TaskRow({
 
   return (
     <li className={`task-item task-${status}`}>
-      <div className="task-row">
+      {/* 点任务名：展开并让标题进入编辑；点行内其他区域（勾选框和星标除外）：只展开 */}
+      <div
+        className="task-row"
+        data-panel-anchor
+        onClick={(event) => {
+          const target = event.target as Element;
+          if (target.closest('input, .row-actions')) return;
+          open({
+            kind: 'edit',
+            taskId: task.id,
+            surface: 'inline',
+            focusTitle: Boolean(target.closest('.task-title')),
+          });
+        }}
+      >
         {onToggleComplete && (
           <input
             type="checkbox"
@@ -107,14 +122,7 @@ export function TaskRow({
             onChange={() => onToggleComplete(task)}
           />
         )}
-        <button
-          type="button"
-          className="task-main"
-          aria-expanded={false}
-          data-panel-anchor
-          data-task-id={task.id}
-          onClick={() => open({ kind: 'edit', taskId: task.id, surface: 'inline' })}
-        >
+        <button type="button" className="task-main" aria-expanded={false} data-task-id={task.id}>
           <span className="task-title">{task.title}</span>
           {meta}
         </button>

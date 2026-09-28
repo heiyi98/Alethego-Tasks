@@ -32,7 +32,6 @@ export function recurrenceFormFromTask(task: Task): RecurrenceFormState {
 
 const SPEC_ERRORS: Record<RecurrenceSpecError, string> = {
   no_weekday: '请至少选择一个星期几',
-  no_month_day: '请至少选择一个日期',
   bad_interval: '重复间隔需为正整数',
   bad_count: '重复次数需为正整数',
 };

@@ -8,11 +8,10 @@ import {
   type Task,
 } from '@alethego/core';
 import { loadTaskDetail, saveTaskExtensions, syncOccurrences } from '@alethego/data';
-import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { useFeedback } from './feedback-provider';
-import { CheckCircleIcon, ClockIcon, IconButton, TrashIcon } from './icons';
+import { CheckCircleIcon, IconButton, TrashIcon } from './icons';
 import { PanelSurface } from './panel-surface';
 import { usePanels } from './panel-provider';
 import { useRepositories } from './repositories-provider';
@@ -104,10 +103,13 @@ export function EditPanel({
   taskId,
   surface,
   row,
+  focusTitle = false,
 }: {
   taskId: string;
   surface: 'inline' | 'floating';
   row?: EditRowParts;
+  /** 点任务名展开时：标题直接进入编辑状态（光标聚焦） */
+  focusTitle?: boolean;
 }) {
   const repositories = useRepositories();
   const { data, now, timeZone, reload } = useTaskData();
@@ -338,9 +340,25 @@ export function EditPanel({
   }
 
   const errors: FormErrors = validateTaskForm(form);
-  const recurring = loaded.task.recurrenceRule !== null;
-  const showHistory = recurring || loaded.records.length > 0;
   const categories: Category[] = data?.categories ?? [];
+
+  /** 历史中某次实例：勾上 = 已完成，没勾 = 未完成 */
+  async function toggleRecord(record: RecurrenceOccurrence, completed: boolean) {
+    try {
+      const updated = await repositories.occurrences.setStatus(
+        record.id,
+        completed ? 'completed' : 'missed',
+        completed ? new Date() : null,
+      );
+      setLoaded((l) =>
+        l ? { ...l, records: l.records.map((r) => (r.id === updated.id ? updated : r)) } : l,
+      );
+      void reload();
+    } catch (e) {
+      setSaveState('error');
+      setSaveError(errorMessage(e));
+    }
+  }
 
   const star = (
     <StarButton
@@ -357,16 +375,6 @@ export function EditPanel({
     >
       <CheckCircleIcon />
     </IconButton>
-  );
-  const historyLink = showHistory && (
-    <Link
-      href={`/tasks/${loaded.task.id}/history`}
-      className="icon-button"
-      aria-label={`历史记录（${loaded.records.length} 次）`}
-      title={`历史记录（${loaded.records.length} 次）`}
-    >
-      <ClockIcon />
-    </Link>
   );
   const deleteButton = (
     <IconButton label="删除任务" className="icon-button-danger" onClick={deleteTask}>
@@ -386,6 +394,7 @@ export function EditPanel({
           aria-label="标题"
           placeholder="标题"
           value={form.title}
+          autoFocus={focusTitle}
           onChange={(event) => setTitle(event.target.value)}
         />
         <span className="task-title mobile-only">{form.title}</span>
@@ -393,7 +402,6 @@ export function EditPanel({
       </div>
       <div className="row-actions desktop-only">
         {star}
-        {historyLink}
         {deleteButton}
       </div>
     </div>
@@ -408,7 +416,6 @@ export function EditPanel({
         <>
           {star}
           {completeButton}
-          {historyLink}
           {deleteButton}
         </>
       }
@@ -424,6 +431,7 @@ export function EditPanel({
         errors={errors}
         categories={categories}
         records={loaded.records}
+        onToggleRecord={toggleRecord}
         now={now}
         timeZone={timeZone}
         fallbackStart={loaded.task.deadlineAt}

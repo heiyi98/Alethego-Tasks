@@ -149,7 +149,7 @@ export async function selectStatus(page: Page, label: string) {
   await expect(button).toHaveAttribute('aria-pressed', 'true');
 }
 
-/** 侧边栏上区"范围"（单选）：全部 / 收藏（链接名后面跟着计数） */
+/** 侧边栏上区（单选）：总览 / 收藏（链接名后面跟着计数）；总览 = 清空分类选择 */
 export const scopeItem = (page: Page, label: string) =>
   sidebar(page)
     .getByRole('region', { name: '范围' })

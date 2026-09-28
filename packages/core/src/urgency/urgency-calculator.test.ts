@@ -6,17 +6,14 @@ import {
   LAST_URGENT_TIER_INDEX,
   MAX_TIER_INDEX,
 } from './tiers';
-import { calculateUrgency, isUrgent, tierIndexForDays } from './urgency-calculator';
+import { calculateUrgency, isUrgent, tierIndexForDayNumber } from './urgency-calculator';
 
 const timeZone = 'Asia/Shanghai';
-// 2026-09-25 10:00 (Asia/Shanghai)
-const now = new Date('2026-09-25T02:00:00Z');
-const context = { now, timeZone };
-
 /** 上海本地时间 → UTC 时间点 */
 const sh = (local: string) => new Date(`${local}+08:00`);
-/** 距 now 的精确时间点 */
-const inDays = (days: number) => new Date(now.getTime() + days * 86_400_000);
+// 2026-10-05 是周一
+const context = { now: sh('2026-10-05T15:54:00'), timeZone };
+const endOf = (date: string) => sh(`${date}T23:59:59.999`);
 
 describe('标尺', () => {
   it('自然天数，不再是斐波那契数', () => {
@@ -27,113 +24,122 @@ describe('标尺', () => {
   });
 });
 
-describe('tierIndexForDays：区间 (a, b]，上界含在内', () => {
+describe('tierIndexForDayNumber：N 的区间上界含在内', () => {
   it.each([
-    [0.01, 0],
     [1, 0],
-    [1.0001, 1],
     [2, 1],
     [3, 2],
     [4, 3],
     [5, 3],
     [6, 4],
     [7, 4],
-    [7.5, 5],
+    [8, 5],
     [14, 5],
-    [14.1, 6],
+    [15, 6],
     [21, 6],
+    [22, 7],
     [30, 7],
-    [45, 8],
+    [31, 8],
+    [60, 8],
+    [61, 9],
     [90, 9],
+    [91, 10],
     [180, 10],
+    [181, 11],
     [270, 11],
+    [271, 12],
     [365, 12],
-  ])('%f 天 → 第 %i 档', (days, tier) => {
-    expect(tierIndexForDays(days)).toBe(tier);
+  ])('N = %i → 第 %i 档', (n, tier) => {
+    expect(tierIndexForDayNumber(n)).toBe(tier);
   });
 
-  it('超过一年返回 null', () => {
-    expect(tierIndexForDays(365.01)).toBeNull();
+  it('N > 365 返回 null', () => {
+    expect(tierIndexForDayNumber(366)).toBeNull();
   });
 });
 
-describe('calculateUrgency：按剩余时间判档，不按日历天数', () => {
+describe('calculateUrgency：按日历日判档，今天算第 1 天', () => {
   it('无截止时间 → 最大档', () => {
     expect(calculateUrgency(null, context)).toEqual({ kind: 'no_deadline', tierIndex: 12 });
   });
 
-  it('相隔 1 小时但跨过午夜：R = 1 小时 → (0,1] 档（不再因跨日算"明天"）', () => {
-    const lateNight = { now: sh('2026-09-25T23:30:00'), timeZone };
-    expect(calculateUrgency(sh('2026-09-26T00:30:00'), lateNight)).toMatchObject({
-      kind: 'scheduled',
-      tierIndex: 0,
+  it('只看截止日期，不看几点几分：日期型与设了时刻的落在同一档', () => {
+    for (const deadline of [
+      sh('2026-10-06T00:30:00'),
+      sh('2026-10-06T09:00:00'),
+      endOf('2026-10-06'),
+    ]) {
+      expect(calculateUrgency(deadline, context)).toMatchObject({
+        kind: 'scheduled',
+        dayNumber: 2,
+        tierIndex: 1,
+      });
+    }
+    for (const deadline of [sh('2026-10-05T16:00:00'), endOf('2026-10-05')]) {
+      expect(calculateUrgency(deadline, context)).toMatchObject({ dayNumber: 1, tierIndex: 0 });
+    }
+  });
+
+  it('深夜看凌晨截止的任务：跨过午夜就是 N = 2', () => {
+    const lateNight = { now: sh('2026-10-05T23:30:00'), timeZone };
+    expect(calculateUrgency(sh('2026-10-06T00:30:00'), lateNight)).toMatchObject({ dayNumber: 2 });
+  });
+
+  it('按用户时区的日历日', () => {
+    const deadline = new Date('2026-10-05T20:00:00Z');
+    const nowUtc = new Date('2026-10-05T10:00:00Z');
+    expect(calculateUrgency(deadline, { now: nowUtc, timeZone: 'UTC' })).toMatchObject({
+      dayNumber: 1,
     });
+    expect(calculateUrgency(deadline, { now: nowUtc, timeZone })).toMatchObject({ dayNumber: 2 });
   });
 
-  it('明天 09:00（R = 23 小时）→ (0,1]；明天全天（R ≈ 1.58 天）→ (1,2]', () => {
-    expect(calculateUrgency(sh('2026-09-26T09:00:00'), context)).toMatchObject({ tierIndex: 0 });
-    expect(calculateUrgency(sh('2026-09-26T23:59:59.999'), context)).toMatchObject({
-      tierIndex: 1,
-      tierDays: 2,
-    });
-  });
-
-  it('恰好在分界上归入较近的一档（上界含在内）', () => {
-    expect(calculateUrgency(inDays(14), context)).toMatchObject({ tierIndex: 5, tierDays: 14 });
-    expect(calculateUrgency(inDays(14 + 1 / 1440), context)).toMatchObject({ tierIndex: 6 });
-    expect(calculateUrgency(inDays(365), context)).toMatchObject({ tierIndex: 12 });
-  });
-
-  it('daysRemaining 是剩余时间折算的天数', () => {
-    const urgency = calculateUrgency(inDays(2.5), context);
-    expect(urgency).toMatchObject({ kind: 'scheduled', tierIndex: 2 });
-    if (urgency.kind === 'scheduled') expect(urgency.daysRemaining).toBeCloseTo(2.5);
-  });
-
-  it('超过一年 → 扩展向量（自然值：两年、三年……十年）', () => {
-    expect(calculateUrgency(inDays(380), context)).toMatchObject({
+  it('N > 365 → 扩展向量（两年、三年……十年）', () => {
+    expect(calculateUrgency(endOf('2027-10-10'), context)).toMatchObject({
       kind: 'far',
       extendedTierDays: 730,
     });
-    expect(calculateUrgency(inDays(1000), context)).toMatchObject({ extendedTierDays: 1095 });
-  });
-
-  it('超出扩展向量 → extendedTierDays 为 null', () => {
-    expect(calculateUrgency(inDays(4000), context)).toMatchObject({
+    expect(calculateUrgency(endOf('2040-01-01'), context)).toMatchObject({
       kind: 'far',
       extendedTierDays: null,
     });
   });
 
-  it('R ≤ 0 为逾期；当天稍早已过 → 逾期 0 天（逾期天数仍按日历天）', () => {
-    expect(calculateUrgency(now, context)).toEqual({ kind: 'overdue', overdueDays: 0 });
-    expect(calculateUrgency(sh('2026-09-25T09:00:00'), context)).toEqual({
+  it('超过截止时刻即逾期：设了时刻的当天已过点 → 逾期 0 天', () => {
+    expect(calculateUrgency(sh('2026-10-05T09:00:00'), context)).toEqual({
       kind: 'overdue',
       overdueDays: 0,
     });
-    expect(calculateUrgency(sh('2026-09-24T23:59:59.999'), context)).toEqual({
+  });
+
+  it('日期型从截止日期的次日 00:00 起逾期：昨天截止 → 逾期 1 天', () => {
+    expect(calculateUrgency(endOf('2026-10-04'), context)).toEqual({
       kind: 'overdue',
       overdueDays: 1,
+    });
+    expect(calculateUrgency(endOf('2026-10-03'), context)).toEqual({
+      kind: 'overdue',
+      overdueDays: 2,
     });
   });
 
   it('逾期天数不封顶', () => {
     expect(calculateUrgency(sh('2026-01-01T09:00:00'), context)).toEqual({
       kind: 'overdue',
-      overdueDays: 267,
+      overdueDays: 277,
     });
   });
 });
 
 describe('isUrgent：以两周为界', () => {
-  it('R ≤ 14 天为紧急，R > 14 天不紧急', () => {
-    expect(isUrgent(calculateUrgency(inDays(14), context))).toBe(true);
-    expect(isUrgent(calculateUrgency(inDays(14.01), context))).toBe(false);
+  it('N ≤ 14 为紧急，N = 15 不紧急', () => {
+    expect(isUrgent(calculateUrgency(endOf('2026-10-18'), context))).toBe(true); // N = 14
+    expect(isUrgent(calculateUrgency(sh('2026-10-19T00:00:00'), context))).toBe(false); // N = 15
   });
 
   it('逾期为紧急，无截止时间与远期为不紧急', () => {
-    expect(isUrgent({ kind: 'overdue', overdueDays: 10 })).toBe(true);
+    expect(isUrgent({ kind: 'overdue', overdueDays: 2 })).toBe(true);
     expect(isUrgent({ kind: 'no_deadline', tierIndex: 12 })).toBe(false);
-    expect(isUrgent({ kind: 'far', daysRemaining: 400, extendedTierDays: 730 })).toBe(false);
+    expect(isUrgent({ kind: 'far', dayNumber: 400, extendedTierDays: 730 })).toBe(false);
   });
 });

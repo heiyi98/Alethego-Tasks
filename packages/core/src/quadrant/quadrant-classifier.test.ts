@@ -5,9 +5,9 @@ import type { Urgency } from '../urgency/urgency-calculator';
 import { classifyQuadrant, placeOnMatrix } from './quadrant-classifier';
 
 const noDeadline: Urgency = { kind: 'no_deadline', tierIndex: 12 };
-const tomorrow: Urgency = { kind: 'scheduled', daysRemaining: 1, tierIndex: 0, tierDays: 1 };
-const inAMonth: Urgency = { kind: 'scheduled', daysRemaining: 30, tierIndex: 7, tierDays: 30 };
-const far: Urgency = { kind: 'far', daysRemaining: 500, extendedTierDays: 730 };
+const tomorrow: Urgency = { kind: 'scheduled', dayNumber: 2, tierIndex: 1, tierDays: 2 };
+const inAMonth: Urgency = { kind: 'scheduled', dayNumber: 30, tierIndex: 7, tierDays: 30 };
+const far: Urgency = { kind: 'far', dayNumber: 500, extendedTierDays: 730 };
 const overdue = (overdueDays: number): Urgency => ({ kind: 'overdue', overdueDays });
 
 const candidate = (importanceLevel: ImportanceLevel, urgency: Urgency) => ({
@@ -39,10 +39,10 @@ describe('classifyQuadrant', () => {
   });
 
   it('以两周为界：(7,14] 档紧急，(14,21] 档不紧急', () => {
-    const twoWeeks: Urgency = { kind: 'scheduled', daysRemaining: 14, tierIndex: 5, tierDays: 14 };
+    const twoWeeks: Urgency = { kind: 'scheduled', dayNumber: 14, tierIndex: 5, tierDays: 14 };
     const threeWeeks: Urgency = {
       kind: 'scheduled',
-      daysRemaining: 15,
+      dayNumber: 15,
       tierIndex: 6,
       tierDays: 21,
     };
@@ -75,16 +75,18 @@ describe('placeOnMatrix', () => {
     });
   });
 
-  it('逾期 3 天内贴边显示并标注逾期天数', () => {
-    expect(placeOnMatrix(candidate(0, overdue(3)))).toEqual({
-      visible: true,
-      quadrant: 'not_important_urgent',
-      overdueDays: 3,
-    });
+  it('逾期区三条道：逾期 0 / 1 / 2 天显示，并给出逾期天数', () => {
+    for (const days of [0, 1, 2]) {
+      expect(placeOnMatrix(candidate(0, overdue(days)))).toEqual({
+        visible: true,
+        quadrant: 'not_important_urgent',
+        overdueDays: days,
+      });
+    }
   });
 
-  it('逾期超过 3 天退出矩阵', () => {
-    expect(placeOnMatrix(candidate(5, overdue(4)))).toEqual({
+  it('逾期满 3 天退出矩阵', () => {
+    expect(placeOnMatrix(candidate(5, overdue(3)))).toEqual({
       visible: false,
       reason: 'overdue_expired',
     });

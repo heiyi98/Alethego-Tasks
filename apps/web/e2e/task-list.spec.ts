@@ -32,8 +32,8 @@ test('快速添加带重要性与截止日期、按截止时间排序、状态�
   const id = runId();
   const t = (name: string) => `${id} ${name}`;
   await page.goto('/');
-  // 默认：范围"全部"，页面内状态行默认"未完成"，状态行在添加栏下面
-  await expect(page.getByRole('heading', { level: 1, name: '全部' })).toBeVisible();
+  // 默认：总览（没有选任何分类），页面内状态行默认"未完成"，状态行在添加栏下面
+  await expect(page.getByRole('heading', { level: 1, name: '总览' })).toBeVisible();
   await expect(statusBar(page).getByRole('button', { name: '未完成' })).toHaveAttribute(
     'aria-pressed',
     'true',
@@ -202,7 +202,7 @@ test('筛选：范围 × 分类多选（命中任一即显示）× 页面内状�
 
   await toggleCategory(page, home);
   await expectTitles(page, id, [t('工作和家庭')]);
-  await expect(page.getByTestId('page-scope')).toHaveText(home);
+  await expect(page.getByTestId('title-capsule')).toHaveText([home]);
 
   // 多选累加：命中任一所选分类即显示
   await toggleCategory(page, work);
@@ -343,10 +343,10 @@ test('标星：列表行与面板里都可切换；范围"收藏"= 标星任务�
   await page.reload();
   await expectTitles(page, id, [t('已完成'), t('收藏里新建')]);
 
-  // 回到"全部"：新建的任务不自动标星
-  await selectScope(page, '全部');
-  await quickAdd(page, t('全部里新建'));
-  await expect(star('全部里新建')).toHaveAttribute('aria-pressed', 'false');
+  // 回到"总览"：新建的任务不自动标星
+  await selectScope(page, '总览');
+  await quickAdd(page, t('总览里新建'));
+  await expect(star('总览里新建')).toHaveAttribute('aria-pressed', 'false');
 });
 
 test('删除任务：无确认框，提示条可撤销；删除为软删除；旧的详情路由已移除', async ({
@@ -393,11 +393,11 @@ test('删除任务：无确认框，提示条可撤销；删除为软删除；�
   expect(rows[0]!.title).toBe(title);
   expect(rows[0]!.deleted_at).not.toBeNull();
 
-  // 旧的 /tasks/[id] 详情页已移除；历史记录页仍然存在
+  // 旧的 /tasks/[id] 详情页和独立的历史页都已移除（历史嵌在展开面板里）
   const old = await page.goto(`/tasks/${taskId}`);
   expect(old?.status()).toBe(404);
   const history = await page.goto(`/tasks/${taskId}/history`);
-  expect(history?.status()).toBe(200);
+  expect(history?.status()).toBe(404);
 
   // 旧地址自动兼容跳转
   await page.goto('/list/missed');
@@ -485,28 +485,30 @@ test('面板中勾选完成：任务在收起前留在原位，收起后离开"�
   await expect(taskItem(page, title)).toBeVisible();
 });
 
-test('左侧菜单的数字：按页面当前的状态计数；范围项在所选分类内，分类项在当前范围内', async ({
+test('左侧菜单的数字：按页面当前的状态计数；总览不分分类，收藏与分类项在当前选择内计数', async ({
   page,
 }) => {
   const id = runId();
   const work = `${id}工作`;
   await page.goto('/');
   await createCategory(page, work);
-  await toggleCategory(page, work);
   await selectStatus(page, '全部');
+  const count = (locator: ReturnType<typeof scopeItem>) => locator.locator('.sidebar-count');
+  const overviewBefore = Number(await count(scopeItem(page, '总览')).textContent());
+
+  await toggleCategory(page, work);
   await quickAdd(page, `${id} 一`);
   await quickAdd(page, `${id} 二`, { deadline: localDate(-1) });
   await taskItem(page, `${id} 一`).getByRole('button', { name: '标星', exact: true }).click();
 
-  const count = (locator: ReturnType<typeof scopeItem>) => locator.locator('.sidebar-count');
-  // 状态"全部"：范围"全部" 2 个、"收藏" 1 个；分类（在范围"全部"内）2 个
-  await expect(count(scopeItem(page, '全部'))).toHaveText('2');
+  // 总览 = 没有选任何分类：数的是全部任务（这里新增了 2 个）
+  await expect(count(scopeItem(page, '总览'))).toHaveText(String(overviewBefore + 2));
+  // 收藏在所选分类内计数；分类项在当前范围内计数
   await expect(count(scopeItem(page, '收藏'))).toHaveText('1');
   await expect(count(categoryToggle(page, work))).toHaveText('2');
 
   // 状态"已错过"：数字跟着变
   await selectStatus(page, '已错过');
-  await expect(count(scopeItem(page, '全部'))).toHaveText('1');
   await expect(count(scopeItem(page, '收藏'))).toHaveText('0');
   await expect(count(categoryToggle(page, work))).toHaveText('1');
 
@@ -514,4 +516,103 @@ test('左侧菜单的数字：按页面当前的状态计数；范围项在所�
   await selectStatus(page, '全部');
   await selectScope(page, '收藏');
   await expect(count(categoryToggle(page, work))).toHaveText('1');
+});
+
+test('标题栏：总览 / 分类胶囊（✕ 取消、点名字编辑）/ 收藏；每栏高度固定，换栏时才把下方内容顶下去', async ({
+  page,
+}) => {
+  const id = runId();
+  const names = [1, 2, 3, 4, 5, 6].map((n) => `${id}很长的分类名称${n}`);
+  await page.goto('/');
+  for (const name of names) await createCategory(page, name);
+  const bar = page.getByRole('heading', { level: 1 });
+  await expect(bar).toHaveText('总览');
+  const rowHeight = (await bar.boundingBox())!.height;
+  const statusY = async () => (await statusBar(page).boundingBox())!.y;
+  const baseY = await statusY();
+
+  // 选一个分类：标题变成胶囊，栏数不变，下方内容不动
+  await toggleCategory(page, names[0]!);
+  await expect(page.getByTestId('title-capsule')).toHaveText([names[0]!]);
+  await expect(bar).not.toContainText('总览');
+  expect(await statusY()).toBe(baseY);
+
+  // 胶囊放不下时另起一栏：只在栏数变化时移动，且正好一栏的高度
+  let rows = 1;
+  for (const name of names.slice(1)) {
+    await toggleCategory(page, name);
+    const height = (await bar.boundingBox())!.height;
+    const newRows = Math.round(height / rowHeight);
+    expect(Math.abs(height - newRows * rowHeight)).toBeLessThan(1);
+    expect(Math.abs((await statusY()) - baseY - (newRows - 1) * rowHeight)).toBeLessThan(1);
+    rows = newRows;
+  }
+  expect(rows).toBeGreaterThan(1);
+
+  // 点 ✕ 取消这个分类的选择
+  await page.getByRole('button', { name: `取消选择「${names[5]}」` }).click();
+  await expect(page.getByTestId('title-capsule')).toHaveCount(5);
+  await expect(page.locator('main')).not.toContainText(names[5]!);
+
+  // 点胶囊上的名字：打开这个分类的编辑（名称、描述、颜色）
+  const capsuleName = (name: string) =>
+    page.getByTestId('title-capsule').getByRole('button', { name, exact: true });
+  await capsuleName(names[0]!).click();
+  const form = page.getByRole('form', { name: `编辑分类「${names[0]}」` }).last();
+  await expect(form.getByLabel('分类名称')).toHaveValue(names[0]!);
+  await form.getByLabel('分类描述').fill('标题栏里改的');
+  await form.getByRole('button', { name: '保存分类' }).click();
+  await expect(form).toHaveCount(0);
+  await expect(capsuleName(names[0]!)).toHaveAttribute('title', '标题栏里改的');
+
+  // 收藏：标题永远只显示"收藏"，分类筛选照常生效，侧边栏开关保持高亮
+  await selectScope(page, '收藏');
+  await expect(bar).toHaveText('收藏');
+  await expect(page.getByTestId('title-capsule')).toHaveCount(0);
+  await expect(categoryToggle(page, names[0]!)).toHaveAttribute('aria-pressed', 'true');
+
+  // 点总览：清空所有分类选择
+  await selectScope(page, '总览');
+  await expect(bar).toHaveText('总览');
+  await expect(categoryToggle(page, names[0]!)).toHaveAttribute('aria-pressed', 'false');
+  await expect(page).not.toHaveURL(/cat=/);
+});
+
+test('点任务名：展开并让标题进入编辑；点行内其他区域：只展开', async ({ page }) => {
+  const id = runId();
+  const title = `${id} 点击行为`;
+  await page.goto('/');
+  await quickAdd(page, title, { deadline: localDate(2) });
+
+  // 点行内其他区域（截止时间那一行）：只展开，不进入标题编辑
+  await taskItem(page, title).locator('.task-deadline').click();
+  await expect(taskItem(page, title)).toHaveClass(/task-item-open/);
+  await expect(titleBox(editPanel(page))).not.toBeFocused();
+  await collapse(page);
+
+  // 点任务名：展开，同时标题获得光标
+  await taskItem(page, title).locator('.task-title').click();
+  await expect(titleBox(editPanel(page))).toBeFocused();
+  await collapse(page);
+
+  // 勾选框和星标不会展开
+  await taskItem(page, title).getByRole('button', { name: '标星', exact: true }).click();
+  await expect(taskItem(page, title)).not.toHaveClass(/task-item-open/);
+});
+
+test('展开面板没有外框：添加栏与任务行下方直接铺开字段', async ({ page }) => {
+  const id = runId();
+  const title = `${id} 无外框`;
+  await page.goto('/');
+  await quickAdd(page, title);
+  await openTask(page, title);
+  const surface = taskItem(page, title).locator('.panel-surface');
+  await expect(surface).toHaveCSS('box-shadow', 'none');
+  await expect(surface).toHaveCSS('border-top-left-radius', '0px');
+  await collapse(page);
+
+  await quickAddBar(page).getByRole('button', { name: '展开完整选项' }).click();
+  const create = page.locator('.quick-add .panel-surface');
+  await expect(create).toHaveCSS('box-shadow', 'none');
+  await expect(create).toHaveCSS('border-top-left-radius', '0px');
 });

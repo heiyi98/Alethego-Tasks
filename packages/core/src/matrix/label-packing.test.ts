@@ -2,27 +2,22 @@ import { describe, expect, it } from 'vitest';
 
 import { laneCenters, packBandLabels, type BandSpec, type LabelRequest } from './label-packing';
 
-const band: BandSpec = {
-  top: 0,
-  height: 100,
-  left: 0,
-  right: 1000,
-  laneHeight: 20,
-  padding: 5,
-  gap: 4,
-  overflowWidth: 30,
-};
+const band: BandSpec = { top: 0, height: 100, laneHeight: 20, padding: 5, gap: 4 };
 
-const req = (item: string, anchorX: number, extra: Partial<LabelRequest<string>> = {}) => ({
+/** 一个 100 宽的格子：[200, 300] */
+const req = (item: string, extra: Partial<LabelRequest<string>> = {}): LabelRequest<string> => ({
   item,
-  anchorX,
+  minX: 200,
+  maxX: 300,
+  desiredX: 250,
   desiredY: 50,
-  width: 120,
-  minWidth: 50,
+  widths: [80, 40, 10],
   priority: 0,
-  group: `g${anchorX}`,
   ...extra,
 });
+
+const inside = (p: { x: number; width: number }, minX: number, maxX: number) =>
+  p.x - p.width / 2 >= minX - 1e-9 && p.x + p.width / 2 <= maxX + 1e-9;
 
 function overlaps(a: { x: number; y: number; width: number }, b: typeof a) {
   return a.y === b.y && Math.abs(a.x - b.x) < (a.width + b.width) / 2;
@@ -34,130 +29,111 @@ describe('laneCenters', () => {
   });
 });
 
-describe('packBandLabels', () => {
-  it('互不冲突时各自放在期望位置最近的泳道，居中于锚点', () => {
-    const { placed, overflow } = packBandLabels(
-      [req('a', 100, { desiredY: 12 }), req('b', 600, { desiredY: 88 })],
-      band,
-    );
-    // 同优先级时靠右（更紧急）的先放，因此输出顺序是 b、a
-    expect(placed).toEqual([
-      { item: 'b', x: 600, y: 80, width: 120, anchorX: 600, displaced: false },
-      { item: 'a', x: 100, y: 20, width: 120, anchorX: 100, displaced: false },
-    ]);
-    expect(overflow).toEqual([]);
+describe('packBandLabels：普通任务的标签整个落在所属格子内', () => {
+  it('放在离期望位置最近的地方（格内自由散布）', () => {
+    const [a] = packBandLabels([req('a', { desiredX: 230, desiredY: 12 })], band);
+    expect(a).toMatchObject({ item: 'a', x: 240, y: 20, width: 80, widthIndex: 0 });
+    expect(inside(a!, 200, 300)).toBe(true);
   });
 
-  it('同一位置的多个标签分到不同泳道，互不重叠', () => {
-    const { placed } = packBandLabels(
-      Array.from({ length: 5 }, (_, i) => req(`t${i}`, 300)),
+  it('期望位置靠近格子边缘时向内收，不越过刻度线', () => {
+    const [a] = packBandLabels([req('a', { desiredX: 299 })], band);
+    expect(a!.x + a!.width / 2).toBe(300);
+  });
+
+  it('同一格的多个标签分到不同泳道、互不重叠，全部留在格内', () => {
+    const placed = packBandLabels(
+      Array.from({ length: 4 }, (_, i) => req(`t${i}`)),
       band,
     );
-    // 4 条泳道各放一个覆盖锚点的标签，第 5 个移到锚点旁边（画引线）
-    expect(placed).toHaveLength(5);
-    expect(placed.filter((p) => p.displaced)).toHaveLength(1);
+    expect(placed).toHaveLength(4);
+    for (const p of placed) expect(inside(p, 200, 300)).toBe(true);
     for (let i = 0; i < placed.length; i++)
       for (let j = i + 1; j < placed.length; j++)
         expect(overlaps(placed[i]!, placed[j]!)).toBe(false);
   });
 
+  it('泳道满了改用更短的宽度，同一泳道并排，仍在格内', () => {
+    const placed = packBandLabels(
+      Array.from({ length: 8 }, (_, i) => req(`t${i}`, { widths: [45, 20, 8] })),
+      band,
+    );
+    expect(placed).toHaveLength(8);
+    expect(placed.filter((p) => p.widthIndex === 0)).toHaveLength(4);
+    expect(placed.filter((p) => p.widthIndex === 1)).toHaveLength(4);
+    for (const p of placed) expect(inside(p, 200, 300)).toBe(true);
+    for (let i = 0; i < placed.length; i++)
+      for (let j = i + 1; j < placed.length; j++)
+        expect(overlaps(placed[i]!, placed[j]!)).toBe(false);
+  });
+
+  it('一格太挤时这一格整体截短，而不是先来的占满、后来的叠在一起', () => {
+    const placed = packBandLabels(
+      Array.from({ length: 6 }, (_, i) => req(`t${i}`)),
+      band,
+    );
+    expect(placed).toHaveLength(6);
+    expect(placed.every((p) => !p.overlapping)).toBe(true);
+    expect(placed.every((p) => p.widthIndex === 1)).toBe(true);
+    for (let i = 0; i < placed.length; i++)
+      for (let j = i + 1; j < placed.length; j++)
+        expect(overlaps(placed[i]!, placed[j]!)).toBe(false);
+  });
+
+  it('实在放不下时仍然显示（最窄宽度叠放在期望位置），不会丢任务', () => {
+    const placed = packBandLabels(
+      Array.from({ length: 60 }, (_, i) => req(`t${i}`)),
+      band,
+    );
+    expect(placed).toHaveLength(60);
+    expect(placed.some((p) => p.overlapping)).toBe(true);
+    for (const p of placed) expect(inside(p, 200, 300)).toBe(true);
+  });
+
   it('优先级高（更紧急）的先占期望位置', () => {
-    const { placed } = packBandLabels(
-      [req('low', 300, { priority: 1 }), req('high', 300, { priority: 9 })],
+    const placed = packBandLabels(
+      [req('low', { priority: 1 }), req('high', { priority: 9 })],
       band,
     );
     // 期望位置 50 离 40、60 两条泳道一样近，先放的 high 占第一条
     expect(placed.find((p) => p.item === 'high')!.y).toBe(40);
     expect(placed.find((p) => p.item === 'low')!.y).toBe(60);
   });
-
-  it('锚点附近被占时，标签移到锚点旁边并标记 displaced', () => {
-    const oneLane: BandSpec = { ...band, height: 30 };
-    const { placed } = packBandLabels(
-      [req('first', 500, { priority: 2 }), req('second', 500, { priority: 1 })],
-      oneLane,
-    );
-    expect(placed).toHaveLength(2);
-    const [first, second] = [placed[0]!, placed[1]!];
-    expect(first).toMatchObject({ item: 'first', x: 500, displaced: false });
-    expect(second).toMatchObject({ item: 'second', anchorX: 500, displaced: true });
-    expect(overlaps(first, second)).toBe(false);
-  });
-
-  it('放不下完整宽度时缩短，仍放不下的合并为 +N', () => {
-    const narrow: BandSpec = { ...band, height: 30, right: 200 }; // 只有 1 条泳道，横向也很窄
-    const { placed, overflow } = packBandLabels(
-      [
-        req('a', 60, { priority: 3 }),
-        req('b', 150, { priority: 2 }),
-        req('c', 150, { priority: 1 }),
-      ],
-      narrow,
-    );
-    expect(placed.map((p) => [p.item, p.width])).toEqual([
-      ['a', 120],
-      ['b', 50],
-    ]);
-    expect(overflow).toEqual([expect.objectContaining({ group: 'g150', items: ['c'], width: 30 })]);
-  });
-
-  it('靠近边界的标签向内平移，不超出范围', () => {
-    const { placed } = packBandLabels([req('edge', 990)], band);
-    expect(placed[0]!.x + placed[0]!.width / 2).toBeLessThanOrEqual(1000);
-  });
 });
 
-describe('packBandLabels：逾期标签（点位在标签内部右端，标题向左伸展）', () => {
+describe('packBandLabels：逾期标签右端固定，向左伸展', () => {
   const end = (item: string, extra: Partial<LabelRequest<string>> = {}) =>
-    req(item, 960, { align: 'end', endOffset: 10, priority: 14, group: 'overdue', ...extra });
+    req(item, {
+      fixedRight: 500,
+      minX: 0,
+      maxX: 500,
+      widths: [120, 50, 12],
+      priority: 14,
+      ...extra,
+    });
 
-  it('标签右端 = 锚点 + endOffset，向左伸展，点位落在标签内部，不标记 displaced', () => {
-    const { placed } = packBandLabels([end('late')], band);
-    expect(placed).toEqual([
-      { item: 'late', x: 970 - 60, y: 40, width: 120, anchorX: 960, displaced: false },
-    ]);
-    const label = placed[0]!;
-    expect(label.anchorX).toBeLessThan(label.x + label.width / 2);
-    expect(label.anchorX).toBeGreaterThan(label.x - label.width / 2);
+  it('标签右端 = fixedRight', () => {
+    const [late] = packBandLabels([end('late')], band);
+    expect(late).toMatchObject({ x: 440, width: 120, widthIndex: 0 });
   });
 
-  it('标签右端不超出横带右边界', () => {
-    const { placed } = packBandLabels([end('late', { anchorX: 995 })], band);
-    expect(placed[0]!.x + placed[0]!.width / 2).toBe(1000);
-  });
-
-  it('向左伸展的标签与其他任务的标签互相避让', () => {
+  it('与其他任务的标签互相避让', () => {
     const oneLane: BandSpec = { ...band, height: 30 };
-    // 另一个任务锚在 900，标签 [840, 960] 与逾期标签 [850, 970] 重叠，只有一条泳道 → 放不下
-    const { placed, overflow } = packBandLabels(
-      [end('late'), req('today', 900, { priority: 13 })],
+    // 普通任务的格子 [390, 470]，与逾期标签 [380, 500] 冲突，只有一条泳道
+    const placed = packBandLabels(
+      [end('late'), req('today', { minX: 390, maxX: 470, desiredX: 430, priority: 13 })],
       oneLane,
     );
     const late = placed.find((p) => p.item === 'late')!;
-    const today = placed.find((p) => p.item === 'today');
-    if (today) {
-      expect(Math.abs(today.x - late.x) >= (today.width + late.width) / 2).toBe(true);
-    } else {
-      expect(overflow.flatMap((o) => o.items)).toContain('today');
-    }
+    const today = placed.find((p) => p.item === 'today')!;
+    expect(late.widthIndex).toBe(0);
+    expect(inside(today, 390, 470)).toBe(true);
+    // 逾期标签先放；普通任务改用更短的宽度避开，或实在不行才叠放
+    if (!today.overlapping) expect(overlaps(late, today)).toBe(false);
   });
 
-  it('多个逾期任务分到不同泳道；放不下时缩短，再放不下归入"+N"', () => {
-    const { placed, overflow } = packBandLabels(
-      Array.from({ length: 6 }, (_, i) => end(`late${i}`)),
-      band,
-    );
-    expect(placed).toHaveLength(4);
-    expect(new Set(placed.map((p) => p.y)).size).toBe(4);
-    expect(placed.every((p) => p.x + p.width / 2 === 970)).toBe(true);
-    expect(overflow).toEqual([
-      expect.objectContaining({ group: 'overdue', items: ['late4', 'late5'] }),
-    ]);
-  });
-
-  it('左侧空间不足完整宽度时改用最小宽度', () => {
-    const narrow: BandSpec = { ...band, left: 910 };
-    const { placed } = packBandLabels([end('late', { width: 120, minWidth: 50 })], narrow);
-    expect(placed[0]!.width).toBe(50);
+  it('左侧空间不足完整宽度时改用更短的宽度', () => {
+    const [late] = packBandLabels([end('late', { minX: 420 })], band);
+    expect(late!.width).toBe(50);
   });
 });

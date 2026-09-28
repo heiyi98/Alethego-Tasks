@@ -197,6 +197,7 @@ export function TaskEditor({
   errors,
   categories,
   records,
+  onToggleRecord,
   now,
   timeZone,
   fallbackStart,
@@ -209,6 +210,8 @@ export function TaskEditor({
   errors: FormErrors;
   categories: readonly Category[];
   records: readonly RecurrenceOccurrence[];
+  /** 切换历史中某次实例的完成状态（编辑已有循环任务时） */
+  onToggleRecord?: (record: RecurrenceOccurrence, completed: boolean) => void;
   now: Date;
   timeZone: string;
   /** 打开循环开关时默认的起始时间 */
@@ -293,6 +296,7 @@ export function TaskEditor({
             value={value.recurrence}
             onChange={(recurrence) => onChange({ recurrence })}
             records={records}
+            onToggleRecord={onToggleRecord}
             now={now}
             timeZone={timeZone}
           />

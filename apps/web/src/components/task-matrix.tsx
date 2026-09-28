@@ -1,11 +1,8 @@
 'use client';
 
 import {
-  BASE_TIER_DAYS,
   MATRIX_COLUMNS,
   MATRIX_ROWS,
-  MATRIX_URGENT_FIRST_COLUMN,
-  MAX_TIER_INDEX,
   OVERDUE_COLUMN,
   packBandLabels,
   type Category,
@@ -15,65 +12,72 @@ import { useEffect, useMemo, useRef, useState, type FocusEvent, type PointerEven
 
 import { CategoryDot } from './category-dot';
 import { usePanels } from './panel-provider';
-import { QUADRANT_LABELS, TIER_BOUNDARY_LABELS, formatDeadline } from '@/lib/format';
+import { QUADRANT_LABELS, formatDeadline } from '@/lib/format';
+import { MIDLINE_BOUNDARY, X_TICKS, boundaryX, overdueLaneCenter } from '@/lib/matrix-axis';
 
 /**
  * 时间管理矩阵：X = 紧迫度（越靠右越紧急），Y = 重要性（越靠上越重要）。
  *
- * X 轴：14 格全部等宽，按剩余时间分档；刻度名标在分界线上，中线（两周）左右各 7 格，最右格为逾期。
- * Y 轴：刻度 0–5 标在分界线上，重要性 N 落在标 N 那条线上方的一格（N = 5 是最上面一格）；
- * 中线在刻度 3 上，下面三格是 0、1、2，上面三格是 3、4、5。
- * 不画格子网格线，只画区分四个象限的两条细线。每个任务显示为「分类色标 + 标题」标签，
- * 同一格内的标签纵向避让，放不下的收进"+N"。
+ * X 轴：14 格全部等宽，按日历日判档；刻度名标在分界线上，中线（两周）左右各 7 格；
+ * 最右一格是逾期区（不写字），里面按逾期天数分三条窄道。
+ * Y 轴：刻度 0–5 标在分界线上，重要性 N 落在标 N 那条线上方的一格；中线在刻度 3 上。
+ *
+ * 图里只出现四种文字：X 轴刻度名、Y 轴刻度数字、四个方位字、任务标题。
+ * 普通任务的标签（色点 + 标题）整个落在所属格子内，在格内散布、互相避让，不贴刻度线；
+ * 放不下时标题截短，再放不下只剩色点。
  */
 
 const VIEW_W = 1120;
-const VIEW_H = 740;
-const M = { top: 30, right: 12, bottom: 46, left: 64 };
+const VIEW_H = 720;
+const M = { top: 30, right: 12, bottom: 26, left: 64 };
 const PLOT_W = VIEW_W - M.left - M.right;
 const PLOT_H = VIEW_H - M.top - M.bottom;
 const COL_W = PLOT_W / MATRIX_COLUMNS;
 const ROW_H = PLOT_H / MATRIX_ROWS;
-/** 中线：紧急区第一列（(7,14] 档）的左边界 */
-const FIRST_URGENT_COLUMN = MATRIX_URGENT_FIRST_COLUMN;
 /** 重要区：重要性 3–5（上三） */
 const FIRST_IMPORTANT_ROW = 3;
+/** 标签与格子两侧刻度线之间的留白 */
+const CELL_MARGIN = 4;
 
 /** 标签尺寸（viewBox 单位） */
 const LABEL_H = 22;
 const LABEL_GAP = 3;
-const LABEL_FONT = 13;
-const MARKER_R = 4.5;
-/** 标签：左留白 + 色标 + 间距 | 标题 | 右留白 */
-const LABEL_TEXT_OFFSET = 8 + MARKER_R * 2 + 5;
-const LABEL_PADDING_RIGHT = 8;
-/** 逾期标签：左留白 | 标题 | "逾期N天" | 点位（分类色 + 红色外圈）| 右留白 */
-const OVERDUE_TEXT_OFFSET = 10;
-const OVERDUE_POINT_R = 5;
-const OVERDUE_POINT_PAD = 8;
-const OVERDUE_POINT_ZONE = OVERDUE_POINT_R * 2 + OVERDUE_POINT_PAD + 6;
-/** 标题最多显示约 10 个汉字宽；最小宽度约 3 个汉字 */
-const MAX_TITLE_WIDTH = 130;
-const MIN_TITLE_WIDTH = 40;
-const OVERDUE_SUFFIX_WIDTH = 52;
-const OVERFLOW_W = 36;
+const LABEL_FONT = 12;
+const MARKER_R = 4;
+/** 普通标签：左留白 + 色标 + 间距 | 标题 | 右留白 */
+const LABEL_TEXT_OFFSET = 6 + MARKER_R * 2 + 4;
+const LABEL_PADDING_RIGHT = 6;
+const LABEL_CHROME = LABEL_TEXT_OFFSET + LABEL_PADDING_RIGHT;
+/** 放不下标题时只剩色点 */
+const DOT_W = MARKER_R * 2 + 8;
+/** 截短时标题至少保留的宽度（约 1 个汉字加省略号） */
+const SHORT_TITLE_W = 20;
 
-const colX = (column: number) => M.left + column * COL_W;
-const colW = () => COL_W;
+/** 逾期标签：左留白 | 标题 | 间距 | 点位（分类色 + 红色外圈）| 右留白 */
+const OVERDUE_POINT_R = 5;
+const OVERDUE_TEXT_OFFSET = 8;
+const OVERDUE_POINT_PAD = 6;
+const OVERDUE_CHROME = OVERDUE_TEXT_OFFSET + 4 + OVERDUE_POINT_R * 2 + OVERDUE_POINT_PAD;
+const OVERDUE_DOT_W = OVERDUE_POINT_R * 2 + OVERDUE_POINT_PAD * 2;
+/** 逾期标签标题的最大宽度（约 10 个汉字），向左伸展 */
+const MAX_OVERDUE_TITLE_W = 120;
+const MIN_OVERDUE_TITLE_W = 36;
+
+const colX = (column: number) => boundaryX(column, M.left, COL_W);
 /** 重要性 row 所在一格的顶边（重要性 N 在标 N 那条线上方的一格） */
 const rowTop = (row: number) => M.top + (MATRIX_ROWS - 1 - row) * ROW_H;
 /** 重要性刻度 v（0–5）所在分界线的 y：第 v 格的下边 */
 const valueY = (v: number) => M.top + (MATRIX_ROWS - v) * ROW_H;
-const PLOT_RIGHT = colX(OVERDUE_COLUMN) + colW();
-/** 逾期点位的中心：最右格靠右 */
-const OVERDUE_POINT_X = PLOT_RIGHT - 2 - OVERDUE_POINT_PAD - OVERDUE_POINT_R;
+const PLOT_RIGHT = colX(MATRIX_COLUMNS);
+/** 逾期点位的中心：逾期格内对应的道 */
+const overduePointX = (overdueDays: number) =>
+  colX(OVERDUE_COLUMN) + overdueLaneCenter(overdueDays) * COL_W;
 
-/** 逾期标签的宽度拆分 */
-const overdueChrome = OVERDUE_TEXT_OFFSET + OVERDUE_SUFFIX_WIDTH + OVERDUE_POINT_ZONE;
+const isWide = (ch: string) => /[⺀-￿]/.test(ch);
 
 /** 按字符估算宽度（中日韩等全角字符按字号，其余按 0.6 倍字号），超出则截断加"…" */
 function fitText(text: string, maxWidth: number, fontSize = LABEL_FONT): string {
-  const widthOf = (ch: string) => (/[⺀-￿]/.test(ch) ? fontSize : fontSize * 0.6);
+  const widthOf = (ch: string) => (isWide(ch) ? fontSize : fontSize * 0.6);
   let width = 0;
   const chars = Array.from(text);
   for (let i = 0; i < chars.length; i++) {
@@ -90,6 +94,13 @@ function fitText(text: string, maxWidth: number, fontSize = LABEL_FONT): string 
     }
   }
   return text;
+}
+
+/** 估算文本宽度 */
+function textWidth(text: string, fontSize = LABEL_FONT): number {
+  let width = 0;
+  for (const ch of Array.from(text)) width += isWide(ch) ? fontSize : fontSize * 0.6;
+  return width;
 }
 
 /** 分类色标：多分类按切片显示 */
@@ -131,102 +142,83 @@ function describeDeadline(point: MatrixPoint, now: Date, timeZone: string): stri
   return point.representative.occurrenceAt ? `本次 ${text}` : text;
 }
 
-/** 逾期天数按日历天计算；当天已过截止时刻的（0 天）标"今天已过" */
-const overdueText = (days: number | null) => (days === 0 ? '今天已过' : `逾期${days}天`);
-
-/** 估算文本宽度 */
-function textWidth(text: string, fontSize = LABEL_FONT): number {
-  let width = 0;
-  for (const ch of Array.from(text))
-    width += /[\u2e80-\uffff]/.test(ch) ? fontSize : fontSize * 0.6;
-  return width;
-}
-
-/** 标签除标题外占用的宽度 */
-function labelChrome(point: MatrixPoint): number {
-  return point.overdueDays !== null ? overdueChrome : LABEL_TEXT_OFFSET + LABEL_PADDING_RIGHT;
-}
-
 interface PlacedLabel {
   point: MatrixPoint;
   x: number;
   y: number;
   width: number;
-  anchorX: number;
-  displaced: boolean;
-  /** 标题可用宽度 */
+  /** 标题可用宽度；0 = 只剩色点 */
   titleWidth: number;
 }
 
-interface OverflowChip {
-  key: string;
-  points: MatrixPoint[];
-  x: number;
-  y: number;
-  width: number;
-}
-
 /**
- * 按重要性区间（横带）排布标题标签：锚定在所属紧迫度列的中心，可比列更宽；
- * 更紧急的先放，同一横带内互不重叠，放不下的收进所在格子的"+N"。
+ * 按重要性区间（横带）排布标签：
+ * - 普通任务的标签限制在所属格子内（去掉贴近刻度线的留白），在格内按散布位置摆放、互相避让
+ * - 逾期任务：点位在所在道的中心、画在标签内部右端，标签向左伸展
  */
-function layoutLabels(points: readonly MatrixPoint[]) {
+function layoutLabels(points: readonly MatrixPoint[]): PlacedLabel[] {
   const labels: PlacedLabel[] = [];
-  const overflows: OverflowChip[] = [];
   for (let row = 0; row < MATRIX_ROWS; row++) {
     const inBand = points.filter((p) => p.row === row);
     if (inBand.length === 0) continue;
-    const packed = packBandLabels(
+    const placed = packBandLabels(
       inBand.map((point) => {
-        const overdue = point.overdueDays !== null;
-        const chrome = labelChrome(point);
-        const title = Math.min(MAX_TITLE_WIDTH, textWidth(point.task.title));
+        const title = textWidth(point.task.title);
+        const desiredY = rowTop(row) + (1 - point.offsetY) * ROW_H;
+        if (point.overdueDays !== null) {
+          const pointX = overduePointX(point.overdueDays);
+          return {
+            item: point,
+            minX: M.left + 2,
+            maxX: PLOT_RIGHT,
+            desiredX: pointX,
+            desiredY,
+            fixedRight: pointX + OVERDUE_POINT_R + OVERDUE_POINT_PAD,
+            widths: [
+              OVERDUE_CHROME + Math.min(Math.max(title, 12), MAX_OVERDUE_TITLE_W),
+              OVERDUE_CHROME + Math.min(title, MIN_OVERDUE_TITLE_W),
+              OVERDUE_DOT_W,
+            ],
+            // 逾期的先放，越逾期越靠右越先
+            priority: 100 + point.overdueDays,
+          };
+        }
+        const minX = colX(point.column) + CELL_MARGIN;
+        const maxX = colX(point.column + 1) - CELL_MARGIN;
+        const room = maxX - minX - LABEL_CHROME;
         return {
           item: point,
-          // 逾期：点位在最右格靠右，画在标签内部的右端；标题在点位左边向左伸展，与其他标签互相避让
-          anchorX: overdue ? OVERDUE_POINT_X : colX(point.column) + colW() / 2,
-          align: overdue ? ('end' as const) : ('center' as const),
-          endOffset: OVERDUE_POINT_R + OVERDUE_POINT_PAD,
-          desiredY: rowTop(row) + (1 - point.offsetY) * ROW_H,
-          width: chrome + Math.max(title, 12),
-          minWidth: chrome + Math.min(title, MIN_TITLE_WIDTH),
+          minX,
+          maxX,
+          desiredX: minX + point.offsetX * (maxX - minX),
+          desiredY,
+          widths: [
+            LABEL_CHROME + Math.min(Math.max(title, 12), room),
+            LABEL_CHROME + Math.min(title, SHORT_TITLE_W),
+            DOT_W,
+          ],
           // 越紧急（越靠右）越先放
           priority: point.column,
-          group: `${point.column}:${row}`,
         };
       }),
       {
         top: rowTop(row),
         height: ROW_H,
-        left: M.left + 2,
-        right: PLOT_RIGHT - 2,
         laneHeight: LABEL_H + LABEL_GAP,
         padding: 4,
-        gap: 4,
-        overflowWidth: OVERFLOW_W,
+        gap: 3,
       },
     );
-    for (const { item, x, y, width, anchorX, displaced } of packed.placed) {
-      labels.push({
-        point: item,
-        x,
-        y,
-        width,
-        anchorX,
-        displaced,
-        titleWidth: width - labelChrome(item),
-      });
-    }
-    for (const { group, items, x, y, width } of packed.overflow) {
-      overflows.push({ key: group, points: items, x, y, width });
+    for (const { item, x, y, width, widthIndex, overlapping } of placed) {
+      const isDot = widthIndex === 2 || (overlapping && width <= OVERDUE_DOT_W);
+      const chrome = item.overdueDays !== null ? OVERDUE_CHROME : LABEL_CHROME;
+      labels.push({ point: item, x, y, width, titleWidth: isDot ? 0 : width - chrome });
     }
   }
-  return { labels, overflows };
+  return labels;
 }
 
-type Tooltip =
-  | { kind: 'task'; point: MatrixPoint; left: number; top: number; below: boolean }
-  | { kind: 'overflow'; points: MatrixPoint[]; left: number; top: number; below: boolean };
+type Tooltip = { point: MatrixPoint; left: number; top: number; below: boolean };
 
 /** 提示框大致高度；上方空间不足时显示在下方 */
 const TOOLTIP_SPACE = 110;
@@ -246,7 +238,7 @@ export function TaskMatrix({
   const wrapperRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [tooltip, setTooltip] = useState<Tooltip | null>(null);
-  const { labels, overflows } = useMemo(() => layoutLabels(points), [points]);
+  const labels = useMemo(() => layoutLabels(points), [points]);
 
   // 窄屏下矩阵可横向滚动：初始滚到最右侧，先看到紧急区
   useEffect(() => {
@@ -267,7 +259,7 @@ export function TaskMatrix({
   }
   const hideTooltip = () => setTooltip(null);
 
-  const urgentX = colX(FIRST_URGENT_COLUMN);
+  const urgentX = colX(MIDLINE_BOUNDARY);
   const importantY = valueY(FIRST_IMPORTANT_ROW);
 
   return (
@@ -279,12 +271,12 @@ export function TaskMatrix({
           role="img"
           aria-label={`时间管理矩阵，共 ${points.length} 个任务`}
         >
-          {/* 最右格：逾期 */}
+          {/* 最右格：逾期区（不写字） */}
           <rect
             className="matrix-overdue-strip"
             x={colX(OVERDUE_COLUMN)}
             y={M.top}
-            width={colW()}
+            width={COL_W}
             height={PLOT_H}
           />
 
@@ -312,7 +304,7 @@ export function TaskMatrix({
             y2={importantY}
           />
 
-          {/* 区域说明 */}
+          {/* 四个方位字 */}
           <text className="matrix-region" x={(M.left + urgentX) / 2} y={M.top - 12}>
             不紧急
           </text>
@@ -332,7 +324,7 @@ export function TaskMatrix({
             不重要
           </text>
 
-          {/* Y 轴刻度：0–5 标在分界线上（重要性 N 在标 N 那条线上方的一格） */}
+          {/* Y 轴刻度：0–5 标在分界线上 */}
           {Array.from({ length: MATRIX_ROWS }, (_, v) => (
             <g key={v} data-testid="matrix-y-tick">
               <line
@@ -354,12 +346,11 @@ export function TaskMatrix({
             </g>
           ))}
 
-          {/* X 轴刻度：名称标在分界线上（各档所在格子的左边界）；最右格标"逾期" */}
-          {Array.from({ length: OVERDUE_COLUMN }, (_, column) => {
-            const days = BASE_TIER_DAYS[MAX_TIER_INDEX - column]!;
-            const x = colX(column);
+          {/* X 轴刻度：名称标在分界线上 */}
+          {X_TICKS.map(({ boundary, label }) => {
+            const x = colX(boundary);
             return (
-              <g key={column} data-testid="matrix-x-tick" data-days={days}>
+              <g key={boundary} data-testid="matrix-x-tick" data-boundary={boundary}>
                 <line
                   className="matrix-axis"
                   x1={x}
@@ -368,44 +359,19 @@ export function TaskMatrix({
                   y2={M.top + PLOT_H + 4}
                 />
                 <text
-                  className={`matrix-tick${column === FIRST_URGENT_COLUMN ? ' matrix-tick-mid' : ''}`}
+                  className={`matrix-tick${boundary === MIDLINE_BOUNDARY ? ' matrix-tick-mid' : ''}`}
                   x={x}
                   y={M.top + PLOT_H + 17}
                   textAnchor="middle"
                 >
-                  {TIER_BOUNDARY_LABELS[days]}
+                  {label}
                 </text>
               </g>
             );
           })}
-          <text
-            className="matrix-tick"
-            data-testid="matrix-x-overdue"
-            x={colX(OVERDUE_COLUMN) + colW() / 2}
-            y={M.top + PLOT_H + 17}
-            textAnchor="middle"
-          >
-            逾期
-          </text>
-          <text className="matrix-axis-title" x={(M.left + PLOT_RIGHT) / 2} y={VIEW_H - 6}>
-            截止时间（越靠右越紧急）
-          </text>
 
           {/* 任务标签 */}
-          {/* 被挤到旁边的标签：引线指回所属列 */}
-          {labels
-            .filter((l) => l.displaced)
-            .map(({ point, x, y, width, anchorX }) => {
-              const edge = anchorX < x ? x - width / 2 : x + width / 2;
-              return (
-                <g key={`leader-${point.task.id}`} className="matrix-leader" aria-hidden>
-                  <line x1={anchorX} y1={y} x2={edge} y2={y} />
-                  <circle cx={anchorX} cy={y} r={2.5} />
-                </g>
-              );
-            })}
-
-          {labels.map(({ point, x, y, width, anchorX, titleWidth }) => {
+          {labels.map(({ point, x, y, width, titleWidth }) => {
             const colors = categoriesByTask(point.task.id).map((c) => c.color);
             const openPanel = () => {
               hideTooltip();
@@ -430,6 +396,7 @@ export function TaskMatrix({
                 data-quadrant={point.quadrant}
                 data-column={point.column}
                 data-row={point.row}
+                data-overdue-lane={overdue ? point.overdueDays : undefined}
                 data-panel-anchor
                 onClick={openPanel}
                 onKeyDown={(event) => {
@@ -438,9 +405,9 @@ export function TaskMatrix({
                     openPanel();
                   }
                 }}
-                onPointerEnter={(event) => setTooltip({ kind: 'task', point, ...anchor(event) })}
+                onPointerEnter={(event) => setTooltip({ point, ...anchor(event) })}
                 onPointerLeave={hideTooltip}
-                onFocus={(event) => setTooltip({ kind: 'task', point, ...anchor(event) })}
+                onFocus={(event) => setTooltip({ point, ...anchor(event) })}
                 onBlur={hideTooltip}
               >
                 <g transform={`translate(${x} ${y})`}>
@@ -460,69 +427,46 @@ export function TaskMatrix({
                     height={LABEL_H}
                     rx={LABEL_H / 2}
                   />
-                  {!overdue && (
-                    <g transform={`translate(${left + 8 + MARKER_R} 0)`}>
-                      <Marker colors={colors} />
-                    </g>
-                  )}
-                  <text
-                    className="node-title"
-                    x={left + (overdue ? OVERDUE_TEXT_OFFSET : LABEL_TEXT_OFFSET)}
-                    dominantBaseline="central"
-                  >
-                    {fitText(point.task.title, titleWidth)}
-                  </text>
-                  {overdue && (
+                  {overdue ? (
                     <>
-                      <text
-                        className="node-overdue"
-                        x={width / 2 - OVERDUE_POINT_ZONE + 4}
-                        textAnchor="end"
-                        dominantBaseline="central"
-                      >
-                        {overdueText(point.overdueDays)}
-                      </text>
+                      {titleWidth > 0 && (
+                        <text
+                          className="node-title"
+                          x={left + OVERDUE_TEXT_OFFSET}
+                          dominantBaseline="central"
+                        >
+                          {fitText(point.task.title, titleWidth)}
+                        </text>
+                      )}
                       {/* 唯一的点位：在标签内部右端，分类颜色（多分类按切片）+ 红色外圈 */}
-                      <g className="overdue-point" transform={`translate(${anchorX - x} 0)`}>
+                      <g
+                        className="overdue-point"
+                        transform={`translate(${width / 2 - OVERDUE_POINT_PAD - OVERDUE_POINT_R} 0)`}
+                      >
                         <Marker colors={colors} r={OVERDUE_POINT_R} />
                         <circle className="overdue-point-ring" r={OVERDUE_POINT_R + 1.5} />
                       </g>
                     </>
+                  ) : titleWidth > 0 ? (
+                    <>
+                      <g transform={`translate(${left + 6 + MARKER_R} 0)`}>
+                        <Marker colors={colors} />
+                      </g>
+                      <text
+                        className="node-title"
+                        x={left + LABEL_TEXT_OFFSET}
+                        dominantBaseline="central"
+                      >
+                        {fitText(point.task.title, titleWidth)}
+                      </text>
+                    </>
+                  ) : (
+                    <Marker colors={colors} />
                   )}
                 </g>
               </g>
             );
           })}
-
-          {/* 放不下的任务 */}
-          {overflows.map(({ key, points: hidden, x, y, width }) => (
-            <g
-              key={key}
-              className="matrix-overflow"
-              tabIndex={0}
-              role="button"
-              aria-label={`还有 ${hidden.length} 个任务：${hidden.map((p) => p.task.title).join('、')}`}
-              onPointerEnter={(event) =>
-                setTooltip({ kind: 'overflow', points: hidden, ...anchor(event) })
-              }
-              onPointerLeave={hideTooltip}
-              onFocus={(event) =>
-                setTooltip({ kind: 'overflow', points: hidden, ...anchor(event) })
-              }
-              onBlur={hideTooltip}
-            >
-              <rect
-                x={x - width / 2}
-                y={y - LABEL_H / 2}
-                width={width}
-                height={LABEL_H}
-                rx={LABEL_H / 2}
-              />
-              <text x={x} y={y} textAnchor="middle" dominantBaseline="central">
-                +{hidden.length}
-              </text>
-            </g>
-          ))}
         </svg>
       </div>
 
@@ -532,31 +476,19 @@ export function TaskMatrix({
           role="tooltip"
           style={{ left: tooltip.left, top: tooltip.top }}
         >
-          {tooltip.kind === 'task' ? (
-            <>
-              <strong className="matrix-tooltip-title">{tooltip.point.task.title}</strong>
-              <span className={tooltip.point.overdueDays !== null ? 'matrix-tooltip-overdue' : ''}>
-                {describeDeadline(tooltip.point, now, timeZone)}
-              </span>
-              <span>
-                重要性 {tooltip.point.task.importanceLevel} ·{' '}
-                {QUADRANT_LABELS[tooltip.point.quadrant]}
-              </span>
-              {categoriesByTask(tooltip.point.task.id).map((category) => (
-                <span key={category.id} className="task-category">
-                  <CategoryDot color={category.color} />
-                  {category.name}
-                </span>
-              ))}
-            </>
-          ) : (
-            <>
-              <strong className="matrix-tooltip-title">还有 {tooltip.points.length} 个任务</strong>
-              {tooltip.points.map((p) => (
-                <span key={p.task.id}>{p.task.title}</span>
-              ))}
-            </>
-          )}
+          <strong className="matrix-tooltip-title">{tooltip.point.task.title}</strong>
+          <span className={tooltip.point.overdueDays !== null ? 'matrix-tooltip-overdue' : ''}>
+            {describeDeadline(tooltip.point, now, timeZone)}
+          </span>
+          <span>
+            重要性 {tooltip.point.task.importanceLevel} · {QUADRANT_LABELS[tooltip.point.quadrant]}
+          </span>
+          {categoriesByTask(tooltip.point.task.id).map((category) => (
+            <span key={category.id} className="task-category">
+              <CategoryDot color={category.color} />
+              {category.name}
+            </span>
+          ))}
         </div>
       )}
     </div>

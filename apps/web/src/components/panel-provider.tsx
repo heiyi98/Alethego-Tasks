@@ -20,7 +20,15 @@ import { emptyTaskForm, type TaskFormValue } from '@/lib/task-form';
  */
 
 export type ActivePanel =
-  { kind: 'create' } | { kind: 'edit'; taskId: string; surface: 'inline' | 'floating' } | null;
+  | { kind: 'create' }
+  | {
+      kind: 'edit';
+      taskId: string;
+      surface: 'inline' | 'floating';
+      /** 点任务名展开：标题直接进入编辑状态（光标聚焦） */
+      focusTitle?: boolean;
+    }
+  | null;
 
 /**
  * 新建草稿。categoryIds / isStarred 为 null 表示用户还没动过，沿用当前页面的默认值

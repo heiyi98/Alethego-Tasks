@@ -1,17 +1,16 @@
 'use client';
 
 import { buildTaskList, deriveListStatus, listDeadlineOf } from '@alethego/core';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef } from 'react';
 
-import { CategoryDot } from './category-dot';
 import { usePanels } from './panel-provider';
 import { QuickAdd } from './quick-add';
 import { useSelection } from './selection';
 import { useTaskData } from './task-data-provider';
 import { TaskRow } from './task-row';
-import { SCOPE_LABELS, STATUS_LABELS, STATUS_ORDER } from '@/lib/format';
-import { rememberListUrl } from '@/lib/list-url';
+import { TitleBar } from './title-bar';
+import { STATUS_LABELS, STATUS_ORDER } from '@/lib/format';
 import { selectionHref } from '@/lib/selection';
 
 /**
@@ -23,10 +22,6 @@ export function TaskListView() {
   const { data, error, actionError, now, timeZone, toggleComplete } = useTaskData();
   const selection = useSelection();
   const { scope, status, categoryIds } = selection;
-  const pathname = usePathname();
-  const query = useSearchParams().toString();
-
-  useEffect(() => rememberListUrl(query ? `${pathname}?${query}` : pathname), [pathname, query]);
 
   const visibleTasks = useMemo(
     () =>
@@ -68,7 +63,7 @@ export function TaskListView() {
 
   return (
     <main className="page">
-      <PageHeader title={SCOPE_LABELS[scope]} categories={selectedCategories} />
+      <TitleBar />
 
       <QuickAdd categories={selectedCategories} starred={scope === 'starred'} />
 
@@ -126,36 +121,5 @@ function StatusBar() {
         </button>
       ))}
     </div>
-  );
-}
-
-/**
- * 页面标题：所选范围；下方以纯文字说明所选分类（不是可点的标签），
- * 只选了一个分类且它有描述时一并显示描述。
- */
-export function PageHeader({
-  title,
-  categories,
-}: {
-  title: string;
-  categories: readonly { id: string; name: string; color: string; description: string }[];
-}) {
-  return (
-    <header className="page-header">
-      <h1>{title}</h1>
-      {categories.length > 0 && (
-        <p className="page-scope" data-testid="page-scope">
-          {categories.map((category) => (
-            <span key={category.id} className="page-scope-item">
-              <CategoryDot color={category.color} />
-              {category.name}
-            </span>
-          ))}
-        </p>
-      )}
-      {categories.length === 1 && categories[0]!.description && (
-        <p className="page-description">{categories[0]!.description}</p>
-      )}
-    </header>
   );
 }
