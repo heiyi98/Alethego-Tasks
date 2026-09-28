@@ -1,53 +1,68 @@
-import type { StatusFilter } from '@alethego/core';
+import { DEFAULT_LIST_SCOPE, LIST_SCOPES, type ListScope, type StatusFilter } from '@alethego/core';
 
 import { DEFAULT_STATUS, STATUS_ORDER } from './format';
 
 /**
- * 左侧菜单的选择：一项状态（单选）+ 若干分类（多选，一个都不选 = 所有分类）。
+ * 当前的选择：
+ * - 范围（左侧菜单上区，单选）：全部 / 收藏
+ * - 分类（左侧菜单下区，多选开关；一个都不选 = 所有分类）
+ * - 状态（清单页面内、添加栏下面一行，单选；矩阵模式不使用）
  * 清单模式（/）与矩阵模式（/matrix）共用同一套选择，保存在 URL 查询参数里：
- * ?status=todo&cat=id1,id2（status 为默认值"全部"时省略）。
+ * ?scope=starred&status=completed&cat=id1,id2（取默认值时省略）。
  */
 
 export type ViewMode = 'list' | 'matrix';
 
 export interface Selection {
   mode: ViewMode;
+  scope: ListScope;
   status: StatusFilter;
   categoryIds: string[];
 }
 
-/** 矩阵上有对应内容的状态；已完成 / 已错过只能在清单中查看 */
-export const MATRIX_STATUSES: readonly StatusFilter[] = ['all', 'starred', 'todo'];
-
 export function isStatusFilter(value: string | null | undefined): value is StatusFilter {
   return STATUS_ORDER.some((status) => status === value);
+}
+
+export function isListScope(value: string | null | undefined): value is ListScope {
+  return LIST_SCOPES.some((scope) => scope === value);
 }
 
 export function modeOfPath(pathname: string): ViewMode {
   return pathname.startsWith('/matrix') ? 'matrix' : 'list';
 }
 
+/**
+ * URL → 选择。兼容旧地址：以前"收藏"是一种状态（?status=starred），现在对应范围"收藏"。
+ */
 export function parseSelection(pathname: string, params: URLSearchParams): Selection {
-  const status = params.get('status');
+  const rawStatus = params.get('status');
+  const rawScope = params.get('scope');
+  const legacyStarred = rawStatus === 'starred';
   return {
     mode: modeOfPath(pathname),
-    status: isStatusFilter(status) ? status : DEFAULT_STATUS,
+    scope: legacyStarred ? 'starred' : isListScope(rawScope) ? rawScope : DEFAULT_LIST_SCOPE,
+    status: isStatusFilter(rawStatus) ? rawStatus : DEFAULT_STATUS,
     categoryIds: params.get('cat')?.split(',').filter(Boolean) ?? [],
   };
 }
 
-/** 选择 → URL。矩阵模式下选了已完成 / 已错过时自动切回清单 */
+/** 选择 → URL */
 export function selectionHref(selection: Selection): string {
-  const mode =
-    selection.mode === 'matrix' && !MATRIX_STATUSES.includes(selection.status)
-      ? 'list'
-      : selection.mode;
   const params = new URLSearchParams();
+  if (selection.scope !== DEFAULT_LIST_SCOPE) params.set('scope', selection.scope);
   if (selection.status !== DEFAULT_STATUS) params.set('status', selection.status);
   if (selection.categoryIds.length > 0) params.set('cat', selection.categoryIds.join(','));
   const query = params.toString();
-  const path = mode === 'matrix' ? '/matrix' : '/';
+  const path = selection.mode === 'matrix' ? '/matrix' : '/';
   return query ? `${path}?${query}` : path;
+}
+
+/** 地址中的查询参数是否需要改写成当前的规范形式（旧地址兼容跳转） */
+export function needsCanonicalRedirect(params: URLSearchParams): boolean {
+  const status = params.get('status');
+  const scope = params.get('scope');
+  return (status !== null && !isStatusFilter(status)) || (scope !== null && !isListScope(scope));
 }
 
 export function toggleCategory(selection: Selection, categoryId: string): Selection {

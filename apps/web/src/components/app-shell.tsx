@@ -1,16 +1,31 @@
 'use client';
 
-import { usePathname, useSearchParams } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState, type ReactNode } from 'react';
 
 import { ModeToggle } from './mode-toggle';
 import { Sidebar } from './sidebar';
+import { needsCanonicalRedirect, parseSelection, selectionHref } from '@/lib/selection';
 
-/** 切换页面或状态后收起抽屉；分类是多选开关，切换分类时抽屉保持打开 */
+/** 切换页面或范围后收起抽屉；分类是多选开关，切换分类时抽屉保持打开 */
 function CloseDrawerOnNavigate({ onNavigate }: { onNavigate: () => void }) {
   const pathname = usePathname();
-  const status = useSearchParams().get('status');
-  useEffect(() => onNavigate(), [pathname, status, onNavigate]);
+  const scope = useSearchParams().get('scope');
+  useEffect(() => onNavigate(), [pathname, scope, onNavigate]);
+  return null;
+}
+
+/** 旧地址兼容：?status=starred 等旧写法改写成当前的规范地址 */
+function CanonicalizeUrl() {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const query = searchParams.toString();
+  useEffect(() => {
+    const params = new URLSearchParams(query);
+    if (!needsCanonicalRedirect(params)) return;
+    router.replace(selectionHref(parseSelection(pathname, params)));
+  }, [pathname, query, router]);
   return null;
 }
 
@@ -23,6 +38,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     <div className={`app-shell${drawerOpen ? ' drawer-open' : ''}`}>
       <Suspense>
         <CloseDrawerOnNavigate onNavigate={closeDrawer} />
+        <CanonicalizeUrl />
       </Suspense>
       <div className="app-sidebar">
         <Suspense>

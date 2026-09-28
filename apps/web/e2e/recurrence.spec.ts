@@ -51,7 +51,8 @@ test('循环开关：每天重复；勾选完成当前实例而非任务本身�
   // 矩阵：代表实例是今天 → 最右侧的"今天"列
   await page.goto('/matrix');
   const dot = page.locator(`.matrix-node[aria-label^="${title}，"]`);
-  await expect(dot).toHaveAttribute('data-column', '13');
+  // 今天的实例：按当天最后一刻算 R < 1 天 → (0,1] 档（右数第二格，最右格是逾期）
+  await expect(dot).toHaveAttribute('data-column', '12');
   await expect(dot).toHaveAttribute('data-row', '4');
 
   // 列表：勾选完成的是"本次"，任务仍在待办中，代表实例顺延到明天
@@ -69,8 +70,9 @@ test('循环开关：每天重复；勾选完成当前实例而非任务本身�
   );
   expect(taskRow!.completed_at).toBeNull();
 
+  // 顺延到明天：R 在 1–2 天之间 → (1,2] 档
   await page.goto('/matrix');
-  await expect(dot).toHaveAttribute('data-column', '12');
+  await expect(dot).toHaveAttribute('data-column', '11');
 
   // 历史记录：最新在前；今天已完成，之前 3 次未完成
   await page.goto(`/tasks/${taskId}/history`);

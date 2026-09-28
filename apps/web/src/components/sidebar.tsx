@@ -1,6 +1,6 @@
 'use client';
 
-import { buildTaskList, type StatusFilter } from '@alethego/core';
+import { buildTaskList, type ListScope } from '@alethego/core';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
@@ -11,22 +11,22 @@ import { IconButton, PencilIcon } from './icons';
 import { ModeToggle } from './mode-toggle';
 import { useSelection } from './selection';
 import { useTaskData } from './task-data-provider';
-import { STATUS_LABELS, STATUS_ORDER } from '@/lib/format';
+import { SCOPE_LABELS, SCOPE_ORDER } from '@/lib/format';
 import { selectionHref, toggleCategory } from '@/lib/selection';
 
-const STATUS_ICONS: Record<StatusFilter, string> = {
+const SCOPE_ICONS: Record<ListScope, string> = {
   all: '☰',
   starred: '★',
-  todo: '○',
-  completed: '✓',
-  missed: '!',
 };
 
 /**
- * 左侧菜单，也是唯一的筛选入口（页面内不再有分类 / 状态标签）：
- * - 上方「状态」：单选一项
- * - 下方「分类」：每个分类是一个开关，可多选累加；一个都不选 = 所有分类
- * 页面内容 = 所选状态 ∩（命中任一所选分类）。清单与矩阵共用同一套选择。
+ * 左侧菜单：
+ * - 上区「范围」：全部 / 收藏，单选
+ * - 下区「分类」：每个分类是一个开关，可多选累加；一个都不选 = 所有分类
+ * 状态（全部 / 未完成 / 已完成 / 已错过）不在菜单里，在清单页面内的添加栏下面。
+ *
+ * 数字：清单模式下按页面当前选中的状态计数（点了之后看到几个就是几个）；
+ * 矩阵模式没有状态行，按"未完成"计数。范围项在当前所选分类内计数，分类项在当前范围内计数。
  */
 export function Sidebar() {
   const { data, now, timeZone, reload } = useTaskData();
@@ -35,6 +35,7 @@ export function Sidebar() {
   // 同一时间只打开一个分类表单：'new' = 新建，其他值 = 正在编辑的分类 id
   const [editing, setEditing] = useState<string | null>(null);
 
+  const countStatus = selection.mode === 'list' ? selection.status : 'todo';
   const counts = useMemo(() => {
     if (!data) return null;
     const sources = {
@@ -43,21 +44,14 @@ export function Sidebar() {
       occurrencesByTask: data.occurrencesByTask,
     };
     const context = { now, timeZone };
-    // 状态项：在当前所选分类范围内的数量；分类项：当前状态下该分类的数量
-    const byStatus = Object.fromEntries(
-      STATUS_ORDER.map((status) => [
-        status,
-        buildTaskList(sources, { status, categoryIds: selection.categoryIds }, context).length,
-      ]),
-    ) as Record<StatusFilter, number>;
-    const byCategory = new Map(
-      data.categories.map((c) => [
-        c.id,
-        buildTaskList(sources, { status: selection.status, categoryIds: [c.id] }, context).length,
-      ]),
-    );
-    return { byStatus, byCategory };
-  }, [data, now, timeZone, selection.status, selection.categoryIds]);
+    const count = (scope: ListScope, categoryIds: readonly string[]) =>
+      buildTaskList(sources, { scope, status: countStatus, categoryIds }, context).length;
+    const byScope = Object.fromEntries(
+      SCOPE_ORDER.map((scope) => [scope, count(scope, selection.categoryIds)]),
+    ) as Record<ListScope, number>;
+    const byCategory = new Map(data.categories.map((c) => [c.id, count(selection.scope, [c.id])]));
+    return { byScope, byCategory };
+  }, [data, now, timeZone, countStatus, selection.scope, selection.categoryIds]);
 
   const go = (href: string) => router.replace(href, { scroll: false });
 
@@ -68,24 +62,24 @@ export function Sidebar() {
         <ModeToggle />
       </div>
 
-      <section className="sidebar-section" aria-label="状态">
+      <section className="sidebar-section" aria-label="范围">
         <ul>
-          {STATUS_ORDER.map((status) => {
-            const selected = selection.status === status;
+          {SCOPE_ORDER.map((scope) => {
+            const selected = selection.scope === scope;
             return (
-              <li key={status}>
+              <li key={scope}>
                 <Link
-                  href={selectionHref({ ...selection, status })}
+                  href={selectionHref({ ...selection, scope })}
                   replace
                   scroll={false}
                   className="sidebar-item"
                   aria-current={selected ? 'page' : undefined}
                 >
-                  <span className={`sidebar-icon sidebar-icon-${status}`} aria-hidden>
-                    {STATUS_ICONS[status]}
+                  <span className={`sidebar-icon sidebar-icon-${scope}`} aria-hidden>
+                    {SCOPE_ICONS[scope]}
                   </span>
-                  <span className="sidebar-label">{STATUS_LABELS[status]}</span>
-                  {counts && <span className="sidebar-count">{counts.byStatus[status]}</span>}
+                  <span className="sidebar-label">{SCOPE_LABELS[scope]}</span>
+                  {counts && <span className="sidebar-count">{counts.byScope[scope]}</span>}
                 </Link>
               </li>
             );

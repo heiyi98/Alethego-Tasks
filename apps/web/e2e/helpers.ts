@@ -139,12 +139,24 @@ export const toast = (page: Page, text: string | RegExp) =>
 
 export const sidebar = (page: Page) => page.getByRole('navigation', { name: '主菜单' });
 
-/** 侧边栏"状态"区块（单选）：全部 / 收藏 / 未完成 / 已完成 / 已错过（链接名后面跟着计数） */
+/** 页面内、添加栏下面的状态行（单选）：全部 / 未完成 / 已完成 / 已错过 */
+export const statusBar = (page: Page) =>
+  page.getByRole('main').getByRole('group', { name: '状态' });
+
 export async function selectStatus(page: Page, label: string) {
-  await sidebar(page)
-    .getByRole('region', { name: '状态' })
-    .getByRole('link', { name: new RegExp(`^${label}`) })
-    .click();
+  const button = statusBar(page).getByRole('button', { name: label, exact: true });
+  await button.click();
+  await expect(button).toHaveAttribute('aria-pressed', 'true');
+}
+
+/** 侧边栏上区"范围"（单选）：全部 / 收藏（链接名后面跟着计数） */
+export const scopeItem = (page: Page, label: string) =>
+  sidebar(page)
+    .getByRole('region', { name: '范围' })
+    .getByRole('link', { name: new RegExp(`^${label}`) });
+
+export async function selectScope(page: Page, label: string) {
+  await scopeItem(page, label).click();
   await expect(page.getByRole('heading', { level: 1, name: label })).toBeVisible();
 }
 

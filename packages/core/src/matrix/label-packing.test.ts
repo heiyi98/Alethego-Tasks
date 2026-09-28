@@ -107,18 +107,26 @@ describe('packBandLabels', () => {
   });
 });
 
-describe('packBandLabels：逾期标签在点位左侧', () => {
+describe('packBandLabels：逾期标签（点位在标签内部右端，标题向左伸展）', () => {
   const end = (item: string, extra: Partial<LabelRequest<string>> = {}) =>
-    req(item, 980, { align: 'end', endOffset: 10, priority: 14, group: 'overdue', ...extra });
+    req(item, 960, { align: 'end', endOffset: 10, priority: 14, group: 'overdue', ...extra });
 
-  it('标签右端贴在点位左侧，向左伸展，不标记 displaced', () => {
+  it('标签右端 = 锚点 + endOffset，向左伸展，点位落在标签内部，不标记 displaced', () => {
     const { placed } = packBandLabels([end('late')], band);
     expect(placed).toEqual([
-      { item: 'late', x: 980 - 10 - 60, y: 40, width: 120, anchorX: 980, displaced: false },
+      { item: 'late', x: 970 - 60, y: 40, width: 120, anchorX: 960, displaced: false },
     ]);
+    const label = placed[0]!;
+    expect(label.anchorX).toBeLessThan(label.x + label.width / 2);
+    expect(label.anchorX).toBeGreaterThan(label.x - label.width / 2);
   });
 
-  it('向左伸展的标签与其他任务的标签互相避让（包括点位本身）', () => {
+  it('标签右端不超出横带右边界', () => {
+    const { placed } = packBandLabels([end('late', { anchorX: 995 })], band);
+    expect(placed[0]!.x + placed[0]!.width / 2).toBe(1000);
+  });
+
+  it('向左伸展的标签与其他任务的标签互相避让', () => {
     const oneLane: BandSpec = { ...band, height: 30 };
     // 另一个任务锚在 900，标签 [840, 960] 与逾期标签 [850, 970] 重叠，只有一条泳道 → 放不下
     const { placed, overflow } = packBandLabels(
@@ -148,7 +156,7 @@ describe('packBandLabels：逾期标签在点位左侧', () => {
   });
 
   it('左侧空间不足完整宽度时改用最小宽度', () => {
-    const narrow: BandSpec = { ...band, left: 900 };
+    const narrow: BandSpec = { ...band, left: 910 };
     const { placed } = packBandLabels([end('late', { width: 120, minWidth: 50 })], narrow);
     expect(placed[0]!.width).toBe(50);
   });

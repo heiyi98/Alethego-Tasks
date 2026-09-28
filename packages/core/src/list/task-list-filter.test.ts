@@ -6,6 +6,7 @@ import {
   categoriesForQuickAdd,
   matchesCategoryFilter,
   matchesStatusFilter,
+  starredForQuickAdd,
 } from './task-list-filter';
 
 const sh = (local: string) => new Date(`${local}+08:00`);
@@ -154,26 +155,40 @@ describe('收藏', () => {
     task('没标星', { deadlineAt: sh('2026-09-26T09:00:00') }),
   ];
   const cats = new Map([['星标待办', ['work']]]);
-  const build = (categoryIds: string[]) =>
+  const build = (categoryIds: string[], status: 'all' | 'todo' | 'completed' | 'missed' = 'all') =>
     titles(
       buildTaskList(
         { tasks: starredTasks, categoryIdsByTask: cats },
-        { status: 'starred', categoryIds },
+        { scope: 'starred', status, categoryIds },
         context,
       ),
     );
 
-  it('显示所有标星任务（不论完成与否），不含已删除，排序规则不变', () => {
+  it('范围"收藏"= 所有标星任务，不含已删除，排序规则不变', () => {
     expect(build([])).toEqual(['星标已完成', '星标待办']);
   });
 
-  it('可以再配合分类多选', () => {
+  it('内容 = 范围 ∩ 分类 ∩ 状态', () => {
     expect(build(['work'])).toEqual(['星标待办']);
     expect(build(['home'])).toEqual([]);
+    expect(build([], 'todo')).toEqual(['星标待办']);
+    expect(build([], 'completed')).toEqual(['星标已完成']);
   });
 
-  it('matchesStatusFilter 同样按标星判断', () => {
-    expect(matchesStatusFilter(starredTasks[0]!, 'starred', context.now)).toBe(true);
-    expect(matchesStatusFilter(starredTasks[3]!, 'starred', context.now)).toBe(false);
+  it('范围默认为"全部"', () => {
+    expect(
+      titles(
+        buildTaskList(
+          { tasks: starredTasks, categoryIdsByTask: cats },
+          { status: 'todo', categoryIds: [] },
+          context,
+        ),
+      ),
+    ).toEqual(['没标星', '星标待办']);
+  });
+
+  it('在"收藏"里快速添加的任务自动标星', () => {
+    expect(starredForQuickAdd('starred')).toBe(true);
+    expect(starredForQuickAdd('all')).toBe(false);
   });
 });

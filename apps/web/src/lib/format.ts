@@ -1,5 +1,6 @@
 import {
   DEFAULT_STATUS_FILTER,
+  LIST_SCOPES,
   STATUS_FILTERS,
   calendarDaysBetween,
   endOfLocalDay,
@@ -8,22 +9,30 @@ import {
   weekdayName,
   weekdayOf,
   type ImportanceLevel,
+  type ListScope,
   type Quadrant,
   type StatusFilter,
 } from '@alethego/core';
 
-export const STATUS_LABELS: Record<StatusFilter, string> = {
+export const SCOPE_LABELS: Record<ListScope, string> = {
   all: '全部',
   starred: '收藏',
+};
+
+/** 左侧菜单上区的显示顺序 */
+export const SCOPE_ORDER: readonly ListScope[] = LIST_SCOPES;
+
+export const STATUS_LABELS: Record<StatusFilter, string> = {
+  all: '全部',
   todo: '未完成',
   completed: '已完成',
   missed: '已错过',
 };
 
-/** 左侧菜单上方区块的显示顺序 */
+/** 页面内状态行的显示顺序 */
 export const STATUS_ORDER: readonly StatusFilter[] = STATUS_FILTERS;
 
-/** 默认视图：全部（快速添加只出现在"全部"里） */
+/** 默认状态：未完成 */
 export const DEFAULT_STATUS: StatusFilter = DEFAULT_STATUS_FILTER;
 
 export const QUADRANT_LABELS: Record<Quadrant, string> = {
@@ -34,25 +43,25 @@ export const QUADRANT_LABELS: Record<Quadrant, string> = {
 };
 
 /**
- * 矩阵 X 轴刻度，从左到右对应第 13 档 → 第 0 档（越靠右越紧急）。
- * 最左列同时容纳"一年内"与无截止时间的任务。
+ * 矩阵 X 轴刻度名，标在分界线上（不标在格子中央）。
+ * 键是分界的天数（BASE_TIER_DAYS 的取值），即各档所在格子的左边界；中线在"两周"上。
+ * 最右边的逾期格另标"逾期"。
  */
-export const TIER_TICK_LABELS = [
-  '1年内',
-  '9个月',
-  '半年',
-  '3个月',
-  '2个月',
-  '1个月',
-  '3周',
-  '2周',
-  '1周',
-  '5天',
-  '3天',
-  '后天',
-  '明天',
-  '今天',
-] as const;
+export const TIER_BOUNDARY_LABELS: Record<number, string> = {
+  1: '1天',
+  2: '2天',
+  3: '3天',
+  5: '5天',
+  7: '一周',
+  14: '两周',
+  21: '三周',
+  30: '一个月',
+  60: '两个月',
+  90: '一季度',
+  180: '半年',
+  270: '三个季度',
+  365: '一年',
+};
 
 export const IMPORTANCE_LEVELS: readonly ImportanceLevel[] = [0, 1, 2, 3, 4, 5];
 

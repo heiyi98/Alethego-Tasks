@@ -22,10 +22,16 @@ import { emptyTaskForm, type TaskFormValue } from '@/lib/task-form';
 export type ActivePanel =
   { kind: 'create' } | { kind: 'edit'; taskId: string; surface: 'inline' | 'floating' } | null;
 
-/** 新建草稿；categoryIds 为 null 表示用户还没动过分类，沿用当前页面的默认分类 */
-export type CreateDraft = Omit<TaskFormValue, 'categoryIds'> & { categoryIds: string[] | null };
+/**
+ * 新建草稿。categoryIds / isStarred 为 null 表示用户还没动过，沿用当前页面的默认值
+ * （所选分类；在"收藏"里默认标星）。
+ */
+export type CreateDraft = Omit<TaskFormValue, 'categoryIds' | 'isStarred'> & {
+  categoryIds: string[] | null;
+  isStarred: boolean | null;
+};
 
-const freshDraft = (): CreateDraft => ({ ...emptyTaskForm(), categoryIds: null });
+const freshDraft = (): CreateDraft => ({ ...emptyTaskForm(), categoryIds: null, isStarred: null });
 
 interface PanelValue {
   active: ActivePanel;

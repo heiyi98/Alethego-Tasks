@@ -100,15 +100,19 @@ export function deadlineFromForm(date: string, time: string, timeZone: string): 
   return day ? endOfLocalDay(day, timeZone) : null;
 }
 
-/** 新建草稿是否已填写了内容（用于"放弃"前的确认） */
-export function isDraftDirty(form: TaskFormValue, defaultCategoryIds: readonly string[]): boolean {
+/** 新建草稿是否已填写了内容（用于"放弃"前的确认）；与页面默认值（所选分类、收藏里的标星）相同不算 */
+export function isDraftDirty(
+  form: TaskFormValue,
+  defaults: { categoryIds: readonly string[]; isStarred: boolean },
+): boolean {
+  const defaultCategoryIds = defaults.categoryIds;
   return (
     form.title.trim() !== '' ||
     form.description.trim() !== '' ||
     form.deadline !== '' ||
     form.deadlineTime !== '' ||
     form.importanceLevel !== 0 ||
-    form.isStarred ||
+    form.isStarred !== defaults.isStarred ||
     form.recurrence.enabled ||
     form.location.name.trim() !== '' ||
     form.location.address.trim() !== '' ||

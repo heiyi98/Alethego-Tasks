@@ -6,24 +6,28 @@ import type { EvaluationContext } from '../time/zoned-time';
 import { listDeadlineOf, sortByDeadline } from './task-list-order';
 
 /**
- * 主列表状态筛选（左侧菜单上方区块，单选）：全部 / 收藏 / 未完成 / 已完成 / 已错过。
- * 收藏 = 所有标星任务（不论完成与否），同样可以再配合分类筛选。
+ * 范围（左侧菜单上区，单选）：全部 / 收藏。收藏 = 所有标星任务。
  */
-export type StatusFilter = 'all' | 'starred' | 'todo' | 'completed' | 'missed';
+export type ListScope = 'all' | 'starred';
 
-export const STATUS_FILTERS: readonly StatusFilter[] = [
-  'all',
-  'starred',
-  'todo',
-  'completed',
-  'missed',
-];
+export const LIST_SCOPES: readonly ListScope[] = ['all', 'starred'];
 
-/** 默认视图：全部（快速添加只出现在"全部"里） */
-export const DEFAULT_STATUS_FILTER: StatusFilter = 'all';
+export const DEFAULT_LIST_SCOPE: ListScope = 'all';
 
-/** 状态筛选与分类筛选正交组合。 */
+/**
+ * 状态（每个清单页面内、添加栏下面一行，单选）：全部 / 未完成 / 已完成 / 已错过。
+ */
+export type StatusFilter = 'all' | 'todo' | 'completed' | 'missed';
+
+export const STATUS_FILTERS: readonly StatusFilter[] = ['all', 'todo', 'completed', 'missed'];
+
+/** 默认状态：未完成 */
+export const DEFAULT_STATUS_FILTER: StatusFilter = 'todo';
+
+/** 内容 = 所选范围 ∩ 所选分类的并集 ∩ 所选状态。 */
 export interface TaskListFilter {
+  /** 默认"全部" */
+  scope?: ListScope;
   status: StatusFilter;
   /** 选中的分类（多选，命中其一即显示）；为空表示所有分类 */
   categoryIds: readonly string[];
@@ -46,13 +50,15 @@ export function deriveListStatus(
 }
 
 export function matchesStatusFilter(
-  task: Pick<Task, 'deadlineAt' | 'completedAt' | 'isStarred'>,
+  task: Pick<Task, 'deadlineAt' | 'completedAt'>,
   filter: StatusFilter,
   now: Date,
 ): boolean {
-  if (filter === 'all') return true;
-  if (filter === 'starred') return task.isStarred;
-  return deriveTaskStatus(task, now) === filter;
+  return filter === 'all' || deriveTaskStatus(task, now) === filter;
+}
+
+export function matchesScope(task: Pick<Task, 'isStarred'>, scope: ListScope): boolean {
+  return scope === 'all' || task.isStarred;
 }
 
 /** 分类多选：命中其一即显示（逻辑或）；未点亮任何分类时不筛选。 */
@@ -72,23 +78,27 @@ export interface TaskListSources {
   occurrencesByTask?: ReadonlyMap<string, readonly RecurrenceOccurrence[]>;
 }
 
-/** 主列表：去掉已删除任务，应用状态 + 分类筛选，再按截止时间从近到远排序（无截止时间排最后）。 */
+/**
+ * 主列表：去掉已删除任务，应用范围 + 分类 + 状态筛选，
+ * 再按截止时间从近到远排序（无截止时间排最后）。
+ */
 export function buildTaskList(
   sources: TaskListSources,
   filter: TaskListFilter,
   context: EvaluationContext,
 ): Task[] {
+  const scope = filter.scope ?? DEFAULT_LIST_SCOPE;
   const rows = sources.tasks
     .filter((task) => !task.deletedAt)
-    .filter((task) => {
-      if (filter.status === 'all') return true;
-      if (filter.status === 'starred') return task.isStarred;
-      const occurrences = sources.occurrencesByTask?.get(task.id) ?? [];
-      return deriveListStatus(task, occurrences, context) === filter.status;
-    })
+    .filter((task) => matchesScope(task, scope))
     .filter((task) =>
       matchesCategoryFilter(sources.categoryIdsByTask.get(task.id) ?? [], filter.categoryIds),
     )
+    .filter((task) => {
+      if (filter.status === 'all') return true;
+      const occurrences = sources.occurrencesByTask?.get(task.id) ?? [];
+      return deriveListStatus(task, occurrences, context) === filter.status;
+    })
     .map((task) => ({
       id: task.id,
       createdAt: task.createdAt,
@@ -98,9 +108,12 @@ export function buildTaskList(
   return sortByDeadline(rows).map((row) => row.task);
 }
 
-/**
- * 快速添加（只出现在"全部"里）时新任务自动带上的分类：当前选中的全部分类；没选分类就不带。
- */
+/** 快速添加时新任务自动带上的分类：当前选中的全部分类；没选分类就不带。 */
 export function categoriesForQuickAdd(selectedCategoryIds: readonly string[]): string[] {
   return [...new Set(selectedCategoryIds)];
+}
+
+/** 快速添加时新任务是否自动标星：在"收藏"里新建的任务自动标星。 */
+export function starredForQuickAdd(scope: ListScope): boolean {
+  return scope === 'starred';
 }

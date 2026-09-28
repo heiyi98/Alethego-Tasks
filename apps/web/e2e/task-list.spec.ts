@@ -14,9 +14,12 @@ import {
   quickAddBar,
   runId,
   saveAndCollapse,
+  scopeItem,
+  selectScope,
   selectStatus,
   setTime,
   sidebar,
+  statusBar,
   taskItem,
   timeInput,
   titleBox,
@@ -29,8 +32,17 @@ test('快速添加带重要性与截止日期、按截止时间排序、状态�
   const id = runId();
   const t = (name: string) => `${id} ${name}`;
   await page.goto('/');
-  // 默认视图：全部
+  // 默认：范围"全部"，页面内状态行默认"未完成"，状态行在添加栏下面
   await expect(page.getByRole('heading', { level: 1, name: '全部' })).toBeVisible();
+  await expect(statusBar(page).getByRole('button', { name: '未完成' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  const barBox = (await quickAddBar(page).boundingBox())!;
+  expect((await statusBar(page).boundingBox())!.y).toBeGreaterThan(barBox.y + barBox.height - 1);
+  // 状态已不在左侧菜单里
+  await expect(sidebar(page).getByRole('region', { name: '状态' })).toHaveCount(0);
+  await selectStatus(page, '全部');
 
   // 选项行默认：重要性 0、没有截止日期
   const bar = quickAddBar(page);
@@ -62,14 +74,14 @@ test('快速添加带重要性与截止日期、按截止时间排序、状态�
   await expect(deadlineOf('已过期')).toHaveText(/^\d+月\d+日 周. · 逾期1天$/);
   await expect(taskItem(page, t('明天'))).toContainText('重要性 4');
 
-  // 未完成：已过期的不在其中；快速添加栏只出现在"全部"
+  // 未完成：已过期的不在其中；添加栏每个状态下都有
   await selectStatus(page, '未完成');
   await expectTitles(page, id, [t('明天'), t('下周'), t('无截止')]);
-  await expect(page.getByLabel('快速添加任务')).toHaveCount(0);
+  await expect(page.getByLabel('快速添加任务')).toBeVisible();
 
   await selectStatus(page, '已错过');
   await expectTitles(page, id, [t('已过期')]);
-  await expect(page.getByLabel('快速添加任务')).toHaveCount(0);
+  await expect(page.getByLabel('快速添加任务')).toBeVisible();
 
   // 完成任务后离开未完成，出现在已完成
   await selectStatus(page, '未完成');
@@ -78,7 +90,14 @@ test('快速添加带重要性与截止日期、按截止时间排序、状态�
   await expect(taskItem(page, t('明天'))).toHaveCount(0);
   await selectStatus(page, '已完成');
   await expectTitles(page, id, [t('明天')]);
-  await expect(page.getByLabel('快速添加任务')).toHaveCount(0);
+
+  // 在"已完成"里新建：任务创建成功但看不见（未完成），不做任何自动切换
+  await quickAdd(page, t('在已完成里新建'), { expectVisible: false });
+  await expect(taskItem(page, t('在已完成里新建'))).toHaveCount(0);
+  await expect(statusBar(page).getByRole('button', { name: '已完成' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
 
   // 选择保存在 URL 中，刷新后保持
   await expect(page).toHaveURL(/status=completed/);
@@ -91,9 +110,10 @@ test('快速添加带重要性与截止日期、按截止时间排序、状态�
   await dateInput(editPanel(page)).fill(localDate(3));
   await waitSaved(page);
   await collapse(page);
-  await expectTitles(page, id, [t('已过期'), t('明天'), t('无截止'), t('下周')]);
+  const order = [t('已过期'), t('明天'), t('无截止'), t('下周'), t('在已完成里新建')];
+  await expectTitles(page, id, order);
   await page.reload();
-  await expectTitles(page, id, [t('已过期'), t('明天'), t('无截止'), t('下周')]);
+  await expectTitles(page, id, order);
 });
 
 test('具体时刻：没选时刻过完当天才算错过，选了时刻过了那一刻就算错过', async ({
@@ -103,6 +123,7 @@ test('具体时刻：没选时刻过完当天才算错过，选了时刻过了�
   const id = runId();
   const t = (name: string) => `${id} ${name}`;
   await page.goto('/');
+  await selectStatus(page, '全部');
 
   await quickAdd(page, t('今天全天'), { deadline: localDate(0) });
   // 今天 00:00 已经过去（除非恰好在午夜运行）
@@ -147,7 +168,7 @@ test('具体时刻：没选时刻过完当天才算错过，选了时刻过了�
   await expect(timeInput(bar)).toBeVisible();
 });
 
-test('左侧菜单是唯一的筛选：状态单选 × 分类多选（命中任一即显示），页面内没有筛选标签', async ({
+test('筛选：范围 × 分类多选（命中任一即显示）× 页面内状态行；页面内没有分类标签', async ({
   page,
 }) => {
   const id = runId();
@@ -257,7 +278,7 @@ test('快速添加：自动带上当前选中的全部分类；没选分类就�
   await expect(row('单选')).not.toContainText(home);
 });
 
-test('标星：列表行与面板里都可切换；"收藏"显示所有标星任务并可配合分类；不影响排序', async ({
+test('标星：列表行与面板里都可切换；范围"收藏"= 标星任务，可配合分类与状态；在收藏里新建自动标星', async ({
   page,
   request,
 }) => {
@@ -266,6 +287,7 @@ test('标星：列表行与面板里都可切换；"收藏"显示所有标星任
   const work = `${id}工作`;
   await page.goto('/');
   await createCategory(page, work);
+  await selectStatus(page, '全部');
   await quickAdd(page, t('后天'), { deadline: localDate(2) });
   await quickAdd(page, t('明天'), { deadline: localDate(1) });
   await quickAdd(page, t('已完成'), { deadline: localDate(3) });
@@ -292,12 +314,23 @@ test('标星：列表行与面板里都可切换；"收藏"显示所有标星任
   expect(saved!.is_starred).toBe(true);
 
   // 标星不影响排序
+  await selectStatus(page, '全部');
   await expectTitles(page, id, [t('明天'), t('后天'), t('已完成')]);
 
-  // 收藏：所有标星任务（包括已完成的），快速添加不出现
-  await selectStatus(page, '收藏');
+  // 范围"收藏"：标星任务 ∩ 状态（状态行照常可选）
+  await selectScope(page, '收藏');
   await expectTitles(page, id, [t('后天'), t('已完成')]);
-  await expect(page.getByLabel('快速添加任务')).toHaveCount(0);
+  await selectStatus(page, '未完成');
+  await expectTitles(page, id, [t('后天')]);
+  await selectStatus(page, '已完成');
+  await expectTitles(page, id, [t('已完成')]);
+  await selectStatus(page, '全部');
+
+  // 在"收藏"里也有添加栏，新建的任务自动标星
+  await expect(quickAddBar(page).getByRole('button', { name: '取消标星' })).toHaveCount(0);
+  await quickAdd(page, t('收藏里新建'), { deadline: localDate(5) });
+  await expect(star('收藏里新建')).toHaveAttribute('aria-pressed', 'true');
+  await expectTitles(page, id, [t('后天'), t('已完成'), t('收藏里新建')]);
 
   // 收藏 + 分类
   await toggleCategory(page, work);
@@ -306,9 +339,14 @@ test('标星：列表行与面板里都可切换；"收藏"显示所有标星任
 
   // 在收藏里取消标星：任务离开收藏
   await star('后天').click();
-  await expectTitles(page, id, [t('已完成')]);
+  await expectTitles(page, id, [t('已完成'), t('收藏里新建')]);
   await page.reload();
-  await expectTitles(page, id, [t('已完成')]);
+  await expectTitles(page, id, [t('已完成'), t('收藏里新建')]);
+
+  // 回到"全部"：新建的任务不自动标星
+  await selectScope(page, '全部');
+  await quickAdd(page, t('全部里新建'));
+  await expect(star('全部里新建')).toHaveAttribute('aria-pressed', 'false');
 });
 
 test('删除任务：无确认框，提示条可撤销；删除为软删除；旧的详情路由已移除', async ({
@@ -361,10 +399,21 @@ test('删除任务：无确认框，提示条可撤销；删除为软删除；�
   const history = await page.goto(`/tasks/${taskId}/history`);
   expect(history?.status()).toBe(200);
 
-  // 旧的按状态 / 按分类地址跳转到同一页面的查询参数
+  // 旧地址自动兼容跳转
   await page.goto('/list/missed');
   await expect(page).toHaveURL(/\/\?status=missed$/);
-  await expect(page.getByRole('heading', { level: 1, name: '已错过' })).toBeVisible();
+  await expect(statusBar(page).getByRole('button', { name: '已错过' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  // 以前"收藏"是一种状态：?status=starred → 范围"收藏"
+  await page.goto('/?status=starred');
+  await expect(page).toHaveURL(/\/\?scope=starred$/);
+  await expect(page.getByRole('heading', { level: 1, name: '收藏' })).toBeVisible();
+  await page.goto('/list/starred');
+  await expect(page).toHaveURL(/\/\?scope=starred$/);
+  await page.goto('/matrix?status=starred');
+  await expect(page).toHaveURL(/\/matrix\?scope=starred$/);
 });
 
 test('空白标题：快速添加忽略；面板中清空标题提示错误且不保存', async ({ page, request }) => {
@@ -436,23 +485,33 @@ test('面板中勾选完成：任务在收起前留在原位，收起后离开"�
   await expect(taskItem(page, title)).toBeVisible();
 });
 
-test('侧边栏计数：状态项按所选分类计数，分类项按所选状态计数', async ({ page }) => {
+test('左侧菜单的数字：按页面当前的状态计数；范围项在所选分类内，分类项在当前范围内', async ({
+  page,
+}) => {
   const id = runId();
   const work = `${id}工作`;
   await page.goto('/');
   await createCategory(page, work);
   await toggleCategory(page, work);
+  await selectStatus(page, '全部');
   await quickAdd(page, `${id} 一`);
   await quickAdd(page, `${id} 二`, { deadline: localDate(-1) });
+  await taskItem(page, `${id} 一`).getByRole('button', { name: '标星', exact: true }).click();
 
-  const status = (label: string) =>
-    sidebar(page)
-      .getByRole('region', { name: '状态' })
-      .getByRole('link', { name: new RegExp(`^${label}`) });
-  await expect(status('全部')).toContainText('2');
-  await expect(status('未完成')).toContainText('1');
-  await expect(status('已错过')).toContainText('1');
-  await expect(categoryToggle(page, work)).toContainText('2');
+  const count = (locator: ReturnType<typeof scopeItem>) => locator.locator('.sidebar-count');
+  // 状态"全部"：范围"全部" 2 个、"收藏" 1 个；分类（在范围"全部"内）2 个
+  await expect(count(scopeItem(page, '全部'))).toHaveText('2');
+  await expect(count(scopeItem(page, '收藏'))).toHaveText('1');
+  await expect(count(categoryToggle(page, work))).toHaveText('2');
+
+  // 状态"已错过"：数字跟着变
   await selectStatus(page, '已错过');
-  await expect(categoryToggle(page, work)).toContainText('1');
+  await expect(count(scopeItem(page, '全部'))).toHaveText('1');
+  await expect(count(scopeItem(page, '收藏'))).toHaveText('0');
+  await expect(count(categoryToggle(page, work))).toHaveText('1');
+
+  // 范围"收藏"：分类项只数标星的
+  await selectStatus(page, '全部');
+  await selectScope(page, '收藏');
+  await expect(count(categoryToggle(page, work))).toHaveText('1');
 });

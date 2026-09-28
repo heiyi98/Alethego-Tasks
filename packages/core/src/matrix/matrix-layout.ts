@@ -13,16 +13,17 @@ import {
   type TaskRepresentative,
 } from '../representative/task-representative';
 import type { EvaluationContext } from '../time/zoned-time';
-import { MAX_TIER_INDEX } from '../urgency/tiers';
+import { LAST_URGENT_TIER_INDEX, MAX_TIER_INDEX } from '../urgency/tiers';
 import type { Urgency } from '../urgency/urgency-calculator';
 
 /**
  * 矩阵布局：把任务放进「紧迫度列 × 重要性行」的逻辑格子，并在格子内散布、避让。
  * 只输出格子索引与格内相对偏移（0-1），像素尺寸由各端表现层决定（Web / Mobile 共用）。
  *
- * 列（从左到右，越靠右越紧急）：
- *   0..13  基本向量档位，列号 = 13 - tierIndex（第 13 档「一年内」与无截止时间在最左列）
- *   14     逾期贴边列：宽限期内的逾期任务贴靠右侧边界
+ * 列（从左到右，越靠右越紧急），共 14 格、全部等宽：
+ *   0..12  基本向量档位，列号 = 12 - tierIndex（(270,365] 档与无截止时间在最左格）
+ *   13     逾期格（R ≤ 0）：宽限期内的逾期任务贴靠右侧边界
+ * 中线在第 7 列左边界（R = 14 天）：左右各 7 格。
  * 行（从下到上，越靠上越重要）：0..5 即重要性档位，0 = 未设置
  */
 
@@ -30,6 +31,8 @@ export const MATRIX_TIER_COLUMNS = MAX_TIER_INDEX + 1;
 export const OVERDUE_COLUMN = MATRIX_TIER_COLUMNS;
 export const MATRIX_COLUMNS = MATRIX_TIER_COLUMNS + 1;
 export const MATRIX_ROWS = 6;
+/** 紧急区第一列（(7,14] 档）；它的左边界就是中线 */
+export const MATRIX_URGENT_FIRST_COLUMN = MAX_TIER_INDEX - LAST_URGENT_TIER_INDEX;
 
 /** 格内留白：点不贴到格子边缘，相邻格子的点不会互相重叠 */
 const CELL_PADDING = 0.14;

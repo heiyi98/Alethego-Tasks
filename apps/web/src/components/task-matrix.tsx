@@ -1,8 +1,11 @@
 'use client';
 
 import {
+  BASE_TIER_DAYS,
+  MATRIX_COLUMNS,
   MATRIX_ROWS,
-  MATRIX_TIER_COLUMNS,
+  MATRIX_URGENT_FIRST_COLUMN,
+  MAX_TIER_INDEX,
   OVERDUE_COLUMN,
   packBandLabels,
   type Category,
@@ -12,13 +15,14 @@ import { useEffect, useMemo, useRef, useState, type FocusEvent, type PointerEven
 
 import { CategoryDot } from './category-dot';
 import { usePanels } from './panel-provider';
-import { QUADRANT_LABELS, TIER_TICK_LABELS, formatDeadline } from '@/lib/format';
+import { QUADRANT_LABELS, TIER_BOUNDARY_LABELS, formatDeadline } from '@/lib/format';
 
 /**
  * 时间管理矩阵：X = 紧迫度（越靠右越紧急），Y = 重要性（越靠上越重要）。
  *
- * Y 轴：重要性 0–5 对应六个等宽区间 [0,1)…[5,6)，六个区间地位相同，下三上三；
- * 刻度画在区间边界上（0–6），任务散布在自己所属的整个区间内。
+ * X 轴：14 格全部等宽，按剩余时间分档；刻度名标在分界线上，中线（两周）左右各 7 格，最右格为逾期。
+ * Y 轴：刻度 0–5 标在分界线上，重要性 N 落在标 N 那条线上方的一格（N = 5 是最上面一格）；
+ * 中线在刻度 3 上，下面三格是 0、1、2，上面三格是 3、4、5。
  * 不画格子网格线，只画区分四个象限的两条细线。每个任务显示为「分类色标 + 标题」标签，
  * 同一格内的标签纵向避让，放不下的收进"+N"。
  */
@@ -28,14 +32,10 @@ const VIEW_H = 740;
 const M = { top: 30, right: 12, bottom: 46, left: 64 };
 const PLOT_W = VIEW_W - M.left - M.right;
 const PLOT_H = VIEW_H - M.top - M.bottom;
-/** 逾期贴边列只放点位，标题在点位左边向左伸展（标签内标注"逾期 N 天"） */
-const OVERDUE_WEIGHT = 0.8;
-const OVERDUE_POINT_R = 5;
-const OVERDUE_GAP = 6;
-const TIER_W = (PLOT_W - OVERDUE_GAP) / (MATRIX_TIER_COLUMNS + OVERDUE_WEIGHT);
+const COL_W = PLOT_W / MATRIX_COLUMNS;
 const ROW_H = PLOT_H / MATRIX_ROWS;
-/** 紧急区从第 6 档（两周内）开始 = 第 7 列 */
-const FIRST_URGENT_COLUMN = MATRIX_TIER_COLUMNS - 7;
+/** 中线：紧急区第一列（(7,14] 档）的左边界 */
+const FIRST_URGENT_COLUMN = MATRIX_URGENT_FIRST_COLUMN;
 /** 重要区：重要性 3–5（上三） */
 const FIRST_IMPORTANT_ROW = 3;
 
@@ -47,22 +47,29 @@ const MARKER_R = 4.5;
 /** 标签：左留白 + 色标 + 间距 | 标题 | 右留白 */
 const LABEL_TEXT_OFFSET = 8 + MARKER_R * 2 + 5;
 const LABEL_PADDING_RIGHT = 8;
+/** 逾期标签：左留白 | 标题 | "逾期N天" | 点位（分类色 + 红色外圈）| 右留白 */
+const OVERDUE_TEXT_OFFSET = 10;
+const OVERDUE_POINT_R = 5;
+const OVERDUE_POINT_PAD = 8;
+const OVERDUE_POINT_ZONE = OVERDUE_POINT_R * 2 + OVERDUE_POINT_PAD + 6;
 /** 标题最多显示约 10 个汉字宽；最小宽度约 3 个汉字 */
 const MAX_TITLE_WIDTH = 130;
 const MIN_TITLE_WIDTH = 40;
 const OVERDUE_SUFFIX_WIDTH = 52;
 const OVERFLOW_W = 36;
 
-const colX = (column: number) =>
-  column === OVERDUE_COLUMN
-    ? M.left + MATRIX_TIER_COLUMNS * TIER_W + OVERDUE_GAP
-    : M.left + column * TIER_W;
-const colW = (column: number) => (column === OVERDUE_COLUMN ? TIER_W * OVERDUE_WEIGHT : TIER_W);
-/** 重要性 row 所在区间 [row, row+1) 的顶边 */
+const colX = (column: number) => M.left + column * COL_W;
+const colW = () => COL_W;
+/** 重要性 row 所在一格的顶边（重要性 N 在标 N 那条线上方的一格） */
 const rowTop = (row: number) => M.top + (MATRIX_ROWS - 1 - row) * ROW_H;
-/** 重要性刻度值 v（0–6，区间边界）对应的 y */
+/** 重要性刻度 v（0–5）所在分界线的 y：第 v 格的下边 */
 const valueY = (v: number) => M.top + (MATRIX_ROWS - v) * ROW_H;
-const PLOT_RIGHT = colX(OVERDUE_COLUMN) + colW(OVERDUE_COLUMN);
+const PLOT_RIGHT = colX(OVERDUE_COLUMN) + colW();
+/** 逾期点位的中心：最右格靠右 */
+const OVERDUE_POINT_X = PLOT_RIGHT - 2 - OVERDUE_POINT_PAD - OVERDUE_POINT_R;
+
+/** 逾期标签的宽度拆分 */
+const overdueChrome = OVERDUE_TEXT_OFFSET + OVERDUE_SUFFIX_WIDTH + OVERDUE_POINT_ZONE;
 
 /** 按字符估算宽度（中日韩等全角字符按字号，其余按 0.6 倍字号），超出则截断加"…" */
 function fitText(text: string, maxWidth: number, fontSize = LABEL_FONT): string {
@@ -86,11 +93,11 @@ function fitText(text: string, maxWidth: number, fontSize = LABEL_FONT): string 
 }
 
 /** 分类色标：多分类按切片显示 */
-function Marker({ colors }: { colors: readonly string[] }) {
+function Marker({ colors, r = MARKER_R }: { colors: readonly string[]; r?: number }) {
   if (colors.length <= 1) {
     return (
       <circle
-        r={MARKER_R}
+        r={r}
         className={colors.length === 0 ? 'marker-uncategorized' : undefined}
         style={colors[0] ? { fill: colors[0] } : undefined}
       />
@@ -104,8 +111,8 @@ function Marker({ colors }: { colors: readonly string[] }) {
         const a1 = a0 + step;
         const d = [
           'M 0 0',
-          `L ${MARKER_R * Math.cos(a0)} ${MARKER_R * Math.sin(a0)}`,
-          `A ${MARKER_R} ${MARKER_R} 0 ${step > Math.PI ? 1 : 0} 1 ${MARKER_R * Math.cos(a1)} ${MARKER_R * Math.sin(a1)}`,
+          `L ${r * Math.cos(a0)} ${r * Math.sin(a0)}`,
+          `A ${r} ${r} 0 ${step > Math.PI ? 1 : 0} 1 ${r * Math.cos(a1)} ${r * Math.sin(a1)}`,
           'Z',
         ].join(' ');
         return <path key={i} d={d} style={{ fill: color }} />;
@@ -133,6 +140,11 @@ function textWidth(text: string, fontSize = LABEL_FONT): number {
   for (const ch of Array.from(text))
     width += /[\u2e80-\uffff]/.test(ch) ? fontSize : fontSize * 0.6;
   return width;
+}
+
+/** 标签除标题外占用的宽度 */
+function labelChrome(point: MatrixPoint): number {
+  return point.overdueDays !== null ? overdueChrome : LABEL_TEXT_OFFSET + LABEL_PADDING_RIGHT;
 }
 
 interface PlacedLabel {
@@ -166,16 +178,15 @@ function layoutLabels(points: readonly MatrixPoint[]) {
     if (inBand.length === 0) continue;
     const packed = packBandLabels(
       inBand.map((point) => {
-        const suffix = point.overdueDays !== null ? OVERDUE_SUFFIX_WIDTH : 0;
-        const chrome = LABEL_TEXT_OFFSET + LABEL_PADDING_RIGHT + suffix;
-        const title = Math.min(MAX_TITLE_WIDTH, textWidth(point.task.title));
         const overdue = point.overdueDays !== null;
+        const chrome = labelChrome(point);
+        const title = Math.min(MAX_TITLE_WIDTH, textWidth(point.task.title));
         return {
           item: point,
-          anchorX: colX(point.column) + colW(point.column) / 2,
-          // 逾期：点位在最右侧，标签贴在点位左边向左伸展，与其他标签互相避让
+          // 逾期：点位在最右格靠右，画在标签内部的右端；标题在点位左边向左伸展，与其他标签互相避让
+          anchorX: overdue ? OVERDUE_POINT_X : colX(point.column) + colW() / 2,
           align: overdue ? ('end' as const) : ('center' as const),
-          endOffset: OVERDUE_POINT_R + 4,
+          endOffset: OVERDUE_POINT_R + OVERDUE_POINT_PAD,
           desiredY: rowTop(row) + (1 - point.offsetY) * ROW_H,
           width: chrome + Math.max(title, 12),
           minWidth: chrome + Math.min(title, MIN_TITLE_WIDTH),
@@ -196,7 +207,6 @@ function layoutLabels(points: readonly MatrixPoint[]) {
       },
     );
     for (const { item, x, y, width, anchorX, displaced } of packed.placed) {
-      const suffix = item.overdueDays !== null ? OVERDUE_SUFFIX_WIDTH : 0;
       labels.push({
         point: item,
         x,
@@ -204,7 +214,7 @@ function layoutLabels(points: readonly MatrixPoint[]) {
         width,
         anchorX,
         displaced,
-        titleWidth: width - LABEL_TEXT_OFFSET - LABEL_PADDING_RIGHT - suffix,
+        titleWidth: width - labelChrome(item),
       });
     }
     for (const { group, items, x, y, width } of packed.overflow) {
@@ -269,14 +279,13 @@ export function TaskMatrix({
           role="img"
           aria-label={`时间管理矩阵，共 ${points.length} 个任务`}
         >
-          {/* 逾期贴边列 */}
+          {/* 最右格：逾期 */}
           <rect
             className="matrix-overdue-strip"
             x={colX(OVERDUE_COLUMN)}
             y={M.top}
-            width={colW(OVERDUE_COLUMN)}
+            width={colW()}
             height={PLOT_H}
-            rx={6}
           />
 
           {/* 坐标轴与象限分界（不画格子网格线） */}
@@ -323,8 +332,8 @@ export function TaskMatrix({
             不重要
           </text>
 
-          {/* Y 轴刻度：区间边界 0–6 */}
-          {Array.from({ length: MATRIX_ROWS + 1 }, (_, v) => (
+          {/* Y 轴刻度：0–5 标在分界线上（重要性 N 在标 N 那条线上方的一格） */}
+          {Array.from({ length: MATRIX_ROWS }, (_, v) => (
             <g key={v} data-testid="matrix-y-tick">
               <line
                 className="matrix-axis"
@@ -345,18 +354,39 @@ export function TaskMatrix({
             </g>
           ))}
 
-          {/* X 轴刻度 */}
-          {[...TIER_TICK_LABELS, '逾期'].map((label, column) => (
-            <text
-              key={column}
-              className="matrix-tick"
-              x={colX(column) + colW(column) / 2}
-              y={M.top + PLOT_H + 16}
-              textAnchor="middle"
-            >
-              {label}
-            </text>
-          ))}
+          {/* X 轴刻度：名称标在分界线上（各档所在格子的左边界）；最右格标"逾期" */}
+          {Array.from({ length: OVERDUE_COLUMN }, (_, column) => {
+            const days = BASE_TIER_DAYS[MAX_TIER_INDEX - column]!;
+            const x = colX(column);
+            return (
+              <g key={column} data-testid="matrix-x-tick" data-days={days}>
+                <line
+                  className="matrix-axis"
+                  x1={x}
+                  x2={x}
+                  y1={M.top + PLOT_H}
+                  y2={M.top + PLOT_H + 4}
+                />
+                <text
+                  className={`matrix-tick${column === FIRST_URGENT_COLUMN ? ' matrix-tick-mid' : ''}`}
+                  x={x}
+                  y={M.top + PLOT_H + 17}
+                  textAnchor="middle"
+                >
+                  {TIER_BOUNDARY_LABELS[days]}
+                </text>
+              </g>
+            );
+          })}
+          <text
+            className="matrix-tick"
+            data-testid="matrix-x-overdue"
+            x={colX(OVERDUE_COLUMN) + colW() / 2}
+            y={M.top + PLOT_H + 17}
+            textAnchor="middle"
+          >
+            逾期
+          </text>
           <text className="matrix-axis-title" x={(M.left + PLOT_RIGHT) / 2} y={VIEW_H - 6}>
             截止时间（越靠右越紧急）
           </text>
@@ -413,9 +443,6 @@ export function TaskMatrix({
                 onFocus={(event) => setTooltip({ kind: 'task', point, ...anchor(event) })}
                 onBlur={hideTooltip}
               >
-                {overdue && (
-                  <circle className="overdue-point" cx={anchorX} cy={y} r={OVERDUE_POINT_R} />
-                )}
                 <g transform={`translate(${x} ${y})`}>
                   {/* 命中区域比标签略大 */}
                   <rect
@@ -433,25 +460,34 @@ export function TaskMatrix({
                     height={LABEL_H}
                     rx={LABEL_H / 2}
                   />
-                  <g transform={`translate(${left + 8 + MARKER_R} 0)`}>
-                    <Marker colors={colors} />
-                  </g>
+                  {!overdue && (
+                    <g transform={`translate(${left + 8 + MARKER_R} 0)`}>
+                      <Marker colors={colors} />
+                    </g>
+                  )}
                   <text
                     className="node-title"
-                    x={left + LABEL_TEXT_OFFSET}
+                    x={left + (overdue ? OVERDUE_TEXT_OFFSET : LABEL_TEXT_OFFSET)}
                     dominantBaseline="central"
                   >
                     {fitText(point.task.title, titleWidth)}
                   </text>
                   {overdue && (
-                    <text
-                      className="node-overdue"
-                      x={width / 2 - LABEL_PADDING_RIGHT}
-                      textAnchor="end"
-                      dominantBaseline="central"
-                    >
-                      {overdueText(point.overdueDays)}
-                    </text>
+                    <>
+                      <text
+                        className="node-overdue"
+                        x={width / 2 - OVERDUE_POINT_ZONE + 4}
+                        textAnchor="end"
+                        dominantBaseline="central"
+                      >
+                        {overdueText(point.overdueDays)}
+                      </text>
+                      {/* 唯一的点位：在标签内部右端，分类颜色（多分类按切片）+ 红色外圈 */}
+                      <g className="overdue-point" transform={`translate(${anchorX - x} 0)`}>
+                        <Marker colors={colors} r={OVERDUE_POINT_R} />
+                        <circle className="overdue-point-ring" r={OVERDUE_POINT_R + 1.5} />
+                      </g>
+                    </>
                   )}
                 </g>
               </g>

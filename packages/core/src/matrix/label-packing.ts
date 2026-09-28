@@ -5,8 +5,8 @@
  * 锚点附近都被占时，标签可以整体移到锚点旁边（displaced，表现层画引线指回锚点）；
  * 仍放不下时缩短标签，再放不下的归入所在格子的"+N"溢出项。
  *
- * align = 'end' 的标签（逾期任务）：点位固定在锚点，标签整体放在点位左边、右端贴近点位；
- * 点位本身也占用泳道，其他标签不会盖住它。
+ * align = 'end' 的标签（逾期任务）：点位固定在锚点，并画在标签内部的右端；
+ * 标签右端 = 锚点 + endOffset，整体向左伸展（标题在点位左边），同样与其他标签避让。
  *
  * 单位与像素无关，由表现层决定；Web 与 Mobile 共用。
  */
@@ -24,9 +24,9 @@ export interface LabelRequest<T> {
   priority: number;
   /** 溢出时归入的分组（通常是格子），同组溢出项合并为一个"+N" */
   group: string;
-  /** 'center'（默认）：以锚点为中心；'end'：标签右端贴在点位左侧，向左伸展 */
+  /** 'center'（默认）：以锚点为中心；'end'：标签右端固定在锚点附近，向左伸展 */
   align?: 'center' | 'end';
-  /** align = 'end' 时点位的半宽 + 与标签的间距 */
+  /** align = 'end' 时标签右端相对锚点的偏移（点位在标签内部时为点位半宽 + 右留白） */
   endOffset?: number;
 }
 
@@ -126,11 +126,10 @@ export function packBandLabels<T>(
       const offset = request.endOffset ?? 0;
       let done = false;
       for (const width of [request.width, request.minWidth]) {
-        const labelTo = request.anchorX - offset;
+        const labelTo = Math.min(request.anchorX + offset, band.right);
         const labelFrom = labelTo - width;
         if (labelFrom < band.left) continue;
-        // 占用范围包含点位本身
-        const occupied = { from: labelFrom, to: request.anchorX + offset };
+        const occupied = { from: labelFrom, to: labelTo };
         const lane = lanesNear.find(({ i }) => fits(lanes[i]!, occupied, band.gap));
         if (!lane) continue;
         lanes[lane.i]!.push(occupied);

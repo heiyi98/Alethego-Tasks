@@ -1,14 +1,17 @@
 import { expect, test, type Page } from '@playwright/test';
 
 import {
+  TIME_ZONE,
   createCategory,
   editPanel,
   localDate,
   pickImportance,
   quickAdd,
   runId,
+  selectScope,
   selectStatus,
   sidebar,
+  statusBar,
   switchMode,
   taskItem,
   titleBox,
@@ -18,7 +21,28 @@ import {
 
 const dot = (page: Page, title: string) => page.locator(`.matrix-node[aria-label^="${title}，"]`);
 
-test('矩阵：按紧迫度 × 重要性放置，逾期贴边，远期与未处理不显示，象限列表，点击弹出编辑面板', async ({
+/** 距现在 ms 毫秒的本地日期与时刻（按 TIME_ZONE） */
+function localAt(ms: number): { date: string; time: string } {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-CA', {
+      timeZone: TIME_ZONE,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    })
+      .formatToParts(new Date(Date.now() + ms))
+      .map((p) => [p.type, p.value]),
+  );
+  return {
+    date: `${parts.year}-${parts.month}-${parts.day}`,
+    time: `${parts.hour}:${parts.minute}`,
+  };
+}
+
+test('矩阵：14 格等宽标尺、刻度在分界线上、按紧迫度 × 重要性放置，远期与未处理不显示，点击弹出编辑面板', async ({
   page,
 }) => {
   const id = runId();
@@ -29,6 +53,7 @@ test('矩阵：按紧迫度 × 重要性放置，逾期贴边，远期与未处�
   await page.goto('/');
   await createCategory(page, category);
   await toggleCategory(page, category);
+  await selectStatus(page, '全部');
 
   const specs = [
     { name: '明天重要', deadline: localDate(1), importance: 5 },
@@ -40,22 +65,62 @@ test('矩阵：按紧迫度 × 重要性放置，逾期贴边，远期与未处�
   ];
   for (const { name, ...options } of specs) await quickAdd(page, t(name), options);
 
-  // LOGO 右边的图标按钮切到矩阵；分类选择沿用；矩阵页内没有分类标签
+  // LOGO 右边的图标按钮切到矩阵；分类选择沿用；矩阵页没有分类标签、状态行和添加栏
   await switchMode(page, 'matrix');
   await expect(page).toHaveURL(/cat=/);
   await expect(page.getByRole('group', { name: '分类筛选' })).toHaveCount(0);
+  await expect(statusBar(page)).toHaveCount(0);
+  await expect(page.getByLabel('快速添加任务')).toHaveCount(0);
   await expect(sidebar(page).getByRole('link', { name: '切换到清单' })).toBeVisible();
 
   await expect(page.locator('.matrix-node')).toHaveCount(4);
 
-  // Y 轴：重要性 0–5 是六个等宽区间，刻度画在区间边界 0–6 上
-  await expect(page.getByTestId('matrix-y-tick')).toHaveText(['0', '1', '2', '3', '4', '5', '6']);
+  // Y 轴：刻度 0–5 标在分界线上，顶端没有"6"
+  await expect(page.getByTestId('matrix-y-tick')).toHaveText(['0', '1', '2', '3', '4', '5']);
 
-  // 任务节点显示标题文字（过长时截断），完整标题在提示中
+  // X 轴：刻度名在分界线上，从左到右；最右格标"逾期"
+  await expect(page.getByTestId('matrix-x-tick')).toHaveText([
+    '一年',
+    '三个季度',
+    '半年',
+    '一季度',
+    '两个月',
+    '一个月',
+    '三周',
+    '两周',
+    '一周',
+    '5天',
+    '3天',
+    '2天',
+    '1天',
+  ]);
+  await expect(page.getByTestId('matrix-x-overdue')).toHaveText('逾期');
+  // 14 格等宽：相邻分界线间距相同；中线落在"两周"上，左右各 7 格
+  const xs = await page
+    .getByTestId('matrix-x-tick')
+    .locator('line')
+    .evaluateAll((lines) => lines.map((l) => Number(l.getAttribute('x1'))));
+  const widths = xs.slice(1).map((x, i) => x - xs[i]!);
+  for (const w of widths) expect(w).toBeCloseTo(widths[0]!, 5);
+  const midX = xs[7]!;
+  const divider = await page
+    .locator('.matrix-divider')
+    .first()
+    .evaluate((l) => Number(l.getAttribute('x1')));
+  expect(divider).toBeCloseTo(midX, 5);
+  const overdueX = await page
+    .locator('.matrix-overdue-strip')
+    .evaluate((r) => Number(r.getAttribute('x')) + Number(r.getAttribute('width')));
+  expect((overdueX - midX) / widths[0]!).toBeCloseTo(7, 5);
+  expect((midX - xs[0]!) / widths[0]!).toBeCloseTo(7, 5);
+
+  // 明天（只选日期）：R 在 1–2 天之间 → (1,2] 档 → 右数第三格
   await expect(dot(page, t('明天重要')).locator('.node-title')).toContainText(id.slice(0, 5));
   await expect(dot(page, t('明天重要'))).toHaveAttribute('data-quadrant', 'important_urgent');
-  await expect(dot(page, t('明天重要'))).toHaveAttribute('data-column', '12');
+  await expect(dot(page, t('明天重要'))).toHaveAttribute('data-column', '11');
   await expect(dot(page, t('明天重要'))).toHaveAttribute('data-row', '5');
+  // 30 天后（只选日期）：R 在 30–31 天之间 → (30,60] 档，不紧急
+  await expect(dot(page, t('下月不重要'))).toHaveAttribute('data-column', '4');
   await expect(dot(page, t('下月不重要'))).toHaveAttribute(
     'data-quadrant',
     'not_important_not_urgent',
@@ -63,19 +128,26 @@ test('矩阵：按紧迫度 × 重要性放置，逾期贴边，远期与未处�
   await expect(dot(page, t('无截止重要'))).toHaveAttribute('data-quadrant', 'important_not_urgent');
   await expect(dot(page, t('无截止重要'))).toHaveAttribute('data-column', '0');
 
+  // 逾期：最右格；只有一个点位，在标签内部右端，标题在点位左边；没有左侧色点
   const overdue = dot(page, t('逾期两天'));
-  await expect(overdue).toHaveAttribute('data-column', '14');
+  await expect(overdue).toHaveAttribute('data-column', '13');
   await expect(overdue).toHaveAttribute('data-quadrant', 'not_important_urgent');
   await expect(overdue).toContainText('逾期2天');
-  // 逾期：点位在最右侧，标题在点位左边
+  await expect(overdue.locator('.overdue-point')).toHaveCount(1);
+  await expect(overdue.locator('.overdue-point-ring')).toHaveCount(1);
   const point = (await overdue.locator('.overdue-point').boundingBox())!;
   const pill = (await overdue.locator('.node-body').boundingBox())!;
-  expect(pill.x + pill.width).toBeLessThanOrEqual(point.x);
-  const strip = (await page.locator('.matrix-overdue-strip').boundingBox())!;
-  expect(point.x).toBeGreaterThanOrEqual(strip.x);
+  const title = (await overdue.locator('.node-title').boundingBox())!;
+  expect(point.x).toBeGreaterThan(pill.x);
+  expect(point.x + point.width).toBeLessThanOrEqual(pill.x + pill.width);
+  expect(title.x + title.width).toBeLessThanOrEqual(point.x);
+  // 标签里只有这一个圆形色标（普通任务左侧的色点已去掉）
+  await expect(overdue.locator('circle:not(.overdue-point-ring)')).toHaveCount(1);
 
-  await expect(page.getByTestId('matrix-hidden')).toContainText('1 个未设置重要性和截止时间');
-  await expect(page.getByTestId('matrix-hidden')).toContainText('1 个截止时间超过一年');
+  // 矩阵下方不再有说明文字
+  await expect(page.getByTestId('matrix-hidden')).toHaveCount(0);
+  await expect(page.locator('.matrix-legend')).toHaveCount(0);
+  await expect(page.getByText('逾期（3 天内贴右侧显示）')).toHaveCount(0);
 
   // 象限列表（表格视图）
   const quadrant = (name: string) => page.getByRole('region', { name, exact: true });
@@ -119,6 +191,27 @@ test('矩阵：按紧迫度 × 重要性放置，逾期贴边，远期与未处�
   await expect(quadrant('紧急不重要').getByRole('form', { name: '编辑任务' })).toBeVisible();
 });
 
+test('矩阵按剩余时间判档：23 小时后到期 → (0,1] 档；明天全天 → (1,2] 档', async ({ page }) => {
+  const id = runId();
+  const t = (name: string) => `${id} ${name}`;
+  const category = `${id}剩余`;
+  await page.goto('/');
+  await createCategory(page, category);
+  await toggleCategory(page, category);
+
+  const soon = localAt(23 * 3_600_000);
+  await quickAdd(page, t('23小时后'), { deadline: soon.date, time: soon.time, importance: 4 });
+  await quickAdd(page, t('明天全天'), { deadline: localDate(1), importance: 4 });
+  // 15 天后全天：R 在 15–16 天之间 → 中线左侧第一格，不紧急
+  await quickAdd(page, t('十五天后'), { deadline: localDate(15), importance: 4 });
+  await switchMode(page, 'matrix');
+
+  await expect(dot(page, t('23小时后'))).toHaveAttribute('data-column', '12');
+  await expect(dot(page, t('明天全天'))).toHaveAttribute('data-column', '11');
+  await expect(dot(page, t('十五天后'))).toHaveAttribute('data-column', '6');
+  await expect(dot(page, t('十五天后'))).toHaveAttribute('data-quadrant', 'important_not_urgent');
+});
+
 test('矩阵：完成任务后从矩阵消失；分类未命中时不显示', async ({ page }) => {
   const id = runId();
   const title = `${id} 待完成`;
@@ -136,6 +229,7 @@ test('矩阵：完成任务后从矩阵消失；分类未命中时不显示', as
   await toggleCategory(page, other);
 
   await switchMode(page, 'list');
+  await selectStatus(page, '全部');
   await page.getByRole('checkbox', { name: `完成：${title}` }).click();
   await expect(taskItem(page, title)).toHaveClass(/task-completed/);
   await switchMode(page, 'matrix');
@@ -143,7 +237,7 @@ test('矩阵：完成任务后从矩阵消失；分类未命中时不显示', as
   await expect(dot(page, title)).toHaveCount(0);
 });
 
-test('矩阵模式与左侧状态：已完成 / 已错过切回清单；收藏只显示标星；全部与未完成相同', async ({
+test('矩阵只受范围和分类影响：收藏只显示标星；清单页的状态原样保留、不再自动切回清单', async ({
   page,
 }) => {
   const id = runId();
@@ -157,14 +251,18 @@ test('矩阵模式与左侧状态：已完成 / 已错过切回清单；收藏�
   await taskItem(page, t('标星')).getByRole('button', { name: '标星', exact: true }).click();
   await expect(taskItem(page, t('标星')).getByRole('button', { name: '取消标星' })).toBeVisible();
 
+  // 清单页选了"已完成"再切到矩阵：矩阵照常显示，不自动切回清单
+  await selectStatus(page, '已完成');
   await switchMode(page, 'matrix');
+  await expect(page).toHaveURL(/\/matrix\?status=completed/);
   await expect(page.locator('.matrix-node')).toHaveCount(2);
-  await selectStatus(page, '未完成');
-  await expect(page).toHaveURL(/\/matrix\?status=todo/);
+  await page.goto('/matrix?status=missed&cat=' + new URL(page.url()).searchParams.get('cat'));
+  await expect(page).toHaveURL(/\/matrix\?/);
   await expect(page.locator('.matrix-node')).toHaveCount(2);
 
   // 收藏：只显示标星任务；标星不改变它在矩阵上的位置
-  await selectStatus(page, '收藏');
+  await selectScope(page, '收藏');
+  await expect(page).toHaveURL(/\/matrix\?scope=starred/);
   await expect(page.locator('.matrix-node')).toHaveCount(1);
   await expect(dot(page, t('标星'))).toHaveAttribute('data-row', '4');
   await expect(page.getByRole('region', { name: '重要且紧急', exact: true })).toContainText(
@@ -174,31 +272,30 @@ test('矩阵模式与左侧状态：已完成 / 已错过切回清单；收藏�
     t('普通'),
   );
 
-  // 已完成：矩阵上没有对应内容，自动切回清单并显示对应列表
-  await selectStatus(page, '已完成');
-  await expect(page).toHaveURL(/localhost:\d+\/\?status=completed/);
-  await expect(sidebar(page).getByRole('link', { name: '切换到矩阵' })).toBeVisible();
-  await expect(page.getByRole('list', { name: '任务列表' })).toHaveCount(0);
-
-  await switchMode(page, 'matrix');
-  await selectStatus(page, '已错过');
-  await expect(page).toHaveURL(/localhost:\d+\/\?status=missed/);
-
-  // 直接访问矩阵的已完成地址，也会切回清单
-  await page.goto('/matrix?status=completed');
-  await expect(page).toHaveURL(/localhost:\d+\/\?status=completed/);
+  // 切回清单：范围、分类、状态都还在
+  await switchMode(page, 'list');
+  await expect(page.getByRole('heading', { level: 1, name: '收藏' })).toBeVisible();
+  await expect(statusBar(page).getByRole('button', { name: '已错过' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
 });
 
-test('矩阵：当天已过截止时刻的任务贴在逾期列，标"今天已过"', async ({ page }) => {
+test('矩阵：当天已过截止时刻的任务贴在逾期格，标"今天已过"', async ({ page }) => {
   const id = runId();
   const title = `${id} 零点截止`;
   const category = `${id}今天`;
   await page.goto('/');
   await createCategory(page, category);
   await toggleCategory(page, category);
-  // 今天 00:00 已经过去（除非恰好在午夜运行）
-  await quickAdd(page, title, { deadline: localDate(0), time: '00:00', importance: 3 });
+  // 今天 00:00 已经过去（除非恰好在午夜运行）；在"未完成"里新建看不见是正常的
+  await quickAdd(page, title, {
+    deadline: localDate(0),
+    time: '00:00',
+    importance: 3,
+    expectVisible: false,
+  });
   await switchMode(page, 'matrix');
-  await expect(dot(page, title)).toHaveAttribute('data-column', '14');
+  await expect(dot(page, title)).toHaveAttribute('data-column', '13');
   await expect(dot(page, title)).toContainText('今天已过');
 });

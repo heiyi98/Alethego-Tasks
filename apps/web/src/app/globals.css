@@ -402,32 +402,6 @@ a {
   color: var(--critical);
 }
 
-.matrix-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 16px;
-  padding: 6px 4px 0;
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.legend-overdue {
-  display: inline-block;
-  width: 18px;
-  height: 12px;
-  border: 1.5px solid var(--critical);
-  border-radius: 4px;
-}
-
-.matrix-hidden {
-  font-size: 13px;
-  margin: 6px 4px 0;
-}
-
-.matrix-hidden a {
-  color: var(--accent);
-}
-
 .quadrant-lists {
   display: grid;
   grid-template-columns: 1fr;
@@ -1798,10 +1772,21 @@ a {
 }
 
 /* ---------- 矩阵：逾期点位 ---------- */
-.overdue-point {
-  fill: var(--danger);
-  stroke: var(--system-background);
-  stroke-width: 2;
+/* 逾期点位（标签内部右端）：保留分类颜色，外面一圈红色 */
+.overdue-point-ring {
+  fill: none;
+  stroke: var(--danger);
+  stroke-width: 1.8;
+}
+
+.status-bar {
+  margin: 12px 0 16px;
+}
+
+/* 横轴中线"两周" */
+.matrix-tick-mid {
+  font-weight: 600;
+  fill: var(--label);
 }
 
 @media (hover: none) {

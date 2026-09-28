@@ -4,10 +4,10 @@ import type { ImportanceLevel } from '../domain/importance';
 import type { Urgency } from '../urgency/urgency-calculator';
 import { classifyQuadrant, placeOnMatrix } from './quadrant-classifier';
 
-const noDeadline: Urgency = { kind: 'no_deadline', tierIndex: 13 };
-const tomorrow: Urgency = { kind: 'scheduled', daysRemaining: 1, tierIndex: 1, tierDays: 1 };
-const inAMonth: Urgency = { kind: 'scheduled', daysRemaining: 30, tierIndex: 8, tierDays: 34 };
-const far: Urgency = { kind: 'far', daysRemaining: 500, extendedTierDays: 610 };
+const noDeadline: Urgency = { kind: 'no_deadline', tierIndex: 12 };
+const tomorrow: Urgency = { kind: 'scheduled', daysRemaining: 1, tierIndex: 0, tierDays: 1 };
+const inAMonth: Urgency = { kind: 'scheduled', daysRemaining: 30, tierIndex: 7, tierDays: 30 };
+const far: Urgency = { kind: 'far', daysRemaining: 500, extendedTierDays: 730 };
 const overdue = (overdueDays: number): Urgency => ({ kind: 'overdue', overdueDays });
 
 const candidate = (importanceLevel: ImportanceLevel, urgency: Urgency) => ({
@@ -36,6 +36,18 @@ describe('classifyQuadrant', () => {
 
   it('重要性为 0 且无截止时间 → 无象限', () => {
     expect(classifyQuadrant(candidate(0, noDeadline))).toBeNull();
+  });
+
+  it('以两周为界：(7,14] 档紧急，(14,21] 档不紧急', () => {
+    const twoWeeks: Urgency = { kind: 'scheduled', daysRemaining: 14, tierIndex: 5, tierDays: 14 };
+    const threeWeeks: Urgency = {
+      kind: 'scheduled',
+      daysRemaining: 15,
+      tierIndex: 6,
+      tierDays: 21,
+    };
+    expect(classifyQuadrant(candidate(4, twoWeeks))).toBe('important_urgent');
+    expect(classifyQuadrant(candidate(4, threeWeeks))).toBe('important_not_urgent');
   });
 
   it('逾期算紧急', () => {

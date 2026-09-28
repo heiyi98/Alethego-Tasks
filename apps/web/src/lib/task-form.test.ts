@@ -71,15 +71,20 @@ describe('新建', () => {
     expect(task.recurrenceDtstart).toEqual(new Date('2026-10-01T01:00:00Z'));
   });
 
-  it('草稿是否填写了内容：默认分类不算，改了分类才算', () => {
+  it('草稿是否填写了内容：页面默认值（分类、收藏里的标星）不算，改了才算', () => {
+    const defaults = { categoryIds: ['work'], isStarred: false };
     const empty = { ...emptyTaskForm(['work']) };
-    expect(isDraftDirty(empty, ['work'])).toBe(false);
-    expect(isDraftDirty({ ...empty, categoryIds: [] }, ['work'])).toBe(true);
-    expect(isDraftDirty({ ...empty, importanceLevel: 2 }, ['work'])).toBe(true);
-    expect(isDraftDirty({ ...empty, title: '  ' }, ['work'])).toBe(false);
+    expect(isDraftDirty(empty, defaults)).toBe(false);
+    expect(isDraftDirty({ ...empty, categoryIds: [] }, defaults)).toBe(true);
+    expect(isDraftDirty({ ...empty, importanceLevel: 2 }, defaults)).toBe(true);
+    expect(isDraftDirty({ ...empty, title: '  ' }, defaults)).toBe(false);
     expect(
-      isDraftDirty({ ...empty, people: [{ key: 'a', name: '', relation: '' }] }, ['work']),
+      isDraftDirty({ ...empty, people: [{ key: 'a', name: '', relation: '' }] }, defaults),
     ).toBe(false);
+    // 在"收藏"里：默认标星不算内容，取消标星才算
+    const starredDefaults = { ...defaults, isStarred: true };
+    expect(isDraftDirty({ ...empty, isStarred: true }, starredDefaults)).toBe(false);
+    expect(isDraftDirty(empty, starredDefaults)).toBe(true);
   });
 });
 

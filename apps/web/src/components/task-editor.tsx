@@ -44,9 +44,9 @@ export function QuickOptionsRow({
   onToggle: () => void;
   toggleLabel: string;
 }) {
-  // 时刻输入框：已选时刻时一直显示；否则点时钟图标后显示
+  // 时刻输入框：已选时刻时一直显示；否则点时钟图标后显示（日期被清空 / 创建后草稿重置时收回时钟图标）
   const [timeOpen, setTimeOpen] = useState(false);
-  const showTime = value.deadlineTime !== '' || timeOpen;
+  const showTime = value.deadlineTime !== '' || (timeOpen && value.deadline !== '');
   return (
     <div className="quick-options">
       <div className="option" role="group" aria-label="重要性">

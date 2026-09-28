@@ -30,7 +30,8 @@ function isUnprocessed(candidate: MatrixCandidate): boolean {
 }
 
 /**
- * 象限判定。四个象限均为合法区域；
+ * 象限判定。紧急 / 不紧急以矩阵中线（R = 14 天）为界：R ≤ 14 天（含逾期）为紧急。
+ * 四个象限均为合法区域；
  * 唯一没有象限的情况是"重要性为 0 且无截止时间"，返回 null。
  */
 export function classifyQuadrant(candidate: MatrixCandidate): Quadrant | null {

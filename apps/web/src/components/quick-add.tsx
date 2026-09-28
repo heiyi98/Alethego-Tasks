@@ -18,11 +18,18 @@ import {
 } from '@/lib/task-form';
 
 /**
- * 快速添加（只出现在"全部"里）：输入栏本身就是标题，下方一行常用选项（重要性、截止日期 / 时刻），
+ * 快速添加（每个清单页面都有）：输入栏本身就是标题，下方一行常用选项（重要性、截止日期 / 时刻），
  * 回车即创建；最右侧的三角展开完整的新建面板，面板从输入栏下方延展出来。收起面板时草稿保留。
- * 新任务自动带上当前选中的全部分类（没选分类就不带）。
+ * 新任务自动带上当前选中的全部分类（没选分类就不带）；在"收藏"里新建的任务自动标星。
  */
-export function QuickAdd({ categories }: { categories: readonly Category[] }) {
+export function QuickAdd({
+  categories,
+  starred,
+}: {
+  categories: readonly Category[];
+  /** 在"收藏"里：新任务默认标星 */
+  starred: boolean;
+}) {
   const { draft, setDraft, resetDraft, open, close, isOpen } = usePanels();
   const { data, now, timeZone } = useTaskData();
   const { notify, confirm, showUndo } = useFeedback();
@@ -33,7 +40,12 @@ export function QuickAdd({ categories }: { categories: readonly Category[] }) {
 
   const defaultCategoryIds = categories.map((c) => c.id);
   const expanded = isOpen({ kind: 'create' });
-  const form: TaskFormValue = { ...draft, categoryIds: draft.categoryIds ?? defaultCategoryIds };
+  const defaults = { categoryIds: defaultCategoryIds, isStarred: starred };
+  const form: TaskFormValue = {
+    ...draft,
+    categoryIds: draft.categoryIds ?? defaults.categoryIds,
+    isStarred: draft.isStarred ?? defaults.isStarred,
+  };
 
   const onChange = (patch: Partial<TaskFormValue>) => {
     setErrors({});
@@ -67,7 +79,7 @@ export function QuickAdd({ categories }: { categories: readonly Category[] }) {
   }
 
   async function discard() {
-    if (isDraftDirty(form, defaultCategoryIds)) {
+    if (isDraftDirty(form, defaults)) {
       const ok = await confirm({
         message: '放弃这个新任务？',
         detail: '已填写的内容将被丢弃',

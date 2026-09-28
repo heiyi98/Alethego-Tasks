@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import type { Task } from '../domain/task';
 import {
+  MATRIX_COLUMNS,
+  MATRIX_URGENT_FIRST_COLUMN,
   OVERDUE_COLUMN,
   buildMatrixLayout,
   columnForUrgency,
@@ -34,16 +36,29 @@ const layout = (tasks: Task[]) => buildMatrixLayout({ tasks }, context);
 const pointOf = (tasks: Task[], id: string) => layout(tasks).points.find((p) => p.task.id === id);
 
 describe('columnForUrgency', () => {
-  it('越紧急越靠右；无截止时间在最左列；逾期在贴边列；远期不上矩阵', () => {
+  it('共 14 格：越紧急越靠右；无截止时间在最左格；逾期在最右格；远期不上矩阵', () => {
+    expect(MATRIX_COLUMNS).toBe(14);
+    expect(OVERDUE_COLUMN).toBe(13);
     expect(
-      columnForUrgency({ kind: 'scheduled', daysRemaining: 0, tierIndex: 0, tierDays: 0 }),
-    ).toBe(13);
+      columnForUrgency({ kind: 'scheduled', daysRemaining: 0.5, tierIndex: 0, tierDays: 1 }),
+    ).toBe(12);
     expect(
-      columnForUrgency({ kind: 'scheduled', daysRemaining: 300, tierIndex: 13, tierDays: 377 }),
+      columnForUrgency({ kind: 'scheduled', daysRemaining: 300, tierIndex: 12, tierDays: 365 }),
     ).toBe(0);
-    expect(columnForUrgency({ kind: 'no_deadline', tierIndex: 13 })).toBe(0);
+    expect(columnForUrgency({ kind: 'no_deadline', tierIndex: 12 })).toBe(0);
     expect(columnForUrgency({ kind: 'overdue', overdueDays: 1 })).toBe(OVERDUE_COLUMN);
-    expect(columnForUrgency({ kind: 'far', daysRemaining: 500, extendedTierDays: 610 })).toBeNull();
+    expect(columnForUrgency({ kind: 'far', daysRemaining: 500, extendedTierDays: 730 })).toBeNull();
+  });
+
+  it('中线（两周）左右各 7 格', () => {
+    // (7,14] 档在中线右侧第一格，(14,21] 档在中线左侧第一格
+    expect(
+      columnForUrgency({ kind: 'scheduled', daysRemaining: 10, tierIndex: 5, tierDays: 14 }),
+    ).toBe(MATRIX_URGENT_FIRST_COLUMN);
+    expect(
+      columnForUrgency({ kind: 'scheduled', daysRemaining: 20, tierIndex: 6, tierDays: 21 }),
+    ).toBe(MATRIX_URGENT_FIRST_COLUMN - 1);
+    expect(MATRIX_URGENT_FIRST_COLUMN).toBe(7);
   });
 });
 
@@ -61,7 +76,8 @@ describe('buildMatrixLayout', () => {
       overdueDays: null,
     });
     expect(pointOf(tasks, 'month-1')).toMatchObject({
-      column: 13 - 8,
+      // R ≈ 29.96 天 → (21,30] 档
+      column: 12 - 7,
       row: 1,
       quadrant: 'not_important_not_urgent',
     });
@@ -74,7 +90,16 @@ describe('buildMatrixLayout', () => {
 
   it('重要性为 0 但有截止时间 → 最下一行，照常上矩阵', () => {
     const tasks = [task('t', { deadlineAt: sh('2026-09-24T20:00:00') })];
-    expect(pointOf(tasks, 't')).toMatchObject({ column: 13, row: 0 });
+    expect(pointOf(tasks, 't')).toMatchObject({ column: 12, row: 0 });
+  });
+
+  it('按剩余时间判档：明天 09:00 与明天全天落在不同格', () => {
+    const tasks = [
+      task('tomorrow-9', { deadlineAt: sh('2026-09-25T09:00:00'), importanceLevel: 3 }),
+      task('tomorrow-eod', { deadlineAt: sh('2026-09-25T23:59:59.999'), importanceLevel: 3 }),
+    ];
+    expect(pointOf(tasks, 'tomorrow-9')).toMatchObject({ column: 12 }); // R = 23 小时
+    expect(pointOf(tasks, 'tomorrow-eod')).toMatchObject({ column: 11 }); // R ≈ 1.58 天
   });
 
   it('逾期 3 天内贴边并标注天数；之后退场', () => {
@@ -106,7 +131,8 @@ describe('buildMatrixLayout', () => {
       recurrenceDtstart: sh('2026-09-21T07:00:00'),
     });
     const point = pointOf([recurring], 'gym');
-    expect(point).toMatchObject({ column: 12, row: 4, quadrant: 'important_urgent' });
+    // 代表实例周五：按该实例当天最后一刻算 R ≈ 1.58 天 → (1,2] 档
+    expect(point).toMatchObject({ column: 11, row: 4, quadrant: 'important_urgent' });
     expect(point?.representative.occurrenceAt).toEqual(sh('2026-09-25T07:00:00'));
   });
 

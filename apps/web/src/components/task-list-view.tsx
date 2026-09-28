@@ -1,7 +1,7 @@
 'use client';
 
 import { buildTaskList, deriveListStatus, listDeadlineOf } from '@alethego/core';
-import { usePathname, useSearchParams } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useRef } from 'react';
 
 import { CategoryDot } from './category-dot';
@@ -10,17 +10,19 @@ import { QuickAdd } from './quick-add';
 import { useSelection } from './selection';
 import { useTaskData } from './task-data-provider';
 import { TaskRow } from './task-row';
-import { STATUS_LABELS } from '@/lib/format';
+import { SCOPE_LABELS, STATUS_LABELS, STATUS_ORDER } from '@/lib/format';
 import { rememberListUrl } from '@/lib/list-url';
+import { selectionHref } from '@/lib/selection';
 
 /**
- * 清单模式：内容 = 左侧菜单所选状态 ∩（命中任一所选分类）。页面内没有任何筛选标签。
- * 快速添加只出现在"全部"里。
+ * 清单模式：内容 = 所选范围（全部 / 收藏）∩ 所选分类的并集 ∩ 所选状态。
+ * 添加栏每个页面都有；状态行在添加栏下面。
+ * 当前状态是"已完成""已错过"时新建的任务看不见是正常的，不做自动切换。
  */
 export function TaskListView() {
   const { data, error, actionError, now, timeZone, toggleComplete } = useTaskData();
   const selection = useSelection();
-  const { status, categoryIds } = selection;
+  const { scope, status, categoryIds } = selection;
   const pathname = usePathname();
   const query = useSearchParams().toString();
 
@@ -35,11 +37,11 @@ export function TaskListView() {
               categoryIdsByTask: data.categoryIdsByTask,
               occurrencesByTask: data.occurrencesByTask,
             },
-            { status, categoryIds },
+            { scope, status, categoryIds },
             { now, timeZone },
           )
         : [],
-    [data, status, categoryIds, now, timeZone],
+    [data, scope, status, categoryIds, now, timeZone],
   );
 
   // 正在编辑的任务即使改完后不再符合筛选（例如标记完成、取消标星），也先留在原位，收起面板后再消失
@@ -66,9 +68,11 @@ export function TaskListView() {
 
   return (
     <main className="page">
-      <PageHeader title={STATUS_LABELS[status]} categories={selectedCategories} />
+      <PageHeader title={SCOPE_LABELS[scope]} categories={selectedCategories} />
 
-      {status === 'all' && <QuickAdd categories={selectedCategories} />}
+      <QuickAdd categories={selectedCategories} starred={scope === 'starred'} />
+
+      <StatusBar />
 
       {(error ?? actionError) && (
         <p className="notice notice-error">操作失败：{error ?? actionError}</p>
@@ -105,8 +109,28 @@ export function TaskListView() {
   );
 }
 
+/** 页面内的状态行（添加栏下面）：全部 / 未完成 / 已完成 / 已错过，单选 */
+function StatusBar() {
+  const selection = useSelection();
+  const router = useRouter();
+  return (
+    <div className="segmented-control status-bar" role="group" aria-label="状态">
+      {STATUS_ORDER.map((status) => (
+        <button
+          key={status}
+          type="button"
+          aria-pressed={selection.status === status}
+          onClick={() => router.replace(selectionHref({ ...selection, status }), { scroll: false })}
+        >
+          {STATUS_LABELS[status]}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 /**
- * 页面标题：所选状态；下方以纯文字说明所选分类（不是可点的标签），
+ * 页面标题：所选范围；下方以纯文字说明所选分类（不是可点的标签），
  * 只选了一个分类且它有描述时一并显示描述。
  */
 export function PageHeader({
