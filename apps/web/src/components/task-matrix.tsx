@@ -6,7 +6,6 @@ import {
   layoutLabels,
   separateDots,
   type Category,
-  type LabelSide,
   type MatrixMode,
   type MatrixPoint,
   type MatrixSlot,
@@ -26,7 +25,8 @@ import { MIDLINE_BOUNDARY, slotKey, xTicks } from '@/lib/matrix-axis';
  * Y 轴：刻度 0–5 标在分界线上，重要性 N 落在标 N 那条线上方的一格；中线在刻度 3 上。
  *
  * 图里只出现四种文字：X 轴刻度名、Y 轴刻度数字、四个方位字、任务标题。
- * 圆点是任务的位置，永远在所属格子里；标签（写在细横线上的标题）挂在圆点旁边，可以伸出格子。
+ * 圆点是任务的位置，永远在所属格子里；标签（写在细横线上的标题）用力导向算法排布，
+ * 可以在圆点的任意一侧、可以伸出格子，用一条细线连回自己的圆点。
  */
 
 const VIEW_W = 1120;
@@ -145,22 +145,10 @@ function dotRegion(slot: MatrixSlot, row: number): Rect {
   }
 }
 
-/** 标签可以放的一侧：靠近左边缘的向右排，靠近右边缘和逾期区的向左排；其余按空位选 */
-function labelSides(slot: MatrixSlot): readonly LabelSide[] {
-  switch (slot.kind) {
-    case 'no_deadline':
-      return ['right'];
-    case 'overdue':
-      return ['left'];
-    case 'cell':
-      if (slot.column === 0) return ['right'];
-      if (slot.column === MATRIX_COLUMNS - 1) return ['left'];
-      return slot.column < MIDLINE_BOUNDARY ? ['right', 'left'] : ['left', 'right'];
-  }
-}
-
-const LABEL_ASCENT = 14;
-const LABEL_DESCENT = 3;
+/** 标签高度（文字 + 下面的细横线） */
+const LABEL_H = 17;
+/** 文字基线在标签底边上方多少 */
+const TEXT_BASELINE = 4;
 
 interface Drawn {
   point: MatrixPoint;
@@ -169,7 +157,6 @@ interface Drawn {
   y: number;
   r: number;
   title: string;
-  titleWidth: number;
   label: ReturnType<typeof layoutLabels>[number];
 }
 
@@ -198,17 +185,13 @@ function layout(points: readonly MatrixPoint[]): Drawn[] {
         y: dot.y,
         r: point.slot.kind === 'overdue' ? RING_R : DOT_R,
         width: titles.get(point.task.id)!.width + TEXT_PAD * 2,
-        group: `${slotKey(point.slot)}:${point.row}`,
-        sides: labelSides(point.slot),
       };
     }),
     {
       bounds: { left: M.left + 2, right: VIEW_W - 2, top: M.top + 2, bottom: M.top + PLOT_H - 2 },
-      ascent: LABEL_ASCENT,
-      descent: LABEL_DESCENT,
-      slot: LABEL_ASCENT + LABEL_DESCENT + 1,
-      dotGap: 3,
-      columnGap: 10,
+      height: LABEL_H,
+      gap: 4,
+      padding: 2,
     },
   );
   return onChart.map((point, i) => {
@@ -221,7 +204,6 @@ function layout(points: readonly MatrixPoint[]): Drawn[] {
       y: dot.y,
       r: point.slot.kind === 'overdue' ? RING_R : DOT_R,
       title: title.text,
-      titleWidth: title.width,
       label: labels[i]!,
     };
   });
@@ -364,8 +346,8 @@ export function TaskMatrix({
             );
           })}
 
-          {/* 任务标签：标题写在细横线上；靠在一起时横线走到头拐一小段斜线连到圆点 */}
-          {drawn.map(({ point, slot, title, titleWidth, label }) => {
+          {/* 任务标签：力导向排布，标题写在细横线上，一条细线连回圆点 */}
+          {drawn.map(({ point, slot, title, label }) => {
             const overdue = slot.kind === 'overdue';
             const aria = [
               point.task.title,
@@ -384,7 +366,6 @@ export function TaskMatrix({
                 data-quadrant={point.quadrant}
                 data-column={slotKey(slot)}
                 data-row={point.row}
-                data-side={label.side}
                 data-panel-anchor
                 onClick={() => openPanel(point.task.id)}
                 onKeyDown={(event) => {
@@ -397,28 +378,31 @@ export function TaskMatrix({
                 {/* 点击范围就是标签本身（文字加横线），不额外放大 */}
                 <rect
                   className="node-hit"
-                  x={label.textX}
-                  y={label.lineY - LABEL_ASCENT}
-                  width={titleWidth + TEXT_PAD * 2}
-                  height={LABEL_ASCENT + LABEL_DESCENT}
+                  x={label.left}
+                  y={label.top}
+                  width={label.width}
+                  height={label.height}
                 />
+                {/* 标题写在细横线上；另一条细线连回自己的圆点 */}
                 <line
                   className="node-line"
-                  x1={label.lineX1}
-                  x2={label.lineX2}
-                  y1={label.lineY}
-                  y2={label.lineY}
+                  x1={label.left}
+                  x2={label.left + label.width}
+                  y1={label.top + label.height}
+                  y2={label.top + label.height}
                 />
-                {label.leader && (
-                  <line
-                    className="node-leader"
-                    x1={label.leader.x1}
-                    y1={label.leader.y1}
-                    x2={label.leader.x2}
-                    y2={label.leader.y2}
-                  />
-                )}
-                <text className="node-title" x={label.textX + TEXT_PAD} y={label.lineY - 3}>
+                <line
+                  className="node-leader"
+                  x1={label.leader.x1}
+                  y1={label.leader.y1}
+                  x2={label.leader.x2}
+                  y2={label.leader.y2}
+                />
+                <text
+                  className="node-title"
+                  x={label.left + TEXT_PAD}
+                  y={label.top + label.height - TEXT_BASELINE}
+                >
                   {title}
                 </text>
               </g>

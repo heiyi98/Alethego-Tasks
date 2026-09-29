@@ -92,6 +92,21 @@ describe('resolveTaskRepresentative', () => {
     });
   });
 
+  it('当前这一次已完成：和已完成的普通任务一样不进矩阵，它的时刻一过换成下一次', () => {
+    const task: Task = {
+      ...baseTask,
+      importanceLevel: 3,
+      recurrenceRule: 'FREQ=WEEKLY;BYDAY=MO,WE,FR',
+      recurrenceDtstart: sh('2026-09-21T07:00:00'),
+    };
+    const done = [{ occurrenceDate: sh('2026-09-25T07:00:00'), status: 'completed' as const }];
+    expect(resolveTaskRepresentative(task, done, context)).toBeNull();
+    const friday = { now: sh('2026-09-25T07:01:00'), timeZone: context.timeZone };
+    expect(resolveTaskRepresentative(task, done, friday)?.occurrenceAt).toEqual(
+      sh('2026-09-28T07:00:00'),
+    );
+  });
+
   it('今天的实例时刻还没到：代表仍是今天的实例（N = 1）', () => {
     const task: Task = {
       ...baseTask,

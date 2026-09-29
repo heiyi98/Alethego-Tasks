@@ -31,11 +31,12 @@ export async function syncOccurrences(
 }
 
 /**
- * 完成循环任务的"当前代表实例"（时刻未过的最早未完成实例），而不是写任务本身的 completed_at。
- * 代表实例可能还没有记录（例如提前完成下一次），此时直接建一条已完成记录。
- * 返回被完成的实例记录；序列已结束时返回 null。
+ * 勾选 / 取消勾选循环任务的"当前这一次"（代表实例），而不是写任务本身的 completed_at：
+ * 未完成 → 已完成；已完成 → 取消完成（记录回到 pending，时刻一过照常记为未完成）。
+ * 代表实例可能还没有记录（例如提前完成下一次），此时直接建一条记录。
+ * 返回被修改的实例记录；序列已结束时返回 null。
  */
-export async function completeCurrentOccurrence(
+export async function toggleCurrentOccurrence(
   occurrences: IOccurrenceRepository,
   task: Task,
   records: readonly RecurrenceOccurrence[],
@@ -45,5 +46,7 @@ export async function completeCurrentOccurrence(
   if (!series) return null;
   const instance = resolveRepresentativeInstance(series, records, context);
   if (!instance) return null;
-  return occurrences.setStatusByDate(task.id, instance.occurrenceAt, 'completed', context.now);
+  return instance.completed
+    ? occurrences.setStatusByDate(task.id, instance.occurrenceAt, 'pending', null)
+    : occurrences.setStatusByDate(task.id, instance.occurrenceAt, 'completed', context.now);
 }

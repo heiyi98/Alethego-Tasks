@@ -24,7 +24,8 @@ async function dotOf(page: Page, title: string) {
   const id = await dot(page, title).getAttribute('data-task-id');
   return page.locator(`.matrix-dot[data-task-id="${id}"]`);
 }
-const modeToggle = (page: Page) => page.getByRole('button', { name: /^切换到(长期|短期)$/ });
+/** 短期 / 长期：矩阵上方的文字胶囊，显示当前模式 */
+const modeToggle = (page: Page) => page.locator('.matrix-toolbar').getByRole('button');
 async function setMatrixMode(page: Page, mode: 'short' | 'long') {
   const card = page.locator('.matrix-card');
   if ((await card.getAttribute('data-mode')) !== mode) await modeToggle(page).click();
@@ -84,16 +85,17 @@ test('矩阵：短期 / 长期两种模式，6 格等宽、中线在正中；逾
   await expect(page.getByLabel('快速添加任务')).toHaveCount(0);
   await expect(sidebar(page).getByRole('link', { name: '切换到清单' })).toBeVisible();
 
-  // 默认短期；切换按钮在矩阵界面右上方，只有图标
+  // 矩阵没有外框，和页面背景融为一体
   const card = page.locator('.matrix-card');
+  await expect(card).toHaveCSS('border-top-style', 'none');
+  await expect(card).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  // 默认短期；切换是矩阵上方单独一行的文字胶囊，显示当前模式名，不与矩阵图重叠
   await expect(card).toHaveAttribute('data-mode', 'short');
   const toggle = modeToggle(page);
-  await expect(toggle).toHaveAccessibleName('切换到长期');
-  await expect(toggle).toHaveText('');
-  const cardBox = (await card.boundingBox())!;
+  await expect(toggle).toHaveText('短期');
+  const svgBox = (await page.locator('svg.matrix').boundingBox())!;
   const toggleBox = (await toggle.boundingBox())!;
-  expect(toggleBox.x).toBeGreaterThan(cardBox.x + cardBox.width * 0.8);
-  expect(toggleBox.y).toBeLessThan(cardBox.y + 40);
+  expect(toggleBox.y + toggleBox.height).toBeLessThanOrEqual(svgBox.y);
 
   // 短期：N > 14 的不画；远期与未处理不显示
   await expect(page.locator('.matrix-node')).toHaveCount(3);
@@ -135,6 +137,8 @@ test('矩阵：短期 / 长期两种模式，6 格等宽、中线在正中；逾
   const tomorrow = dot(page, t('明天重要'));
   await expect(tomorrow.locator('rect.node-body')).toHaveCount(0);
   await expect(tomorrow.locator('.node-line')).toHaveCount(1);
+  // 每个标签都有一条细线连回自己的圆点
+  await expect(page.locator('.matrix-node .node-leader')).toHaveCount(3);
   const shown = (await tomorrow.locator('.node-title').textContent())!;
   expect(shown.endsWith('…')).toBe(true);
   expect(t('明天重要').startsWith(shown.slice(0, -1))).toBe(true);
@@ -158,7 +162,7 @@ test('矩阵：短期 / 长期两种模式，6 格等宽、中线在正中；逾
   expect(noDeadline.x - 5).toBeGreaterThanOrEqual(leftAxis);
   expect(noDeadline.x - 5).toBeLessThan(leftAxis + 3);
 
-  // 逾期：一个区，不分道，不写字；圆点在逾期区里、在标签右端，标题在圆点左边
+  // 逾期：一个区，不分道，不写字；圆点在逾期区里
   const overdue = dot(page, t('前两日截止'));
   await expect(overdue).toHaveAttribute('data-column', 'overdue');
   await expect(overdue).not.toHaveAttribute('data-overdue-lane', /.*/);
@@ -170,9 +174,6 @@ test('矩阵：短期 / 长期两种模式，6 格等宽、中线在正中；逾
   const od = await dotCenter(page, t('前两日截止'));
   expect(od.x).toBeGreaterThan(short.strip.left);
   expect(od.x).toBeLessThan(short.strip.right);
-  const titleBoxRect = (await overdue.locator('.node-title').boundingBox())!;
-  const dotBox = (await overdueDot.boundingBox())!;
-  expect(titleBoxRect.x + titleBoxRect.width).toBeLessThanOrEqual(dotBox.x + 1);
   await expect(overdue).toHaveClass(/matrix-node-overdue/);
 
   // 矩阵下方不再有说明文字
@@ -196,7 +197,7 @@ test('矩阵：短期 / 长期两种模式，6 格等宽、中线在正中；逾
   // 切到长期：图标随之变化，中线位置不动；下月的任务出现在"一季度–一个月"那一格
   await toggle.click();
   await expect(card).toHaveAttribute('data-mode', 'long');
-  await expect(modeToggle(page)).toHaveAccessibleName('切换到短期');
+  await expect(modeToggle(page)).toHaveText('长期');
   const longTicks = ['半年', '一季度', '一个月', '两周', '一周', '3天'];
   await expect(page.getByTestId('matrix-x-tick')).toHaveText(longTicks);
   expect((await nonTaskTexts()).sort()).toEqual([...longTicks, ...fixedTexts].sort());
@@ -440,10 +441,11 @@ function crosses(
   return d1 * d2 < -1e-9 && d3 * d4 < -1e-9;
 }
 
-test('对照表截图：固定 now 为周一 15:54；短期、长期各一张，同一格挤 10 个任务时标签清晰、连线不交叉、圆点都在对的格里', async ({
+test('对照表截图：固定 now 为周一 15:54；短期、长期各一张，同一格挤 10 个任务时力导向排布的标签互不重叠、连线不交叉也不穿过标签、圆点全部可见且都在对的格里', async ({
   page,
 }) => {
   test.setTimeout(180_000);
+  await page.setViewportSize({ width: 1280, height: 1100 });
   await page.clock.setFixedTime(new Date('2026-10-05T15:54:00+08:00'));
   const id = runId();
   const category = `${id}周一`;
@@ -537,40 +539,90 @@ test('对照表截图：固定 now 为周一 15:54；短期、长期各一张，
         y2: Number(l.getAttribute('y2')),
       })),
     );
-    expect(leaders.length, `${mode} 挤的那一格用连线`).toBeGreaterThanOrEqual(crowded.length);
+    expect(leaders.length, `${mode} 每个标签一条连线`).toBe(
+      await page.locator('.matrix-node').count(),
+    );
     for (let i = 0; i < leaders.length; i++) {
       for (let j = i + 1; j < leaders.length; j++) {
         expect(crosses(leaders[i]!, leaders[j]!), `${mode} 连线 ${i}/${j}`).toBe(false);
       }
     }
 
-    // 挤的那一格：标签排成一列、上下错开，互不重叠
-    const boxes = [];
-    for (const name of crowded) {
-      boxes.push(
-        await dot(page, `周二·${name}`)
-          .locator('.node-hit')
-          .evaluate((r) => ({
-            left: Number(r.getAttribute('x')),
-            top: Number(r.getAttribute('y')),
-            right: Number(r.getAttribute('x')) + Number(r.getAttribute('width')),
-            bottom: Number(r.getAttribute('y')) + Number(r.getAttribute('height')),
-          })),
-      );
-    }
-    for (let i = 0; i < boxes.length; i++) {
-      for (let j = i + 1; j < boxes.length; j++) {
-        const a = boxes[i]!;
-        const b = boxes[j]!;
-        const overlap =
-          Math.min(a.right, b.right) > Math.max(a.left, b.left) &&
-          Math.min(a.bottom, b.bottom) > Math.max(a.top, b.top);
-        expect(overlap, `${mode} 标签 ${crowded[i]}/${crowded[j]}`).toBe(false);
+    // 力导向排布：标签互不重叠，连线不穿过别的标签，标签不压圆点（圆点全部完全可见）
+    const labels = await page.locator('.matrix-node').evaluateAll((gs) =>
+      gs.map((g) => {
+        const r = g.querySelector('.node-hit')!;
+        const l = g.querySelector('.node-leader')!;
+        const left = Number(r.getAttribute('x'));
+        const top = Number(r.getAttribute('y'));
+        return {
+          title: g.getAttribute('aria-label')!.split('，')[0]!,
+          rect: {
+            left,
+            top,
+            right: left + Number(r.getAttribute('width')),
+            bottom: top + Number(r.getAttribute('height')),
+          },
+          leader: {
+            x1: Number(l.getAttribute('x1')),
+            y1: Number(l.getAttribute('y1')),
+            x2: Number(l.getAttribute('x2')),
+            y2: Number(l.getAttribute('y2')),
+          },
+        };
+      }),
+    );
+    type Box = { left: number; top: number; right: number; bottom: number };
+    const overlap = (a: Box, b: Box) =>
+      Math.min(a.right, b.right) - Math.max(a.left, b.left) > 0.01 &&
+      Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 0.01;
+    const through = (seg: (typeof labels)[number]['leader'], r: Box) => {
+      for (let k = 1; k < 50; k++) {
+        const x = seg.x1 + ((seg.x2 - seg.x1) * k) / 50;
+        const y = seg.y1 + ((seg.y2 - seg.y1) * k) / 50;
+        if (x > r.left && x < r.right && y > r.top && y < r.bottom) return true;
+      }
+      return false;
+    };
+    for (let i = 0; i < labels.length; i++) {
+      for (let j = 0; j < labels.length; j++) {
+        if (i === j) continue;
+        const pair = `${mode} ${labels[i]!.title} / ${labels[j]!.title}`;
+        if (j > i) expect(overlap(labels[i]!.rect, labels[j]!.rect), `${pair} 重叠`).toBe(false);
+        expect(through(labels[i]!.leader, labels[j]!.rect), `${pair} 连线穿过`).toBe(false);
+      }
+      for (const [x, y] of centers) {
+        const r = labels[i]!.rect;
+        const px = Math.min(Math.max(x!, r.left), r.right);
+        const py = Math.min(Math.max(y!, r.top), r.bottom);
+        expect(
+          Math.hypot(x! - px, y! - py),
+          `${mode} ${labels[i]!.title} 压到圆点`,
+        ).toBeGreaterThanOrEqual(5);
       }
     }
 
-    await page
-      .locator('.matrix-card')
-      .screenshot({ path: test.info().outputPath(`monday-1554-${mode}.png`) });
+    // 截图：矩阵上方的模式胶囊 + 矩阵图
+    const top = (await page.locator('.matrix-toolbar').boundingBox())!;
+    const chart = (await page.locator('.matrix-card').boundingBox())!;
+    await page.screenshot({
+      path: test.info().outputPath(`monday-1554-${mode}.png`),
+      clip: { x: chart.x, y: top.y, width: chart.width, height: chart.y + chart.height - top.y },
+    });
+    // 同样的数据刷新后排布完全一样
+    if (mode === 'long') {
+      const before = await page
+        .locator('.matrix-node .node-hit')
+        .evaluateAll((rs) => rs.map((r) => r.getAttribute('x') + ',' + r.getAttribute('y')));
+      await page.reload();
+      await setMatrixMode(page, 'long');
+      await expect
+        .poll(() =>
+          page
+            .locator('.matrix-node .node-hit')
+            .evaluateAll((rs) => rs.map((r) => r.getAttribute('x') + ',' + r.getAttribute('y'))),
+        )
+        .toEqual(before);
+    }
   }
 });

@@ -4,11 +4,11 @@
  * 圆点才是任务的位置：
  * - separateDots：每个圆点先放在按 id 固定的位置，再在各自的区域（所属格子内部）里错开，直到互不重叠
  *
- * 标签 = 写在一条细横线上的标题，横线的一端是圆点：
- * - layoutLabels：孤立的圆点，横线从文字直接通到圆点；
- *   靠在一起的圆点保持真实位置，标签在旁边（左或右，选有空位的一侧）排成一列、上下错开，
- *   每个标签的横线走到头后拐一小段斜线连到自己的圆点，同一列里的连线互不交叉。
- *   实在排不下时允许标签之间轻微重叠，不隐藏任何任务。
+ * 标签 = 写在一条细横线上的标题，用一条细线连回自己的圆点：
+ * - layoutLabels：力导向排布。所有标签同时迭代：互相重叠时互相推开，压到圆点时被推开，
+ *   被弹簧拉回自己的圆点附近，被连线穿过时让开；不预先规定标签在圆点的哪一侧。
+ *   迭代中途交换连线交叉的两个标签的位置，直到连线互不交叉。
+ *   达到迭代上限仍有重叠时允许标签间轻微重叠，不隐藏任何任务。结果只取决于输入，没有随机成分。
  */
 
 export interface Rect {
@@ -138,7 +138,13 @@ export function separateDots(dots: readonly DotRequest[], gap: number): Map<stri
 
 /* ---------------- 标签 ---------------- */
 
-export type LabelSide = 'left' | 'right';
+/** 线段 */
+export interface Segment {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+}
 
 export interface LabelRequest {
   id: string;
@@ -148,61 +154,33 @@ export interface LabelRequest {
   r: number;
   /** 标签（标题文字）宽度 */
   width: number;
-  /** 聚集判断只在同一组（通常是同一格）里进行 */
-  group: string;
-  /** 允许的一侧，按偏好排序：靠近左边缘的只向右，靠近右边缘和逾期区的只向左 */
-  sides: readonly LabelSide[];
 }
 
 export interface LabelOptions {
   /** 标签可以占用的范围 */
   bounds: Rect;
-  /** 横线以上的高度（文字） */
-  ascent: number;
-  /** 横线以下的高度 */
-  descent: number;
-  /** 一列标签里相邻两条横线的间距 */
-  slot: number;
-  /** 圆点边缘到文字的距离 */
-  dotGap: number;
-  /** 一列标签离最外侧圆点的距离 */
-  columnGap: number;
+  /** 标签高度（文字加横线） */
+  height: number;
+  /** 标签与自己圆点之间希望留的距离（弹簧的自然长度） */
+  gap: number;
+  /** 标签之间、标签与圆点之间至少留的空隙 */
+  padding: number;
+  /** 迭代上限 */
+  iterations?: number;
 }
 
 export interface PlacedLabel {
   id: string;
-  side: LabelSide;
-  /** 横线的 y */
-  lineY: number;
-  /** 横线的两端（x1 < x2） */
-  lineX1: number;
-  lineX2: number;
-  /** 文字左端的 x */
-  textX: number;
-  /** 从横线尽头连到圆点边缘的一小段；孤立的标签为 null（横线直接通到圆点） */
-  leader: { x1: number; y1: number; x2: number; y2: number } | null;
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  /** 从圆点边缘连到标签的细线 */
+  leader: Segment;
 }
 
-function intersectArea(a: Rect, b: Rect): number {
-  const w = Math.min(a.right, b.right) - Math.max(a.left, b.left);
-  const h = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
-  return w > 0 && h > 0 ? w * h : 0;
-}
-
-function dotRect(d: { x: number; y: number; r: number }): Rect {
-  return { left: d.x - d.r, right: d.x + d.r, top: d.y - d.r, bottom: d.y + d.r };
-}
-
-function outsideArea(box: Rect, bounds: Rect): number {
-  const area = (box.right - box.left) * (box.bottom - box.top);
-  return area - intersectArea(box, bounds);
-}
-
-/** 两条线段是否相交（含端点以外的真正交叉） */
-export function segmentsCross(
-  a: { x1: number; y1: number; x2: number; y2: number },
-  b: { x1: number; y1: number; x2: number; y2: number },
-): boolean {
+/** 两条线段是否真正交叉（端点相接不算） */
+export function segmentsCross(a: Segment, b: Segment): boolean {
   const cross = (ox: number, oy: number, px: number, py: number, qx: number, qy: number) =>
     (px - ox) * (qy - oy) - (py - oy) * (qx - ox);
   const d1 = cross(b.x1, b.y1, b.x2, b.y2, a.x1, a.y1);
@@ -212,283 +190,459 @@ export function segmentsCross(
   return d1 * d2 < -1e-9 && d3 * d4 < -1e-9;
 }
 
-interface Candidate {
-  labels: PlacedLabel[];
-  boxes: Rect[];
+/** 线段是否穿过矩形内部 */
+export function segmentHitsRect(seg: Segment, rect: Rect): boolean {
+  // Liang–Barsky 裁剪
+  let t0 = 0;
+  let t1 = 1;
+  const dx = seg.x2 - seg.x1;
+  const dy = seg.y2 - seg.y1;
+  const edges: [number, number][] = [
+    [-dx, seg.x1 - rect.left],
+    [dx, rect.right - seg.x1],
+    [-dy, seg.y1 - rect.top],
+    [dy, rect.bottom - seg.y1],
+  ];
+  for (const [p, q] of edges) {
+    if (Math.abs(p) < 1e-12) {
+      if (q <= 0) return false;
+      continue;
+    }
+    const t = q / p;
+    if (p < 0) t0 = Math.max(t0, t);
+    else t1 = Math.min(t1, t);
+    if (t0 >= t1) return false;
+  }
+  return t1 - t0 > 1e-6;
 }
 
-function labelBox(label: PlacedLabel, width: number, options: LabelOptions): Rect {
-  const left = label.side === 'right' ? label.textX : label.textX;
+export function rectsOverlap(a: Rect, b: Rect): boolean {
+  return (
+    Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1e-6 &&
+    Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1e-6
+  );
+}
+
+interface Body {
+  req: LabelRequest;
+  /** 标签中心 */
+  cx: number;
+  cy: number;
+}
+
+const rectOf = (b: Body, height: number): Rect => ({
+  left: b.cx - b.req.width / 2,
+  right: b.cx + b.req.width / 2,
+  top: b.cy - height / 2,
+  bottom: b.cy + height / 2,
+});
+
+/**
+ * 连线：从圆点边缘连到标签。标签在圆点下方或旁边时连到横线（标签底边）上离圆点最近的一点，
+ * 在圆点正下方时连到标签顶边，都不穿过文字。
+ */
+function leaderOf(b: Body, height: number): Segment {
+  const rect = rectOf(b, height);
+  const { x, y, r } = b.req;
+  let ex: number;
+  let ey: number;
+  if (y >= rect.bottom || x < rect.left || x > rect.right) {
+    // 圆点在标签下方或两侧：连到横线上最近的一点
+    ex = Math.min(Math.max(x, rect.left), rect.right);
+    ey = rect.bottom;
+  } else {
+    // 圆点在标签正上方：连到顶边
+    ex = x;
+    ey = rect.top;
+  }
+  const dx = ex - x;
+  const dy = ey - y;
+  const len = Math.hypot(dx, dy) || 1;
+  return { x1: x + (dx / len) * r, y1: y + (dy / len) * r, x2: ex, y2: ey };
+}
+
+function clampInto(b: Body, bounds: Rect, height: number) {
+  const hw = b.req.width / 2;
+  const hh = height / 2;
+  b.cx = Math.min(Math.max(b.cx, bounds.left + hw), Math.max(bounds.left + hw, bounds.right - hw));
+  b.cy = Math.min(Math.max(b.cy, bounds.top + hh), Math.max(bounds.top + hh, bounds.bottom - hh));
+}
+
+/** 初始位置：离附近其他圆点的方向，放在圆点旁边（没有邻居时放右边） */
+function initialBody(req: LabelRequest, all: readonly LabelRequest[], options: LabelOptions): Body {
+  let vx = 0;
+  let vy = 0;
+  for (const other of all) {
+    if (other === req) continue;
+    const dx = req.x - other.x;
+    const dy = req.y - other.y;
+    const d = Math.hypot(dx, dy);
+    if (d > 0 && d < 120) {
+      vx += (dx / d) * (120 - d);
+      vy += (dy / d) * (120 - d);
+    }
+  }
+  const len = Math.hypot(vx, vy);
+  let dirX = len > 1e-6 ? vx / len : 1;
+  let dirY = len > 1e-6 ? vy / len : 0;
+  // 偏向左右两侧：标签是横长的，放在两侧更不容易互相压
+  if (Math.abs(dirX) < 0.35) dirX = dirX < 0 ? -0.35 : 0.35;
+  const n = Math.hypot(dirX, dirY);
+  dirX /= n;
+  dirY /= n;
+  const reach = req.r + options.gap;
   return {
-    left,
-    right: left + width,
-    top: label.lineY - options.ascent,
-    bottom: label.lineY + options.descent,
+    req,
+    cx: req.x + dirX * (reach + req.width / 2),
+    cy: req.y + dirY * (reach + options.height / 2),
   };
 }
 
-/** 孤立的标签：横线从文字直接通到圆点 */
-function isolated(req: LabelRequest, side: LabelSide, options: LabelOptions): Candidate {
-  const textX =
-    side === 'right' ? req.x + req.r + options.dotGap : req.x - req.r - options.dotGap - req.width;
-  const label: PlacedLabel = {
-    id: req.id,
-    side,
-    lineY: req.y,
-    lineX1: side === 'right' ? req.x : textX,
-    lineX2: side === 'right' ? textX + req.width : req.x,
-    textX,
-    leader: null,
-  };
-  return { labels: [label], boxes: [labelBox(label, req.width, options)] };
-}
-
-/** 一列标签：按圆点的上下顺序排开，横线走到头拐一小段斜线连到圆点，并消除交叉 */
-function column(
-  members: readonly LabelRequest[],
-  side: LabelSide,
-  options: LabelOptions,
-  /** 整列上下挪动几个位置（挪开别人的标签） */
-  shift = 0,
-): Candidate {
-  const { bounds, slot } = options;
-  const x0 =
-    side === 'right'
-      ? Math.max(...members.map((m) => m.x + m.r)) + options.columnGap
-      : Math.min(...members.map((m) => m.x - m.r)) - options.columnGap;
-  const sorted = [...members].sort((a, b) => a.y - b.y || a.x - b.x);
-  const n = sorted.length;
-  const centerY = sorted.reduce((sum, m) => sum + m.y, 0) / n;
-  let firstY = centerY - ((n - 1) * slot) / 2 + shift * slot;
-  const minFirst = bounds.top + options.ascent;
-  const maxFirst = bounds.bottom - options.descent - (n - 1) * slot;
-  firstY = Math.max(Math.min(firstY, maxFirst), minFirst);
-  const slots = sorted.map((_, i) => firstY + i * slot);
-
-  // assignment[k] = 第 k 个位置上的圆点
-  const assignment = [...sorted];
-  const leaderOf = (k: number) => {
-    const m = assignment[k]!;
-    const y = slots[k]!;
-    const dx = m.x - x0;
-    const dy = m.y - y;
-    const len = Math.hypot(dx, dy) || 1;
-    return { x1: x0, y1: y, x2: m.x - (dx / len) * m.r, y2: m.y - (dy / len) * m.r };
-  };
-  // 交换一对交叉连线的终点，总长度严格变短，因此一定会结束
-  for (let round = 0; round < n * n + 10; round++) {
+/** 交换连线交叉的两个标签的位置；轮数有上限 */
+function uncross(bodies: Body[], height: number): boolean {
+  let changed = false;
+  const maxRounds = bodies.length * bodies.length + 10;
+  for (let round = 0; round < maxRounds; round++) {
     let swapped = false;
-    for (let i = 0; i < n && !swapped; i++) {
-      for (let j = i + 1; j < n; j++) {
-        if (segmentsCross(leaderOf(i), leaderOf(j))) {
-          [assignment[i], assignment[j]] = [assignment[j]!, assignment[i]!];
-          swapped = true;
-          break;
+    const leaders = bodies.map((b) => leaderOf(b, height));
+    for (let i = 0; i < bodies.length && !swapped; i++) {
+      for (let j = i + 1; j < bodies.length; j++) {
+        if (!segmentsCross(leaders[i]!, leaders[j]!)) continue;
+        const a = bodies[i]!;
+        const b = bodies[j]!;
+        const lengthOf = (seg: Segment) => Math.hypot(seg.x2 - seg.x1, seg.y2 - seg.y1);
+        // 这两条连线与所有连线的交叉数
+        const crossingsOf = (la: Segment, lb: Segment) => {
+          let count = segmentsCross(la, lb) ? 1 : 0;
+          leaders.forEach((other, k) => {
+            if (k === i || k === j) return;
+            if (segmentsCross(la, other)) count++;
+            if (segmentsCross(lb, other)) count++;
+          });
+          return count;
+        };
+        const beforeCross = crossingsOf(leaders[i]!, leaders[j]!);
+        const beforeLength = lengthOf(leaders[i]!) + lengthOf(leaders[j]!);
+        [a.cx, b.cx] = [b.cx, a.cx];
+        [a.cy, b.cy] = [b.cy, a.cy];
+        const la = leaderOf(a, height);
+        const lb = leaderOf(b, height);
+        const afterCross = crossingsOf(la, lb);
+        // 只接受让交叉变少、或交叉不变但连线总长变短的交换：按（交叉数，总长）严格变小，所以一定会结束
+        const better =
+          afterCross < beforeCross ||
+          (afterCross === beforeCross && lengthOf(la) + lengthOf(lb) < beforeLength - 1e-9);
+        if (!better) {
+          [a.cx, b.cx] = [b.cx, a.cx];
+          [a.cy, b.cy] = [b.cy, a.cy];
+          continue;
         }
+        swapped = true;
+        changed = true;
+        break;
       }
     }
     if (!swapped) break;
   }
-
-  const labels = assignment.map((m, k): PlacedLabel => {
-    const lineY = slots[k]!;
-    const textX = side === 'right' ? x0 : x0 - m.width;
-    return {
-      id: m.id,
-      side,
-      lineY,
-      lineX1: textX,
-      lineX2: textX + m.width,
-      textX,
-      leader: leaderOf(k),
-    };
-  });
-  return {
-    labels,
-    boxes: labels.map((label, k) => labelBox(label, assignment[k]!.width, options)),
-  };
+  return changed;
 }
 
-type Segment = { x1: number; y1: number; x2: number; y2: number };
-
-/** 线段穿过矩形的长度（取样估算） */
-function segmentInRect(seg: Segment, rect: Rect): number {
-  const steps = 16;
-  const length = Math.hypot(seg.x2 - seg.x1, seg.y2 - seg.y1);
-  let inside = 0;
-  for (let i = 0; i <= steps; i++) {
-    const x = seg.x1 + ((seg.x2 - seg.x1) * i) / steps;
-    const y = seg.y1 + ((seg.y2 - seg.y1) * i) / steps;
-    if (x > rect.left && x < rect.right && y > rect.top && y < rect.bottom) inside++;
-  }
-  return (inside / (steps + 1)) * length;
-}
-
-interface Placed {
-  boxes: Rect[];
-  leaders: Segment[];
-}
-
-/** 分数越低越清楚：不出界、不压别人的标签和圆点、连线不交叉、不穿过标签，连线越短越好 */
-function scoreOf(
-  candidate: Candidate,
-  placed: Placed,
-  dots: readonly LabelRequest[],
-  ownIds: ReadonlySet<string>,
-  options: LabelOptions,
-): number {
-  let score = 0;
-  for (const box of candidate.boxes) {
-    score += outsideArea(box, options.bounds) * 20;
-    for (const other of placed.boxes) score += intersectArea(box, other);
-    for (const dot of dots) {
-      if (!ownIds.has(dot.id)) score += intersectArea(box, dotRect(dot)) * 10;
+/** 把压在圆点上的标签沿最近的方向挪开（移动最小），保证圆点完全可见 */
+function clearDots(bodies: Body[], options: LabelOptions): boolean {
+  const { height, padding, bounds } = options;
+  let moved = false;
+  for (let pass = 0; pass < 20; pass++) {
+    let any = false;
+    for (const body of bodies) {
+      for (const other of bodies) {
+        const rect = rectOf(body, height);
+        const { x, y, r } = other.req;
+        const need = r + padding;
+        const px = Math.min(Math.max(x, rect.left), rect.right);
+        const py = Math.min(Math.max(y, rect.top), rect.bottom);
+        if (Math.hypot(x - px, y - py) >= need - 1e-6) continue;
+        // 四个方向各需要挪多远，取最小的
+        const moves: [number, number][] = [
+          [x + need - rect.left, 0],
+          [x - need - rect.right, 0],
+          [0, y + need - rect.top],
+          [0, y - need - rect.bottom],
+        ];
+        moves.sort((m1, m2) => Math.abs(m1[0] + m1[1]) - Math.abs(m2[0] + m2[1]));
+        const before = { cx: body.cx, cy: body.cy };
+        for (const [mx, my] of moves) {
+          body.cx = before.cx + mx + Math.sign(mx) * 0.01;
+          body.cy = before.cy + my + Math.sign(my) * 0.01;
+          clampInto(body, bounds, height);
+          const moved2 = rectOf(body, height);
+          const qx = Math.min(Math.max(x, moved2.left), moved2.right);
+          const qy = Math.min(Math.max(y, moved2.top), moved2.bottom);
+          if (Math.hypot(x - qx, y - qy) >= need - 1e-6) break;
+        }
+        any = true;
+        moved = true;
+      }
     }
-    for (const leader of placed.leaders) score += segmentInRect(leader, box) * 20;
+    if (!any) break;
   }
-  for (const label of candidate.labels) {
-    const { leader } = label;
-    if (!leader) continue;
-    score += Math.hypot(leader.x2 - leader.x1, leader.y2 - leader.y1) * 0.5;
-    for (const other of placed.leaders) if (segmentsCross(leader, other)) score += 400;
-    for (const box of placed.boxes) score += segmentInRect(leader, box) * 20;
-  }
-  return score;
+  return moved;
 }
 
-/** 标签整列上下挪动的候选位置数 */
-const SHIFTS = [0, -1, 1, -2, 2, -3, 3, -4, 4];
-
-class UnionFind {
-  private parent: number[];
-  constructor(n: number) {
-    this.parent = Array.from({ length: n }, (_, i) => i);
+/** 某个标签当前位置的代价：与别人冲突得越多越高，连线越长越高 */
+function costOf(i: number, bodies: readonly Body[], options: LabelOptions): number {
+  const { height, bounds } = options;
+  const body = bodies[i]!;
+  const rect = rectOf(body, height);
+  const leader = leaderOf(body, height);
+  let cost = Math.hypot(leader.x2 - leader.x1, leader.y2 - leader.y1) * 0.5;
+  if (
+    rect.left < bounds.left ||
+    rect.right > bounds.right ||
+    rect.top < bounds.top ||
+    rect.bottom > bounds.bottom
+  ) {
+    cost += 1e6;
   }
-  find(i: number): number {
-    while (this.parent[i] !== i) {
-      this.parent[i] = this.parent[this.parent[i]!]!;
-      i = this.parent[i]!;
+  for (let j = 0; j < bodies.length; j++) {
+    const other = bodies[j]!;
+    const { x, y, r } = other.req;
+    const px = Math.min(Math.max(x, rect.left), rect.right);
+    const py = Math.min(Math.max(y, rect.top), rect.bottom);
+    if (Math.hypot(x - px, y - py) < r + options.padding) cost += 5000;
+    if (j === i) continue;
+    const otherRect = rectOf(other, height);
+    const ox =
+      Math.min(rect.right, otherRect.right) - Math.max(rect.left, otherRect.left) + options.padding;
+    const oy =
+      Math.min(rect.bottom, otherRect.bottom) - Math.max(rect.top, otherRect.top) + options.padding;
+    if (ox > 0 && oy > 0) cost += 300 + ox * oy * 5;
+    const otherLeader = leaderOf(other, height);
+    if (segmentsCross(leader, otherLeader)) cost += 20000;
+    if (segmentHitsRect(leader, otherRect)) cost += 2000;
+    if (segmentHitsRect(otherLeader, rect)) cost += 2000;
+  }
+  return cost;
+}
+
+/**
+ * 修补：力导向迭代后仍有冲突的标签，在自己圆点周围的一圈圈候选位置里挑代价最低的（不随机，按固定顺序）。
+ */
+function repair(bodies: Body[], options: LabelOptions) {
+  const { height, gap } = options;
+  const angles = Array.from({ length: 24 }, (_, k) => (k * Math.PI * 2) / 24);
+  for (let pass = 0; pass < 8; pass++) {
+    let improved = false;
+    for (let i = 0; i < bodies.length; i++) {
+      const body = bodies[i]!;
+      const current = costOf(i, bodies, options);
+      if (current < 300) continue;
+      const start = { cx: body.cx, cy: body.cy };
+      let best = { cx: body.cx, cy: body.cy, cost: current };
+      for (const reach of [0, 14, 28, 44, 62, 84, 110]) {
+        for (const angle of angles) {
+          const dx = Math.cos(angle);
+          const dy = Math.sin(angle);
+          body.cx = body.req.x + dx * (body.req.r + gap + reach + body.req.width / 2);
+          body.cy = body.req.y + dy * (body.req.r + gap + reach + height / 2);
+          clampInto(body, options.bounds, height);
+          const cost = costOf(i, bodies, options);
+          if (cost < best.cost - 1e-6) best = { cx: body.cx, cy: body.cy, cost };
+        }
+      }
+      body.cx = best.cx;
+      body.cy = best.cy;
+      if (best.cx !== start.cx || best.cy !== start.cy) improved = true;
     }
-    return i;
-  }
-  union(a: number, b: number) {
-    this.parent[this.find(a)] = this.find(b);
+    if (!improved) break;
   }
 }
 
-/** 首选一侧：允许的一侧里第一个放得进范围的 */
-function preferredSide(req: LabelRequest, options: LabelOptions): LabelSide {
-  for (const side of req.sides) {
-    if (outsideArea(isolated(req, side, options).boxes[0]!, options.bounds) === 0) return side;
+/** 标签互相重叠，或某条连线穿过别的标签 */
+function hasLabelConflict(bodies: readonly Body[], height: number): boolean {
+  const rects = bodies.map((b) => rectOf(b, height));
+  const leaders = bodies.map((b) => leaderOf(b, height));
+  for (let i = 0; i < bodies.length; i++) {
+    for (let j = 0; j < bodies.length; j++) {
+      if (i === j) continue;
+      if (j > i && rectsOverlap(rects[i]!, rects[j]!)) return true;
+      if (segmentHitsRect(leaders[i]!, rects[j]!)) return true;
+    }
   }
-  return req.sides[0] ?? 'right';
+  return false;
+}
+
+function hasDotOverlap(bodies: readonly Body[], options: LabelOptions): boolean {
+  for (const body of bodies) {
+    const rect = rectOf(body, options.height);
+    for (const other of bodies) {
+      const { x, y, r } = other.req;
+      const px = Math.min(Math.max(x, rect.left), rect.right);
+      const py = Math.min(Math.max(y, rect.top), rect.bottom);
+      if (Math.hypot(x - px, y - py) < r - 1e-6) return true;
+    }
+  }
+  return false;
+}
+
+function hasCrossing(bodies: readonly Body[], height: number): boolean {
+  const leaders = bodies.map((b) => leaderOf(b, height));
+  for (let i = 0; i < leaders.length; i++) {
+    for (let j = i + 1; j < leaders.length; j++) {
+      if (segmentsCross(leaders[i]!, leaders[j]!)) return true;
+    }
+  }
+  return false;
+}
+
+/** 一步力导向：互斥（标签与标签、标签与圆点、标签与别人的连线）+ 弹簧（拉回自己的圆点）+ 边界 */
+function relaxStep(bodies: Body[], options: LabelOptions, step: number) {
+  const { height, padding, bounds, gap } = options;
+  const n = bodies.length;
+  const fx = new Array<number>(n).fill(0);
+  const fy = new Array<number>(n).fill(0);
+  const rects = bodies.map((b) => rectOf(b, height));
+
+  // 标签之间：重叠（含空隙）时沿重叠较小的方向推开
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      const a = rects[i]!;
+      const b = rects[j]!;
+      const ox = Math.min(a.right, b.right) - Math.max(a.left, b.left) + padding;
+      const oy = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) + padding;
+      if (ox <= 0 || oy <= 0) continue;
+      const dx = bodies[j]!.cx - bodies[i]!.cx;
+      const dy = bodies[j]!.cy - bodies[i]!.cy;
+      if (ox < oy * 2.5) {
+        const sx = dx !== 0 ? Math.sign(dx) : i % 2 === 0 ? -1 : 1;
+        fx[i]! -= sx * ox * 0.75;
+        fx[j]! += sx * ox * 0.75;
+      } else {
+        const sy = dy !== 0 ? Math.sign(dy) : i % 2 === 0 ? -1 : 1;
+        fy[i]! -= sy * oy * 0.75;
+        fy[j]! += sy * oy * 0.75;
+      }
+    }
+  }
+
+  for (let i = 0; i < n; i++) {
+    const body = bodies[i]!;
+    const rect = rects[i]!;
+    // 标签与圆点（包括自己的）：压到圆点时推开，圆点始终完全可见
+    for (const other of bodies) {
+      const { x, y, r } = other.req;
+      const px = Math.min(Math.max(x, rect.left), rect.right);
+      const py = Math.min(Math.max(y, rect.top), rect.bottom);
+      const d = Math.hypot(x - px, y - py);
+      const need = r + padding + 6;
+      if (d >= need) continue;
+      if (d > 1e-6) {
+        fx[i]! += ((px - x) / d) * (need - d) * 2;
+        fy[i]! += ((py - y) / d) * (need - d) * 2;
+      } else {
+        // 圆点在标签里面：往离圆点近的那条边推出去
+        const toLeft = x - rect.left + need;
+        const toRight = rect.right - x + need;
+        const toTop = y - rect.top + need;
+        const toBottom = rect.bottom - y + need;
+        const m = Math.min(toLeft, toRight, toTop, toBottom);
+        if (m === toLeft) fx[i]! += toLeft;
+        else if (m === toRight) fx[i]! -= toRight;
+        else if (m === toTop) fy[i]! += toTop;
+        else fy[i]! -= toBottom;
+      }
+    }
+
+    // 弹簧：标签离自己圆点的最近距离保持在 r + gap 左右
+    const { x, y, r } = body.req;
+    const px = Math.min(Math.max(x, rect.left), rect.right);
+    const py = Math.min(Math.max(y, rect.top), rect.bottom);
+    const d = Math.hypot(px - x, py - y);
+    const rest = r + gap;
+    if (d > rest) {
+      const k = 0.05;
+      fx[i]! -= ((px - x) / d) * (d - rest) * k;
+      fy[i]! -= ((py - y) / d) * (d - rest) * k;
+    }
+
+    // 别人的连线穿过这个标签：往连线的一侧让开
+    for (let j = 0; j < n; j++) {
+      if (j === i) continue;
+      const seg = leaderOf(bodies[j]!, height);
+      if (!segmentHitsRect(seg, rect)) continue;
+      const lx = seg.x2 - seg.x1;
+      const ly = seg.y2 - seg.y1;
+      const len = Math.hypot(lx, ly) || 1;
+      let nx = -ly / len;
+      let ny = lx / len;
+      if ((body.cx - seg.x1) * nx + (body.cy - seg.y1) * ny < 0) {
+        nx = -nx;
+        ny = -ny;
+      }
+      fx[i]! += nx * 6;
+      fy[i]! += ny * 6;
+    }
+  }
+
+  for (let i = 0; i < n; i++) {
+    const b = bodies[i]!;
+    b.cx += fx[i]! * step;
+    b.cy += fy[i]! * step;
+    clampInto(b, bounds, height);
+  }
 }
 
 export function layoutLabels(
   requests: readonly LabelRequest[],
   options: LabelOptions,
 ): PlacedLabel[] {
-  const reqs = [...requests].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const { height } = options;
+  const iterations = options.iterations ?? 600;
+  const ordered = [...requests].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const bodies = ordered.map((req) => initialBody(req, ordered, options));
+  for (const b of bodies) clampInto(b, options.bounds, height);
 
-  // 1. 聚集：同一组里，按首选一侧放时标签压到别的圆点或别的标签，就算靠在一起
-  const preferredBoxes = reqs.map((r) => isolated(r, preferredSide(r, options), options).boxes[0]!);
-  const uf = new UnionFind(reqs.length);
-  for (let i = 0; i < reqs.length; i++) {
-    for (let j = i + 1; j < reqs.length; j++) {
-      if (reqs[i]!.group !== reqs[j]!.group) continue;
-      if (
-        intersectArea(preferredBoxes[i]!, preferredBoxes[j]!) > 0 ||
-        intersectArea(preferredBoxes[i]!, dotRect(reqs[j]!)) > 0 ||
-        intersectArea(preferredBoxes[j]!, dotRect(reqs[i]!)) > 0
-      ) {
-        uf.union(i, j);
-      }
+  for (let it = 0; it < iterations; it++) {
+    // 步长逐渐变小，最后稳定下来
+    const step = 0.9 - (0.6 * it) / iterations;
+    relaxStep(bodies, options, step);
+    if (it % 25 === 24) uncross(bodies, height);
+  }
+  // 收尾：交换消除交叉、把压到圆点的标签挪开，交替进行直到两者都满足（或到上限）
+  // 目标依次是：连线不交叉、标签不压圆点、标签不互相重叠、连线不穿过别的标签
+  for (let round = 0; round < 60; round++) {
+    if (round > 0) for (let k = 0; k < 8; k++) relaxStep(bodies, options, 0.5);
+    uncross(bodies, height);
+    clearDots(bodies, options);
+    if (
+      !hasCrossing(bodies, height) &&
+      !hasDotOverlap(bodies, options) &&
+      !hasLabelConflict(bodies, height)
+    ) {
+      break;
     }
   }
-  // 一组里只要有靠在一起的，这一组就整体排成一列（或左右各一列）：几列不会互相压，
-  // 夹在中间的零散任务也不会被别人的标签盖住
-  const sizes = new Map<number, number>();
-  reqs.forEach((_, i) => sizes.set(uf.find(i), (sizes.get(uf.find(i)) ?? 0) + 1));
-  const crowdedGroups = new Set(
-    reqs.filter((_, i) => sizes.get(uf.find(i))! >= 2).map((r) => r.group),
-  );
-  const firstOfGroup = new Map<string, number>();
-  reqs.forEach((r, i) => {
-    if (!crowdedGroups.has(r.group)) return;
-    const first = firstOfGroup.get(r.group);
-    if (first === undefined) firstOfGroup.set(r.group, i);
-    else uf.union(i, first);
-  });
-  const clusters = new Map<number, LabelRequest[]>();
-  reqs.forEach((r, i) => {
-    const root = uf.find(i);
-    clusters.set(root, [...(clusters.get(root) ?? []), r]);
-  });
-  // 大的一簇先放，孤立的最后放
-  const ordered = [...clusters.values()].sort(
-    (a, b) => b.length - a.length || (a[0]!.id < b[0]!.id ? -1 : 1),
-  );
-
-  const placed: Placed = { boxes: [], leaders: [] };
-  const result: PlacedLabel[] = [];
-  for (const members of ordered) {
-    const ownIds = new Set(members.map((m) => m.id));
-    const sides = members[0]!.sides.filter((side) => members.every((m) => m.sides.includes(side)));
-    const allowed: readonly LabelSide[] = sides.length > 0 ? sides : members[0]!.sides;
-
-    const candidates: { candidate: Candidate; bias: number }[] = [];
-    if (members.length === 1) {
-      const req = members[0]!;
-      allowed.forEach((side, i) => {
-        candidates.push({ candidate: isolated(req, side, options), bias: i * 40 });
-        // 旁边被占了：标签上下挪开，拐一小段连回圆点
-        for (const k of SHIFTS) {
-          if (k === 0) continue;
-          candidates.push({
-            candidate: column(members, side, options, k),
-            bias: 30 + i * 40 + Math.abs(k) * 8,
-          });
-        }
-      });
-    } else {
-      allowed.forEach((side, i) => {
-        for (const k of SHIFTS) {
-          candidates.push({
-            candidate: column(members, side, options, k),
-            bias: i * 40 + Math.abs(k) * 8,
-          });
-        }
-      });
-      if (allowed.includes('left') && allowed.includes('right') && members.length >= 4) {
-        // 左半边的向左排、右半边的向右排：两列的连线分在两侧，不会交叉
-        const byX = [...members].sort((a, b) => a.x - b.x || (a.id < b.id ? -1 : 1));
-        const half = Math.ceil(byX.length / 2);
-        const left = column(byX.slice(0, half), 'left', options);
-        const right = column(byX.slice(half), 'right', options);
-        candidates.push({
-          candidate: {
-            labels: [...left.labels, ...right.labels],
-            boxes: [...left.boxes, ...right.boxes],
-          },
-          bias: 20,
-        });
-      }
-    }
-
-    let best = candidates[0]!.candidate;
-    let bestScore = Infinity;
-    for (const { candidate, bias } of candidates) {
-      const score = scoreOf(candidate, placed, reqs, ownIds, options) + bias;
-      if (score < bestScore) {
-        best = candidate;
-        bestScore = score;
-      }
-    }
-    placed.boxes.push(...best.boxes);
-    for (const label of best.labels) if (label.leader) placed.leaders.push(label.leader);
-    result.push(...best.labels);
+  if (hasLabelConflict(bodies, height) || hasDotOverlap(bodies, options)) {
+    repair(bodies, options);
+    clearDots(bodies, options);
   }
+  // 连线不交叉优先：仍有交叉时再交换一次（圆点画在标签上面，始终完全可见）
+  if (hasCrossing(bodies, height)) uncross(bodies, height);
 
-  const byId = new Map(result.map((label) => [label.id, label]));
+  const byId = new Map(
+    bodies.map((b) => {
+      const rect = rectOf(b, height);
+      return [
+        b.req.id,
+        {
+          id: b.req.id,
+          left: rect.left,
+          top: rect.top,
+          width: b.req.width,
+          height,
+          leader: leaderOf(b, height),
+        } satisfies PlacedLabel,
+      ];
+    }),
+  );
   return requests.map((r) => byId.get(r.id)!);
 }

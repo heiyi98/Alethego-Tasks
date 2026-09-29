@@ -12,7 +12,6 @@ import {
 } from '@alethego/core';
 import { Suspense, useEffect, useMemo, useState } from 'react';
 
-import { CalendarIcon, ClockIcon, IconButton } from '@/components/icons';
 import { usePanels } from '@/components/panel-provider';
 import { useSelection } from '@/components/selection';
 import { EditPanel } from '@/components/task-panels';
@@ -45,7 +44,7 @@ function storeMode(mode: MatrixMode) {
 /**
  * 矩阵模式：没有添加栏和状态行，只受左侧范围（总览 / 收藏）和分类的选择影响。
  * 矩阵本身只显示未完成的任务（逾期 3 天内在最右边的逾期区）。
- * 右上方的图标按钮在"短期""长期"之间切换；四象限清单按当前模式判定紧急与否，清单里有哪些任务与模式无关。
+ * 矩阵上方的文字胶囊显示当前模式（"短期"或"长期"），点击切换到另一个；四象限清单按当前模式判定紧急与否，清单里有哪些任务与模式无关。
  */
 function MatrixPage() {
   const { data, error, now, timeZone, toggleComplete } = useTaskData();
@@ -93,15 +92,13 @@ function MatrixPage() {
 
       {layout && groups && (
         <>
+          {/* 短期 / 长期：矩阵上方单独一行的文字胶囊，显示当前模式，点击切换到另一个 */}
+          <div className="matrix-toolbar">
+            <button type="button" className="chip matrix-mode" onClick={switchMode}>
+              {mode === 'short' ? '短期' : '长期'}
+            </button>
+          </div>
           <section className="matrix-card" aria-label="矩阵" data-mode={mode}>
-            <IconButton
-              label={mode === 'short' ? '切换到长期' : '切换到短期'}
-              className="matrix-mode-toggle"
-              onClick={switchMode}
-            >
-              {/* 图标表示当前模式：短期是时钟，长期是日历 */}
-              {mode === 'short' ? <ClockIcon /> : <CalendarIcon />}
-            </IconButton>
             <TaskMatrix
               points={layout.points}
               mode={mode}

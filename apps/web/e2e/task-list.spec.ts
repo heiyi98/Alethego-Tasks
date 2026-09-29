@@ -229,28 +229,72 @@ test('筛选：范围 × 分类多选（命中任一即显示）× 页面内状�
   await expectTitles(page, id, [t('无分类'), t('工作和家庭'), t('只工作')]);
 });
 
-test('快速添加：点输入栏右端的 ✓ 创建，回车是额外的快捷方式；空白标题不创建', async ({ page }) => {
+test('快速添加：左边没有图标，右端 ➕ 创建（回车是额外的快捷方式）；输入栏这一行展开详情前后完全不变', async ({
+  page,
+}) => {
   const id = runId();
   await page.goto('/');
   const input = page.getByLabel('快速添加任务');
-  const check = quickAddBar(page).getByRole('button', { name: '创建', exact: true });
-  await expect(check).toBeVisible();
-  await expect(check).toHaveClass(/icon-button-primary/);
+  const row = page.locator('.quick-add-input');
+  const create = row.getByRole('button', { name: '创建', exact: true });
+  await expect(create).toBeVisible();
+  await expect(create).toHaveClass(/icon-button-primary/);
+  // ➕ 图标，不是 ✓；输入栏左边没有 + 图标
+  await expect(create.locator('svg path')).toHaveAttribute('d', 'M12 5v14M5 12h14');
+  await expect(page.locator('.quick-add-plus')).toHaveCount(0);
+  await expect(row.locator('svg')).toHaveCount(1);
 
-  await input.fill(`${id} 点对勾`);
-  await check.click();
+  await input.fill(`${id} 点加号`);
+  await create.click();
   await expect(input).toHaveValue('');
-  await expect(taskItem(page, `${id} 点对勾`)).toBeVisible();
+  await expect(taskItem(page, `${id} 点加号`)).toBeVisible();
 
   await input.fill(`${id} 按回车`);
   await input.press('Enter');
   await expect(input).toHaveValue('');
   await expect(taskItem(page, `${id} 按回车`)).toBeVisible();
 
-  // 空白标题：点 ✓ 不创建
+  // 空白标题：点 ➕ 不创建
   await input.fill('   ');
-  await check.click();
+  await create.click();
   await expect(input).toHaveValue('   ');
+  await input.fill('');
+
+  // 展开详情：输入栏这一行是同一个元素，尺寸、图标位置和大小都不变；详情挂在它下方
+  const measure = () =>
+    Promise.all([
+      row.boundingBox(),
+      input.boundingBox(),
+      create.boundingBox(),
+      create.locator('svg').boundingBox(),
+    ]);
+  await row.evaluate((el) => ((el as HTMLElement).dataset.probe = 'same'));
+  const before = await measure();
+  await quickAddBar(page).getByRole('button', { name: '展开完整选项' }).click();
+  await expect(page.getByRole('form', { name: '新建任务' })).toBeVisible();
+  await expect(row).toHaveAttribute('data-probe', 'same');
+  expect(await measure()).toEqual(before);
+  await expect(create.locator('svg path')).toHaveAttribute('d', 'M12 5v14M5 12h14');
+  const detail = (await page.getByRole('dialog', { name: '新建任务' }).boundingBox())!;
+  expect(detail.y).toBeGreaterThanOrEqual(before[0]!.y + before[0]!.height - 1);
+  // 点输入栏不会收起展开的详情
+  await input.click();
+  await expect(page.getByRole('form', { name: '新建任务' })).toBeVisible();
+  await page
+    .getByRole('form', { name: '新建任务' })
+    .getByRole('button', { name: '收起', exact: true })
+    .click();
+  expect(await measure()).toEqual(before);
+
+  // 已经存在的任务正在编辑：右侧是 ✓，点它保存并收起
+  await quickAdd(page, `${id} 已存在`);
+  await openTask(page, `${id} 已存在`);
+  const done = editPanel(page).getByRole('button', { name: '完成编辑' });
+  await expect(done.locator('svg path')).toHaveAttribute('d', 'M5 12.5l4.5 4.5L19 7.5');
+  await titleBox(editPanel(page)).fill(`${id} 已存在改`);
+  await done.click();
+  await expect(editPanel(page)).toHaveCount(0);
+  await expect(taskItem(page, `${id} 已存在改`)).toBeVisible();
 });
 
 test('快速添加：自动带上当前选中的全部分类；没选分类就不带', async ({ page }) => {

@@ -11,7 +11,7 @@ import { loadTaskDetail, saveTaskExtensions, syncOccurrences } from '@alethego/d
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { useFeedback } from './feedback-provider';
-import { CheckCircleIcon, IconButton, TrashIcon } from './icons';
+import { CheckCircleIcon, CheckIcon, IconButton, TrashIcon } from './icons';
 import { PanelSurface } from './panel-surface';
 import { usePanels } from './panel-provider';
 import { useRepositories } from './repositories-provider';
@@ -388,6 +388,19 @@ export function EditPanel({
     </IconButton>
   );
   const setTitle = (title: string) => onChange({ title });
+  // 任务已经存在：右侧是 ✓，点击立即保存并收起（改动本来就会自动保存）
+  const doneButton = (
+    <IconButton
+      label="完成编辑"
+      className="icon-button-primary edit-done"
+      onClick={async () => {
+        await saveNowRef.current();
+        close();
+      }}
+    >
+      <CheckIcon />
+    </IconButton>
+  );
 
   // 列表中：标题留在原来那一行并变为可编辑（桌面）；手机底部抽屉里另有一行标题
   const inlineRow = surface === 'inline' && row;
@@ -409,6 +422,7 @@ export function EditPanel({
       <div className="row-actions desktop-only">
         {star}
         {deleteButton}
+        {doneButton}
       </div>
     </div>
   ) : null;
@@ -423,6 +437,7 @@ export function EditPanel({
           {star}
           {completeButton}
           {deleteButton}
+          {doneButton}
         </>
       }
     />

@@ -22,7 +22,9 @@ export interface TaskRepresentative {
  * 解析任务的代表：
  * - 已软删除的任务没有代表。
  * - 普通任务：任务本身；已完成的任务没有代表（不进入矩阵）。
- * - 循环任务：日期未过去的最早未完成实例，各实例继承任务的重要性；序列已结束时没有代表。
+ * - 循环任务：当前这一次（时刻还没过的最早实例），各实例继承任务的重要性；
+ *   当前这一次已完成时和已完成的普通任务一样没有代表（不进入矩阵），它的时刻一过换成下一次；
+ *   序列已结束时没有代表。
  */
 export function resolveTaskRepresentative(
   task: Task,
@@ -33,7 +35,7 @@ export function resolveTaskRepresentative(
   const series = seriesFromTask(task);
   if (series) {
     const instance = resolveRepresentativeInstance(series, occurrences, context);
-    if (!instance) return null;
+    if (!instance || instance.completed) return null;
     return {
       taskId: task.id,
       importanceLevel: task.importanceLevel,

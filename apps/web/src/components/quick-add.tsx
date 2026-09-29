@@ -4,7 +4,7 @@ import { normalizeTaskTitle, type Category } from '@alethego/core';
 import { useState, type KeyboardEvent } from 'react';
 
 import { useFeedback } from './feedback-provider';
-import { CheckIcon, IconButton, XIcon } from './icons';
+import { IconButton, PlusIcon, XIcon } from './icons';
 import { usePanels } from './panel-provider';
 import { PanelSurface } from './panel-surface';
 import { EditorTitleRow, QuickOptionsRow, StarButton, TaskEditor } from './task-editor';
@@ -19,7 +19,7 @@ import {
 
 /**
  * 快速添加（每个清单页面都有）：输入栏本身就是标题，下方一行常用选项（重要性、截止日期 / 时刻），
- * 点输入栏右端的 ✓ 创建（回车是额外的快捷方式）；最右侧的三角展开完整的新建面板，面板从输入栏下方延展出来。收起面板时草稿保留。
+ * 点输入栏右端的 ➕ 创建（回车是额外的快捷方式）；三角展开完整的新建面板，面板从输入栏下方延展出来。收起面板时草稿保留。
  * 新任务自动带上当前选中的全部分类（没选分类就不带）；在"收藏"里新建的任务自动标星。
  */
 export function QuickAdd({
@@ -121,38 +121,18 @@ export function QuickAdd({
       onToggle={() => onChange({ isStarred: !form.isStarred })}
     />
   );
-  const actions = (
+  const discardButton = (
+    <IconButton label="放弃" onClick={discard}>
+      <XIcon />
+    </IconButton>
+  );
+  // 手机底部抽屉里自带一行标题：任务还没创建，右侧同样是 ➕
+  const mobileActions = (
     <>
       {star}
-      <IconButton label="放弃" onClick={discard}>
-        <XIcon />
-      </IconButton>
-      <IconButton label="创建" className="icon-button-primary" onClick={submit}>
-        <CheckIcon />
-      </IconButton>
+      {discardButton}
+      <CreateButton onClick={submit} />
     </>
-  );
-
-  const inputRow = (
-    <div className="quick-add-input">
-      <span className="quick-add-plus" aria-hidden>
-        +
-      </span>
-      <input
-        aria-label="快速添加任务"
-        value={draft.title}
-        onChange={(event) => onChange({ title: event.target.value })}
-        onKeyDown={onEnter}
-        autoFocus
-      />
-      {expanded ? (
-        <div className="quick-add-actions desktop-only">{actions}</div>
-      ) : (
-        <IconButton label="创建" className="icon-button-primary quick-add-submit" onClick={submit}>
-          <CheckIcon />
-        </IconButton>
-      )}
-    </div>
   );
 
   return (
@@ -161,8 +141,15 @@ export function QuickAdd({
       role="form"
       aria-label={expanded ? '新建任务' : '快速添加'}
     >
+      {/* 输入栏这一行是独立组件：展开详情前后同一个元素、同样的尺寸和图标，详情挂在它下方 */}
+      <QuickAddInputRow
+        value={draft.title}
+        onChange={(title) => onChange({ title })}
+        onKeyDown={onEnter}
+        onSubmit={submit}
+      />
       {expanded ? (
-        <PanelSurface variant="inline" label="新建任务" onClose={close} header={inputRow}>
+        <PanelSurface variant="inline" label="新建任务" onClose={close}>
           <div
             onKeyDown={(event) =>
               event.key === 'Enter' &&
@@ -182,13 +169,19 @@ export function QuickAdd({
               fallbackStart={null}
               onToggle={close}
               onRemovePerson={removePerson}
+              optionsActions={
+                <>
+                  {star}
+                  {discardButton}
+                </>
+              }
               titleRow={
                 <EditorTitleRow
                   className="mobile-only"
                   placeholder="新任务"
                   value={form.title}
                   onChange={(title) => onChange({ title })}
-                  actions={actions}
+                  actions={mobileActions}
                 />
               }
             />
@@ -197,7 +190,6 @@ export function QuickAdd({
         </PanelSurface>
       ) : (
         <>
-          {inputRow}
           <QuickOptionsRow
             value={form}
             onChange={onChange}
@@ -208,6 +200,44 @@ export function QuickAdd({
           {message && <p className="field-error">{message}</p>}
         </>
       )}
+    </div>
+  );
+}
+
+/** 还没创建的任务：右侧是 ➕，点击创建 */
+function CreateButton({ onClick }: { onClick: () => void }) {
+  return (
+    <IconButton label="创建" className="icon-button-primary quick-add-submit" onClick={onClick}>
+      <PlusIcon />
+    </IconButton>
+  );
+}
+
+/**
+ * 快速添加的输入栏这一行：左边没有图标，右边是 ➕（任务还没创建）。
+ * 展开详情前后都是这一个组件、同一个位置，尺寸和图标不变；带 data-keep-panel，点它不会收起展开的详情。
+ */
+function QuickAddInputRow({
+  value,
+  onChange,
+  onKeyDown,
+  onSubmit,
+}: {
+  value: string;
+  onChange: (title: string) => void;
+  onKeyDown: (event: KeyboardEvent<HTMLInputElement>) => void;
+  onSubmit: () => void;
+}) {
+  return (
+    <div className="quick-add-input" data-keep-panel>
+      <input
+        aria-label="快速添加任务"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        onKeyDown={onKeyDown}
+        autoFocus
+      />
+      <CreateButton onClick={onSubmit} />
     </div>
   );
 }

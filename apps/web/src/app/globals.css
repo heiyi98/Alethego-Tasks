@@ -317,11 +317,11 @@ a {
   max-width: 960px;
 }
 
+/* 矩阵没有外框，和页面背景融为一体 */
 .matrix-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 12px 12px 8px;
+  background: transparent;
+  border: none;
+  padding: 0;
 }
 
 .matrix-wrapper {
@@ -603,16 +603,11 @@ a {
   fill: var(--viz-uncategorized);
 }
 
-/* 短期 / 长期切换：矩阵界面右上方，只有图标 */
-.matrix-card {
-  position: relative;
-}
-
-.matrix-mode-toggle {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  z-index: 1;
+/* 短期 / 长期：矩阵上方单独一行的文字胶囊（显示当前模式） */
+.matrix-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
 }
 
 /* ---------- 应用外壳：左侧菜单 + 右侧内容 ---------- */
@@ -868,17 +863,7 @@ a {
   position: relative;
 }
 
-.quick-add-plus {
-  position: absolute;
-  left: 14px;
-  top: 10px;
-  color: var(--accent);
-  font-size: 20px;
-  line-height: 1;
-}
-
 .quick-add-input input {
-  padding-left: 38px;
   border: none;
   background: var(--tertiary-fill);
 }
@@ -1084,6 +1069,10 @@ a {
   width: 44px;
   height: 44px;
   margin-left: auto;
+}
+
+.quick-options-actions + .expand-toggle {
+  margin-left: 0;
 }
 
 .expand-toggle svg {
@@ -1544,11 +1533,6 @@ a {
   margin-top: 0;
 }
 
-.quick-add-expanded .quick-add-input input {
-  padding-right: 140px;
-  font-weight: 600;
-}
-
 .quick-add-submit {
   position: absolute;
   right: 6px;
@@ -1562,14 +1546,11 @@ a {
   padding-right: 48px;
 }
 
-.quick-add-actions {
-  position: absolute;
-  right: 6px;
-  top: 50%;
-  transform: translateY(-50%);
+.quick-options-actions {
   display: flex;
   align-items: center;
   gap: 2px;
+  margin-left: auto;
 }
 
 .time-input {
@@ -1610,10 +1591,6 @@ a {
 
   span.mobile-only {
     display: inline !important;
-  }
-
-  .quick-add-expanded .quick-add-input input {
-    padding-right: 12px;
   }
 }
 

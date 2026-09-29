@@ -37,12 +37,15 @@ export function QuickOptionsRow({
   expanded,
   onToggle,
   toggleLabel,
+  actions,
 }: {
   value: Pick<TaskFormValue, 'importanceLevel' | 'deadline' | 'deadlineTime' | 'recurrence'>;
   onChange: (patch: Partial<TaskFormValue>) => void;
   expanded: boolean;
   onToggle: () => void;
   toggleLabel: string;
+  /** 放在三角左边的操作图标（桌面上的新建面板：标星、放弃） */
+  actions?: ReactNode;
 }) {
   // 时刻输入框：已选时刻时一直显示；否则点时钟图标后显示（日期被清空 / 创建后草稿重置时收回时钟图标）
   const [timeOpen, setTimeOpen] = useState(false);
@@ -133,6 +136,7 @@ export function QuickOptionsRow({
         </div>
       )}
 
+      {actions && <div className="quick-options-actions desktop-only">{actions}</div>}
       <IconButton
         label={toggleLabel}
         className={`expand-toggle${expanded ? ' expand-toggle-open' : ''}`}
@@ -201,6 +205,7 @@ export function TaskEditor({
   onToggle,
   onRemovePerson,
   titleRow,
+  optionsActions,
 }: {
   value: TaskFormValue;
   onChange: (patch: Partial<TaskFormValue>) => void;
@@ -220,6 +225,8 @@ export function TaskEditor({
   titleRow?: ReactNode;
   /** 收起面板（三角） */
   onToggle: () => void;
+  /** 常用选项一行里、三角左边的操作图标 */
+  optionsActions?: ReactNode;
   /** 删除第 index 个人物（由控制器负责撤销提示） */
   onRemovePerson: (index: number) => void;
 }) {
@@ -244,6 +251,7 @@ export function TaskEditor({
         expanded
         onToggle={onToggle}
         toggleLabel="收起"
+        actions={optionsActions}
       />
 
       <div className="editor-field">
