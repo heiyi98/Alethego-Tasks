@@ -294,8 +294,8 @@ export function RecurrenceEditor({
                   return (
                     <li
                       key={record.id}
-                      // 纯外观：已完成的记录沿用任务行现有的"已完成"样式（删除线、变灰）
-                      className={`history-row-inline${record.status === 'completed' ? ' task-completed' : ''}`}
+                      // 纯外观：沿用任务行现有的样式——已完成的删除线、变灰；没做的按"已错过"显示（日期标红）
+                      className={`history-row-inline ${record.status === 'completed' ? 'task-completed' : 'task-missed'}`}
                     >
                       <input
                         type="checkbox"
@@ -304,7 +304,7 @@ export function RecurrenceEditor({
                         checked={record.status === 'completed'}
                         onChange={(event) => onToggleRecord(record, event.target.checked)}
                       />
-                      <span className="task-title">{when}</span>
+                      <span className="task-title task-deadline">{when}</span>
                     </li>
                   );
                 })}

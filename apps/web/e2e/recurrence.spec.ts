@@ -88,13 +88,27 @@ test('循环任务：代表实例按时刻切换；过点未勾选立刻记为�
   const oct4 = history(page).getByRole('checkbox', { name: '完成：10月4日 周日 09:00' });
   const oct4Row = historyRows(page).filter({ hasText: '10月4日 周日 09:00' });
   const oct5Row = historyRows(page).filter({ hasText: '10月5日 周一 09:00' });
+  // 没做的记录按"已错过"的样式显示：日期与已错过的任务一样标红
   await expect(oct4Row).not.toHaveClass(/task-completed/);
+  await expect(oct4Row).toHaveClass(/task-missed/);
+  const danger = await page.evaluate(() => {
+    const probe = document.createElement('span');
+    probe.style.color = 'var(--danger)';
+    document.body.append(probe);
+    const color = getComputedStyle(probe).color;
+    probe.remove();
+    return color;
+  });
+  await expect(oct4Row.locator('.task-deadline')).toHaveCSS('color', danger);
   await oct4.click();
   await expect(oct4).toBeChecked();
   // 纯外观：完成的历史记录沿用现有的"已完成"样式（删除线、变灰），未完成的不变
   await expect(oct4Row).toHaveClass(/task-completed/);
   await expect(oct4Row.locator('.task-title')).toHaveCSS('text-decoration-line', 'line-through');
   await expect(oct5Row).not.toHaveClass(/task-completed/);
+  await expect(oct5Row).toHaveClass(/task-missed/);
+  await expect(oct5Row.locator('.task-deadline')).toHaveCSS('color', danger);
+  await expect(oct4Row).not.toHaveClass(/task-missed/);
   await expect(oct5Row.locator('.task-title')).toHaveCSS('text-decoration-line', 'none');
   await expect
     .poll(async () => {
