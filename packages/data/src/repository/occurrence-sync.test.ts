@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import { DataError } from '../errors';
 import { InMemoryLocalStore } from '../local/in-memory-local-store';
-import { syncOccurrences, toggleCurrentOccurrence } from './occurrence-sync';
+import { completeCurrentOccurrence, syncOccurrences } from './occurrence-sync';
 
 const timeZone = 'Asia/Shanghai';
 const sh = (local: string) => new Date(`${local}+08:00`);
@@ -90,32 +90,21 @@ describe('改循环规则后的记录', () => {
   });
 });
 
-describe('toggleCurrentOccurrence', () => {
-  it('勾选当前这一次：不改任务本身的 completed_at；这一次仍是代表、标为已完成，时刻一过换成下一次', async () => {
+describe('completeCurrentOccurrence', () => {
+  it('完成当前代表实例，不改任务本身的 completed_at；代表实例随之顺延', async () => {
     const store = new InMemoryLocalStore();
     const task = await gymTask(store);
     const context = at('2026-09-25T06:00:00'); // 周五 07:00 之前
     const records = await syncOccurrences(store.occurrences, task, context);
 
-    const done = await toggleCurrentOccurrence(store.occurrences, task, records, context);
+    const done = await completeCurrentOccurrence(store.occurrences, task, records, context);
     expect(done).toMatchObject({ occurrenceDate: sh('2026-09-25T07:00:00'), status: 'completed' });
     expect((await store.tasks.getById(task.id))?.completedAt).toBeNull();
 
-    const series = seriesFromTask(task)!;
     const after = await store.occurrences.listByTask(task.id);
-    expect(resolveRepresentativeInstance(series, after, context)).toMatchObject({
-      occurrenceAt: sh('2026-09-25T07:00:00'),
-      completed: true,
-    });
     expect(
-      resolveRepresentativeInstance(series, after, at('2026-09-25T07:01:00'))?.occurrenceAt,
+      resolveRepresentativeInstance(seriesFromTask(task)!, after, context)?.occurrenceAt,
     ).toEqual(sh('2026-09-28T07:00:00'));
-
-    // 再点一次：取消完成，记录回到 pending
-    const undone = await toggleCurrentOccurrence(store.occurrences, task, after, context);
-    expect(undone).toMatchObject({ status: 'pending', completedAt: null });
-    const again = await store.occurrences.listByTask(task.id);
-    expect(resolveRepresentativeInstance(series, again, context)?.completed).toBe(false);
   });
 
   it('提前完成尚无记录的下一次实例：新建一条已完成记录，到期后不会被重新生成或归档', async () => {
@@ -125,7 +114,7 @@ describe('toggleCurrentOccurrence', () => {
     const records = await syncOccurrences(store.occurrences, task, thursday);
     expect(records.map((o) => o.occurrenceDate)).not.toContainEqual(sh('2026-09-25T07:00:00'));
 
-    await toggleCurrentOccurrence(store.occurrences, task, records, thursday);
+    await completeCurrentOccurrence(store.occurrences, task, records, thursday);
     const friday = await syncOccurrences(store.occurrences, task, at('2026-09-25T10:00:00'));
     expect(
       friday.find((o) => o.occurrenceDate.getTime() === sh('2026-09-25T07:00:00').getTime()),

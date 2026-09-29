@@ -86,8 +86,16 @@ test('循环任务：代表实例按时刻切换；过点未勾选立刻记为�
 
   // 事后补登记：10/4 其实做了
   const oct4 = history(page).getByRole('checkbox', { name: '完成：10月4日 周日 09:00' });
+  const oct4Row = historyRows(page).filter({ hasText: '10月4日 周日 09:00' });
+  const oct5Row = historyRows(page).filter({ hasText: '10月5日 周一 09:00' });
+  await expect(oct4Row).not.toHaveClass(/task-completed/);
   await oct4.click();
   await expect(oct4).toBeChecked();
+  // 纯外观：完成的历史记录沿用现有的"已完成"样式（删除线、变灰），未完成的不变
+  await expect(oct4Row).toHaveClass(/task-completed/);
+  await expect(oct4Row.locator('.task-title')).toHaveCSS('text-decoration-line', 'line-through');
+  await expect(oct5Row).not.toHaveClass(/task-completed/);
+  await expect(oct5Row.locator('.task-title')).toHaveCSS('text-decoration-line', 'none');
   await expect
     .poll(async () => {
       const rows = await queryRest<{ occurrence_date: string; status: string }[]>(
@@ -109,53 +117,16 @@ test('循环任务：代表实例按时刻切换；过点未勾选立刻记为�
   await expect(dot).toHaveAttribute('data-column', '4');
   await expect(dot).toHaveAttribute('data-row', '4');
 
-  // 清单里勾选的是"本次"：这一行和已完成的普通任务用同一套样式（勾选、删除线、变灰），任务本身不完成
+  // 清单里勾选完成的是"本次"，任务本身不完成，代表顺延到后天
   await switchMode(page, 'list');
-  await selectStatus(page, '全部');
-  const plain = `${id} 普通已完成`;
-  await quickAdd(page, plain);
-  await page.getByRole('checkbox', { name: `完成：${plain}` }).click();
-  const plainRow = taskItem(page, plain);
-  await expect(plainRow).toHaveClass(/task-completed/);
-
   await page.getByRole('checkbox', { name: `完成本次：${title}` }).click();
-  const box = page.getByRole('checkbox', { name: `取消完成本次：${title}` });
-  await expect(box).toBeChecked();
-  await expect(row).toHaveClass(/task-completed/);
-  // 这一次的时刻还没到，仍显示这一次
-  await expect(row.locator('.task-deadline')).toHaveText('本次 10月6日 周二 09:00 · 还剩1天');
-  const css = (item: typeof row, prop: string) =>
-    item.locator('.task-title').evaluate((el, p) => getComputedStyle(el).getPropertyValue(p), prop);
-  for (const prop of ['text-decoration-line', 'color']) {
-    expect(await css(row, prop)).toBe(await css(plainRow, prop));
-  }
-  expect(await css(row, 'text-decoration-line')).toContain('line-through');
+  await expect(row.locator('.task-deadline')).toHaveText('本次 10月7日 周三 09:00 · 还剩2天');
+  await expect(row).not.toHaveClass(/task-completed/);
   const [taskRow] = await queryRest<{ completed_at: string | null }[]>(
     request,
     `tasks?id=eq.${taskId}&select=completed_at`,
   );
   expect(taskRow!.completed_at).toBeNull();
-
-  // "未完成"里看不到（与普通已完成任务相同），"已完成"里能看到
-  await selectStatus(page, '未完成');
-  await expect(row).toHaveCount(0);
-  await selectStatus(page, '已完成');
-  await expect(row).toHaveClass(/task-completed/);
-
-  // 再点一次取消完成：回到未完成的样式
-  await selectStatus(page, '全部');
-  await box.click();
-  await expect(page.getByRole('checkbox', { name: `完成本次：${title}` })).not.toBeChecked();
-  await expect(row).toHaveClass(/task-todo/);
-  await page.getByRole('checkbox', { name: `完成本次：${title}` }).click();
-  await expect(row).toHaveClass(/task-completed/);
-
-  // 这一次的时刻一过：换成下一次（10/7），回到未完成的样式
-  await page.clock.setFixedTime(new Date('2026-10-06T09:01:00+08:00'));
-  await page.reload();
-  await selectStatus(page, '全部');
-  await expect(row.locator('.task-deadline')).toHaveText('本次 10月7日 周三 09:00 · 还剩1天');
-  await expect(row).toHaveClass(/task-todo/);
 
   // 关闭循环：任务恢复为普通任务，历史记录保留
   await openTask(page, title);

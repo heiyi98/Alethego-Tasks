@@ -36,8 +36,8 @@ export interface TaskListFilter {
 /**
  * 列表中显示的状态：
  * - 普通任务：由截止时间 / 完成时间派生（见 deriveTaskStatus）
- * - 循环任务：看当前这一次（代表实例）——已完成则"已完成"，否则"待办"
- *   （逾期规则不适用于循环任务）；序列已结束视为"已完成"
+ * - 循环任务：只要还有下一个实例就是"待办"（逾期规则不适用于循环任务的历史实例）；
+ *   序列已结束（COUNT / UNTIL 用尽且都已处理）视为"已完成"
  */
 export function deriveListStatus(
   task: Task,
@@ -46,8 +46,7 @@ export function deriveListStatus(
 ): TaskStatus {
   const series = seriesFromTask(task);
   if (!series) return deriveTaskStatus(task, context.now);
-  const instance = resolveRepresentativeInstance(series, occurrences, context);
-  return !instance || instance.completed ? 'completed' : 'todo';
+  return resolveRepresentativeInstance(series, occurrences, context) ? 'todo' : 'completed';
 }
 
 export function matchesStatusFilter(

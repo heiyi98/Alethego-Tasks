@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest';
 import type { Task } from '../domain/task';
 import {
   buildTaskList,
-  deriveListStatus,
   categoriesForQuickAdd,
   matchesCategoryFilter,
   matchesStatusFilter,
@@ -133,41 +132,6 @@ describe('循环任务在列表中的状态', () => {
       '健身',
       '下周',
     ]);
-  });
-});
-
-describe('循环任务：当前这一次已完成时与普通已完成任务相同', () => {
-  const gym = task('健身', {
-    recurrenceRule: 'FREQ=WEEKLY;BYDAY=MO,WE,FR',
-    recurrenceDtstart: sh('2026-09-21T07:00:00'),
-  });
-  const occurrences = [
-    {
-      id: 'o1',
-      taskId: '健身',
-      occurrenceDate: sh('2026-09-25T07:00:00'),
-      status: 'completed' as const,
-      completedAt: sh('2026-09-25T06:30:00'),
-      createdAt: sh('2026-09-25T06:30:00'),
-    },
-  ];
-  const early = { now: sh('2026-09-25T06:40:00'), timeZone: 'Asia/Shanghai' };
-
-  it('这一次的时刻还没到：状态为已完成，出现在"已完成"里、不在"未完成"里', () => {
-    expect(deriveListStatus(gym, occurrences, early)).toBe('completed');
-    const sources = {
-      tasks: [gym],
-      categoryIdsByTask: new Map(),
-      occurrencesByTask: new Map([['健身', occurrences]]),
-    };
-    expect(titles(buildTaskList(sources, { status: 'completed', categoryIds: [] }, early))).toEqual(
-      ['健身'],
-    );
-    expect(titles(buildTaskList(sources, { status: 'todo', categoryIds: [] }, early))).toEqual([]);
-  });
-
-  it('这一次的时刻一过：换成下一次，回到待办', () => {
-    expect(deriveListStatus(gym, occurrences, context)).toBe('todo');
   });
 });
 

@@ -292,7 +292,11 @@ export function RecurrenceEditor({
                 {(historyOpen ? history : history.slice(0, HISTORY_ROWS)).map((record) => {
                   const when = formatFullDateTime(record.occurrenceDate, timeZone);
                   return (
-                    <li key={record.id} className="history-row-inline">
+                    <li
+                      key={record.id}
+                      // 纯外观：已完成的记录沿用任务行现有的"已完成"样式（删除线、变灰）
+                      className={`history-row-inline${record.status === 'completed' ? ' task-completed' : ''}`}
+                    >
                       <input
                         type="checkbox"
                         className="task-check"
@@ -300,7 +304,7 @@ export function RecurrenceEditor({
                         checked={record.status === 'completed'}
                         onChange={(event) => onToggleRecord(record, event.target.checked)}
                       />
-                      <span>{when}</span>
+                      <span className="task-title">{when}</span>
                     </li>
                   );
                 })}

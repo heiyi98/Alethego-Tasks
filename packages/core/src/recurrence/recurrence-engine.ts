@@ -32,8 +32,6 @@ export interface RepresentativeInstance {
   occurrenceAt: Date;
   /** 用作紧迫度计算的截止时间：就是实例的时刻（代表实例的时刻总在未来，所以不会逾期） */
   dueAt: Date;
-  /** 这一次已标记完成（包括提前完成）：清单里按普通任务的"已完成"样式显示 */
-  completed: boolean;
 }
 
 /** 需要新建的实例记录。 */
@@ -48,6 +46,9 @@ export interface ReconcileResult {
   /** 需要改为 missed 的已有 pending 记录 id */
   toMarkMissed: string[];
 }
+
+/** 向后查找代表实例时最多跳过的已完成实例数，防止异常数据导致死循环。 */
+const MAX_REPRESENTATIVE_SCAN = 1000;
 
 /** 单次归档最多补建的实例记录数（长期未打开应用时，只补最近的这部分）。 */
 export const MAX_BACKFILL_OCCURRENCES = 500;
@@ -110,11 +111,10 @@ export function nextOccurrence(
 }
 
 /**
- * 代表实例（"当前这一次"）= 最早的、时刻还没过的实例。
+ * 代表实例 = 最早的、时刻还没过的未完成实例。
  *
  * - 按时刻判断：当前实例一过它的时刻（now > occurrenceAt），代表立刻换成下一次实例，不等到午夜。
- * - 当前这一次可能已经标记完成（包括提前完成）：它仍是代表，completed = true，
- *   清单里按普通任务的"已完成"样式显示；它的时刻一过，代表换成下一次。
+ * - 已标记完成的实例被跳过（包括提前完成的），代表实例顺延到下一次。
  * - 代表实例的截止时间就是实例的时刻，因此循环任务永远不会逾期。
  * - 与归档（reconcileOccurrences）完全解耦：这里只看时刻和完成状态。
  *
@@ -126,13 +126,18 @@ export function resolveRepresentativeInstance(
   context: EvaluationContext,
 ): RepresentativeInstance | null {
   const { now, timeZone } = context;
-  const wall = buildRule(series, timeZone).after(toWallTime(now, timeZone), true);
-  if (!wall) return null;
-  const occurrenceAt = fromWallTime(wall, timeZone);
-  const completed = occurrences.some(
-    (o) => o.status === 'completed' && o.occurrenceDate.getTime() === occurrenceAt.getTime(),
+  const rule = buildRule(series, timeZone);
+  const completed = new Set(
+    occurrences.filter((o) => o.status === 'completed').map((o) => o.occurrenceDate.getTime()),
   );
-  return { occurrenceAt, dueAt: occurrenceAt, completed };
+
+  let wall = rule.after(toWallTime(now, timeZone), true);
+  for (let scanned = 0; wall && scanned < MAX_REPRESENTATIVE_SCAN; scanned++) {
+    const occurrenceAt = fromWallTime(wall, timeZone);
+    if (!completed.has(occurrenceAt.getTime())) return { occurrenceAt, dueAt: occurrenceAt };
+    wall = rule.after(wall, false);
+  }
+  return null;
 }
 
 /**

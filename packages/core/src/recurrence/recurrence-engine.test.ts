@@ -90,13 +90,12 @@ describe('occurrencesBetween / nextOccurrence', () => {
   });
 });
 
-describe('resolveRepresentativeInstance：当前这一次 = 最早的、时刻还没过的实例', () => {
+describe('resolveRepresentativeInstance：最早的、时刻还没过的未完成实例', () => {
   it('周三没做，周四这天代表实例是周五；截止时间就是实例的时刻', () => {
     const records = [record('mon', MON, 'completed'), record('wed', WED, 'missed')];
     expect(resolveRepresentativeInstance(gym, records, at('2026-09-24T10:00:00'))).toEqual({
       occurrenceAt: FRI,
       dueAt: FRI,
-      completed: false,
     });
   });
 
@@ -118,27 +117,18 @@ describe('resolveRepresentativeInstance：当前这一次 = 最早的、时刻�
     );
   });
 
-  it('提前完成的当前这一次仍是代表（completed = true），它的时刻一过才换成下一次', () => {
+  it('提前完成的实例被跳过 → 顺延到下一次', () => {
     const records = [record('fri', FRI, 'completed')];
-    expect(resolveRepresentativeInstance(gym, records, at('2026-09-25T06:00:00'))).toEqual({
-      occurrenceAt: FRI,
-      dueAt: FRI,
-      completed: true,
-    });
-    expect(resolveRepresentativeInstance(gym, records, at('2026-09-25T07:01:00'))).toEqual({
-      occurrenceAt: NEXT_MON,
-      dueAt: NEXT_MON,
-      completed: false,
-    });
+    expect(
+      resolveRepresentativeInstance(gym, records, at('2026-09-25T06:00:00'))?.occurrenceAt,
+    ).toEqual(NEXT_MON);
   });
 
-  it('记为未完成（missed）或待定（pending）的当前这一次：completed = false', () => {
-    for (const status of ['missed', 'pending'] as const) {
-      expect(
-        resolveRepresentativeInstance(gym, [record('fri', FRI, status)], at('2026-09-25T06:00:00'))
-          ?.completed,
-      ).toBe(false);
-    }
+  it('连续多个实例提前完成也能跳过', () => {
+    const records = [record('fri', FRI, 'completed'), record('mon', NEXT_MON, 'completed')];
+    expect(
+      resolveRepresentativeInstance(gym, records, at('2026-09-25T06:00:00'))?.occurrenceAt,
+    ).toEqual(sh('2026-09-30T07:00:00'));
   });
 
   it('起始时间在未来 → 第一次实例', () => {

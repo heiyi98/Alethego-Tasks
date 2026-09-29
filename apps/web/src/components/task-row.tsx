@@ -29,10 +29,7 @@ export function TaskRow({
   onToggleComplete?: (task: Task) => void;
   /** 显示的截止时间；循环任务传代表实例的时间 */
   deadline?: Date | null;
-  /**
-   * 列表状态；循环任务的状态看当前这一次（代表实例）：已完成 / 待办。
-   * 普通任务和循环任务用同一套渲染（task-${status} 样式、同一个勾选框）。
-   */
+  /** 列表状态；循环任务的状态不由任务本身的截止 / 完成时间决定 */
   status?: TaskStatus;
 }) {
   const { active, open } = usePanels();
@@ -42,9 +39,7 @@ export function TaskRow({
     active?.kind === 'edit' && active.taskId === task.id && active.surface === 'inline';
   const recurring = task.recurrenceRule !== null;
   const checkboxLabel = (completed: boolean) =>
-    `${completed ? '取消完成' : '完成'}${recurring ? '本次' : ''}：${task.title}`;
-  // 循环序列已结束（没有当前这一次）时没有可以勾选的实例
-  const ended = recurring && status === 'completed' && !deadline;
+    recurring ? `完成本次：${task.title}` : `${completed ? '取消完成' : '完成'}：${task.title}`;
 
   const meta = (
     <span className="task-meta">
@@ -84,10 +79,10 @@ export function TaskRow({
                 <input
                   type="checkbox"
                   className="task-check"
-                  aria-label={checkboxLabel(recurring ? status === 'completed' : form.completed)}
-                  // 普通任务绑定面板里的完成状态（随自动保存写入）；循环任务勾选的是当前这一次实例
-                  checked={recurring ? status === 'completed' : form.completed}
-                  disabled={ended}
+                  aria-label={checkboxLabel(form.completed)}
+                  // 普通任务绑定面板里的完成状态（随自动保存写入）；循环任务完成当前这一次实例
+                  checked={!recurring && form.completed}
+                  disabled={recurring && status === 'completed'}
                   onChange={() =>
                     recurring ? onToggleComplete(task) : onChange({ completed: !form.completed })
                   }
@@ -121,9 +116,9 @@ export function TaskRow({
             type="checkbox"
             className="task-check"
             aria-label={checkboxLabel(status === 'completed')}
-            // 循环任务的勾选框代表"当前这一次"：勾上后这一行按已完成显示，它的时刻一过换成下一次
-            checked={status === 'completed'}
-            disabled={ended}
+            // 循环任务的勾选框永远代表"当前这一次"，勾选后代表实例顺延到下一次
+            checked={!recurring && status === 'completed'}
+            disabled={recurring && status === 'completed'}
             onChange={() => onToggleComplete(task)}
           />
         )}

@@ -1,7 +1,7 @@
 'use client';
 
 import type { Task } from '@alethego/core';
-import { toggleCurrentOccurrence } from '@alethego/data';
+import { completeCurrentOccurrence } from '@alethego/data';
 import { usePathname } from 'next/navigation';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 
@@ -49,7 +49,7 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
   async function toggleComplete(task: Task) {
     if (task.recurrenceRule) {
       try {
-        const done = await toggleCurrentOccurrence(
+        const done = await completeCurrentOccurrence(
           repositories.occurrences,
           task,
           data?.occurrencesByTask.get(task.id) ?? [],
