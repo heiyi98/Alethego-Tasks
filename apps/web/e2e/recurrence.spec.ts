@@ -14,6 +14,7 @@ import {
   taskItem,
   waitSaved,
 } from './helpers';
+import { accessTokenFor } from './auth';
 
 const rule = (page: Page) => page.getByRole('group', { name: '重复规则' });
 const history = (page: Page) => editPanel(page).getByRole('group', { name: '历史' });
@@ -25,10 +26,11 @@ const MONDAY_1554 = new Date('2026-10-05T15:54:00+08:00');
 async function patchTask(request: APIRequestContext, taskId: string, body: object) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+  const token = await accessTokenFor();
   const response = await request.patch(`${url}/rest/v1/tasks?id=eq.${taskId}`, {
     headers: {
       apikey: key,
-      Authorization: `Bearer ${key}`,
+      Authorization: `Bearer ${token}`,
       'Content-Profile': 'taskapp',
       'Content-Type': 'application/json',
     },

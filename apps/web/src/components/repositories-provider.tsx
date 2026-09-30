@@ -3,12 +3,15 @@
 import type { DataStore } from '@alethego/data';
 import { createContext, useContext, useState, type ReactNode } from 'react';
 
+import { useCurrentUser } from '@/auth';
 import { createBrowserRepositories } from '@/lib/repositories';
 
 const RepositoriesContext = createContext<DataStore | null>(null);
 
 export function RepositoriesProvider({ children }: { children: ReactNode }) {
-  const [repositories] = useState(createBrowserRepositories);
+  // 数据归属当前登录用户；换账号时整棵界面重新挂载，这里随之重建
+  const user = useCurrentUser();
+  const [repositories] = useState(() => createBrowserRepositories(user));
 
   if (!repositories) {
     return (

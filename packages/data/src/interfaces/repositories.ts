@@ -13,7 +13,7 @@ import type {
 
 /**
  * 仓储接口：上层业务代码只依赖这些窄接口，不感知背后是 Supabase、本地存储还是同步队列。
- * owner_id 由存储实现在构造时确定（未登录阶段为固定值 LOCAL_OWNER_ID），接口中不出现。
+ * owner_id 由存储实现在构造时确定（当前登录用户的 id），接口中不出现。
  */
 
 export interface TaskListQuery {

@@ -33,8 +33,9 @@ N = (截止日期 − 今天) 的日历天数 + 1（用户时区，今天 N = 1�
 
 ### 数据约定
 
-- **暂无登录**：所有数据归属固定的 `LOCAL_OWNER_ID`（`packages/data/src/owner.ts`，与数据库函数
-  `current_owner_id()` 一致），RLS 临时对 anon 开放。接入账号体系时改函数体、去掉策略中的 anon 即可。
+- **账号**：登录注册由独立的 Alethego 项目负责，数据项目通过第三方认证信任 Alethego 的 access token，
+  `auth.uid()` 就是 Alethego 用户编号；数据归属当前登录用户（`owner_id` → `taskapp.users.id`），
+  RLS 只对 `authenticated` 开放。详见 [`docs/06-身份对接说明.md`](./docs/06-身份对接说明.md)。
 - **快速添加**：只需标题即可创建任务，其余字段之后通过 `update` 补充；空白标题会被拒绝。
 - **软删除**：删除任务只写入 `deleted_at`，数据库不开放物理删除；分类关联与循环实例记录保留，可 `restore`。
 
@@ -63,11 +64,16 @@ supabase db reset   # 应用 supabase/migrations
 ### 运行 Web
 
 ```bash
-cp apps/web/.env.example apps/web/.env.local   # 填入 Supabase URL 与 anon key
+cp apps/web/.env.example apps/web/.env.local   # Alethego 地址与 key、数据项目地址与 key
 pnpm dev
 ```
 
 页面（左侧菜单 + 右侧内容，配色为 Apple 系统色）：
+
+- 登录：没登录时只显示登录页（邮箱密码登录 / 注册、Google 登录）；会话自动续期，只有主动退出才需要重新登录。
+  侧边栏最下面是账号菜单：显示当前账号的名字，点开可切换这台设备上登录过的账号（不需要再输密码）、
+  原地修改名字（存 `taskapp.users.display_name`）、添加账号、退出（退出这台设备上的所有账号）。
+  登录相关代码集中在 `apps/web/src/auth/`，任务功能只通过 `useCurrentUser()` 取当前用户
 
 - 筛选：内容 = 范围 ∩ 所选分类的并集 ∩ 状态（`buildTaskList`）。选择保存在 URL 查询参数中
   （`/?scope=starred&status=completed&cat=id1,id2`、`/matrix?...`，默认值省略），清单与矩阵共用；
@@ -111,7 +117,7 @@ pnpm dev
   - 图上只有刻度名、0–5、四个方位字（重要 / 不重要 / 紧急 / 不紧急）和任务标题，没有轴标题、图例或说明文字
   - Y = 重要性：刻度 0–5 标在分界线上，重要性 N 在标 N 那条线上方的一格，中线在刻度 3 上
   - 圆点（分类颜色，多分类按切片）是任务的位置，按 id 固定在所属格子内部、互不重叠；标签没有外框和背景，
-    是写在细横线上的标题（最多 6 个汉字宽），用力导向算法排布在圆点的任意一侧，各用一条细线连回圆点；
+    是写在细横线上的标题（最宽 45ch，随字号变化，超出按宽度截断加省略号），用力导向算法排布在圆点的任意一侧，各用一条细线连回圆点；
     连线互不交叉、不穿过别的标签，标签不压圆点；没有随机成分，同样的数据每次排布相同
   - 逾期区：圆点按重要性竖向定位、互不重叠，外加红色外圈；标签红色
   - 下方为按象限分组的列表（按当前模式判定紧急与否；有哪些任务与模式无关），同样遵守左侧选择；
@@ -132,7 +138,9 @@ pnpm dev
 
 ### 端到端测试
 
-驱动真实页面读写 Supabase，需要先配置好 `.env.local` 并应用迁移：
+驱动真实页面读写本地环境（不连真实的 Alethego / 数据项目）：本地数据项目（Postgres + PostgREST，已应用迁移）
+与本地 Supabase Auth（模拟 Alethego，邮箱自动确认，JWT 密钥与本地 PostgREST 一致），`.env.local` 指向它们。
+每次运行先注册一个新的主测试账号并保存登录状态（`e2e/global-setup.ts`），账号相关用例各自注册账号：
 
 ```bash
 pnpm --filter @alethego/web test:e2e
@@ -142,5 +150,5 @@ pnpm --filter @alethego/web test:e2e
 
 ## 暂未实现
 
-账号认证（Third-Party Auth 接入待定，目前为固定 owner）、离线同步（SyncEngine / IndexedDB / SQLite）、
+头像、离线同步（SyncEngine / IndexedDB / SQLite）、
 子任务、通讯录 / 地图 / 日历集成。

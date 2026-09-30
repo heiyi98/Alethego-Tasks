@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 
+import { AuthProvider } from '@/auth';
 import { AppShell } from '@/components/app-shell';
 import { FeedbackProvider } from '@/components/feedback-provider';
 import { PanelProvider } from '@/components/panel-provider';
@@ -18,15 +19,18 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="zh-CN">
       <body>
-        <RepositoriesProvider>
-          <TaskDataProvider>
-            <FeedbackProvider>
-              <PanelProvider>
-                <AppShell>{children}</AppShell>
-              </PanelProvider>
-            </FeedbackProvider>
-          </TaskDataProvider>
-        </RepositoriesProvider>
+        {/* 没登录时只显示登录页；登录后任务界面按当前账号取数据 */}
+        <AuthProvider>
+          <RepositoriesProvider>
+            <TaskDataProvider>
+              <FeedbackProvider>
+                <PanelProvider>
+                  <AppShell>{children}</AppShell>
+                </PanelProvider>
+              </FeedbackProvider>
+            </TaskDataProvider>
+          </RepositoriesProvider>
+        </AuthProvider>
       </body>
     </html>
   );

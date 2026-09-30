@@ -26,7 +26,6 @@ import type {
   TaskPatch,
 } from '../interfaces/repositories';
 import type { IRemoteStore } from '../interfaces/stores';
-import { LOCAL_OWNER_ID } from '../owner';
 import {
   validateCategoryInput,
   validateNewTask,
@@ -412,8 +411,8 @@ export class SupabaseTaskPeopleRepository implements ITaskPeopleRepository {
 }
 
 export interface SupabaseRemoteStoreOptions {
-  /** 数据所有者；未登录阶段默认为固定值 LOCAL_OWNER_ID */
-  ownerId?: string;
+  /** 数据所有者：当前登录用户的 id（= auth.uid()，即 Alethego 用户编号） */
+  ownerId: string;
 }
 
 export class SupabaseRemoteStore implements IRemoteStore {
@@ -424,8 +423,8 @@ export class SupabaseRemoteStore implements IRemoteStore {
   readonly locations: SupabaseTaskLocationRepository;
   readonly people: SupabaseTaskPeopleRepository;
 
-  constructor(client: TaskAppSupabaseClient, options: SupabaseRemoteStoreOptions = {}) {
-    const ownerId = options.ownerId ?? LOCAL_OWNER_ID;
+  constructor(client: TaskAppSupabaseClient, options: SupabaseRemoteStoreOptions) {
+    const { ownerId } = options;
     this.tasks = new SupabaseTaskRepository(client, ownerId);
     this.categories = new SupabaseCategoryRepository(client, ownerId);
     this.occurrences = new SupabaseOccurrenceRepository(client);

@@ -139,9 +139,8 @@ test('矩阵：短期 / 长期两种模式，6 格等宽、中线在正中；逾
   await expect(tomorrow.locator('.node-line')).toHaveCount(1);
   // 每个标签都有一条细线连回自己的圆点
   await expect(page.locator('.matrix-node .node-leader')).toHaveCount(3);
-  const shown = (await tomorrow.locator('.node-title').textContent())!;
-  expect(shown.endsWith('…')).toBe(true);
-  expect(t('明天重要').startsWith(shown.slice(0, -1))).toBe(true);
+  // 标题不超过 45ch 时完整显示
+  await expect(tomorrow.locator('.node-title')).toHaveText(t('明天重要'));
   // 明天：N = 2 → "2天–1天"那一格；圆点在格子里
   await expect(tomorrow).toHaveAttribute('data-quadrant', 'important_urgent');
   await expect(tomorrow).toHaveAttribute('data-column', '4');
@@ -284,6 +283,53 @@ test('矩阵按日历日判档：不看几点几分；紧急与否跟着模式�
   await expect(quadrant('重要且紧急')).toContainText(t('十天'));
   await expect(quadrant('重要不紧急')).toContainText(t('十六天'));
   await expect(quadrant('重要不紧急')).not.toContainText(t('十天'));
+});
+
+test('标签标题最宽 45ch（随字号变化），超出按宽度截断加省略号，所有语言同一个宽度', async ({
+  page,
+}) => {
+  const id = runId();
+  const category = `${id}长标题`;
+  const cjk = `${id} ${'很长的中文标题'.repeat(12)}`;
+  const latin = `${id} ${'a long english title '.repeat(10)}`.trimEnd();
+  const fits = `${id} 不超过宽度的标题`;
+  await page.goto('/');
+  await createCategory(page, category);
+  await toggleCategory(page, category);
+  for (const title of [cjk, latin, fits]) {
+    await quickAdd(page, title, { deadline: localDate(1), importance: 4 });
+  }
+  await switchMode(page, 'matrix');
+
+  // 1ch = 标签字体里"0"的宽度
+  const ch = await page.evaluate(() => {
+    const svg = document.querySelector('svg.matrix')!;
+    const probe = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    probe.setAttribute('class', 'node-title');
+    probe.textContent = '0'.repeat(45);
+    svg.appendChild(probe);
+    const width = probe.getComputedTextLength() / 45;
+    probe.remove();
+    return width;
+  });
+  const widthOf = (title: string) =>
+    dot(page, title)
+      .locator('.node-title')
+      .evaluate((el) => (el as SVGTextContentElement).getComputedTextLength());
+
+  for (const title of [cjk, latin]) {
+    const shown = (await dot(page, title).locator('.node-title').textContent())!;
+    expect(shown.endsWith('…')).toBe(true);
+    expect(title.startsWith(shown.slice(0, -1).trimEnd())).toBe(true);
+    const width = await widthOf(title);
+    expect(width).toBeLessThanOrEqual(45 * ch + 0.5);
+    // 不是按字符数截断：两种文字截出来的宽度都接近 45ch
+    expect(width).toBeGreaterThan(40 * ch);
+  }
+  const cjkShown = (await dot(page, cjk).locator('.node-title').textContent())!;
+  const latinShown = (await dot(page, latin).locator('.node-title').textContent())!;
+  expect(Array.from(latinShown).length).toBeGreaterThan(Array.from(cjkShown).length);
+  await expect(dot(page, fits).locator('.node-title')).toHaveText(fits);
 });
 
 test('矩阵：完成任务后从矩阵消失；分类未命中时不显示', async ({ page }) => {

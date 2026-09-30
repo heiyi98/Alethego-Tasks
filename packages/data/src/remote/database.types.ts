@@ -13,6 +13,30 @@ export type OccurrenceStatusEnum = 'pending' | 'completed' | 'missed';
 export interface Database {
   taskapp: {
     Tables: {
+      users: {
+        Row: {
+          id: string;
+          email: string | null;
+          display_name: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          email?: string | null;
+          display_name: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          email?: string | null;
+          display_name?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       tasks: {
         Row: {
           id: string;
@@ -234,7 +258,12 @@ export interface Database {
       };
     };
     Views: { [_ in never]: never };
-    Functions: { [_ in never]: never };
+    Functions: {
+      ensure_current_user: {
+        Args: { p_email: string | null; p_display_name: string };
+        Returns: Database['taskapp']['Tables']['users']['Row'];
+      };
+    };
     Enums: {
       occurrence_status: OccurrenceStatusEnum;
     };

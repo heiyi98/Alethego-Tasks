@@ -27,7 +27,6 @@ import type {
   TaskPatch,
 } from '../interfaces/repositories';
 import type { ILocalStore } from '../interfaces/stores';
-import { LOCAL_OWNER_ID } from '../owner';
 import {
   validateCategoryInput,
   validateNewTask,
@@ -340,7 +339,8 @@ class MemoryTaskPeopleRepository implements ITaskPeopleRepository {
 }
 
 export interface InMemoryLocalStoreOptions {
-  ownerId?: string;
+  /** 数据所有者：当前登录用户的 id */
+  ownerId: string;
   now?: () => Date;
   newId?: () => string;
 }
@@ -353,9 +353,9 @@ export class InMemoryLocalStore implements ILocalStore {
   readonly locations: ITaskLocationRepository;
   readonly people: ITaskPeopleRepository;
 
-  constructor(options: InMemoryLocalStoreOptions = {}) {
+  constructor(options: InMemoryLocalStoreOptions) {
     const state: MemoryState = {
-      ownerId: options.ownerId ?? LOCAL_OWNER_ID,
+      ownerId: options.ownerId,
       now: options.now ?? (() => new Date()),
       newId: options.newId ?? (() => crypto.randomUUID()),
       tasks: new Map(),

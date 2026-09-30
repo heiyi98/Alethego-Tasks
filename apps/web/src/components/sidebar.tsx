@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
 
+import { AccountMenu } from '@/auth';
 import { CategoryDot } from './category-dot';
 import { CategoryForm } from './category-form';
 import { IconButton, PencilIcon } from './icons';
@@ -163,6 +164,8 @@ export function Sidebar() {
           </button>
         )}
       </section>
+
+      <AccountMenu />
     </nav>
   );
 }

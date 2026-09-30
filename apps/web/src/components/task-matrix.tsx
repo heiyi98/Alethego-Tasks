@@ -11,11 +11,18 @@ import {
   type MatrixSlot,
   type Rect,
 } from '@alethego/core';
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { usePanels } from './panel-provider';
 import { QUADRANT_LABELS, formatDeadline } from '@/lib/format';
 import { MIDLINE_BOUNDARY, slotKey, xTicks } from '@/lib/matrix-axis';
+import {
+  TITLE_MAX_CH,
+  canvasMeasure,
+  estimateMeasure,
+  fitToWidth,
+  type TextMeasure,
+} from '@/lib/text-measure';
 
 /**
  * 时间管理矩阵：X = 紧迫度（越靠右越紧急），Y = 重要性（越靠上越重要）。
@@ -25,7 +32,7 @@ import { MIDLINE_BOUNDARY, slotKey, xTicks } from '@/lib/matrix-axis';
  * Y 轴：刻度 0–5 标在分界线上，重要性 N 落在标 N 那条线上方的一格；中线在刻度 3 上。
  *
  * 图里只出现四种文字：X 轴刻度名、Y 轴刻度数字、四个方位字、任务标题。
- * 圆点是任务的位置，永远在所属格子里；标签（写在细横线上的标题）用力导向算法排布，
+ * 圆点是任务的位置，永远在所属格子里；标签（写在细横线上的标题，最宽 45ch）用力导向算法排布，
  * 可以在圆点的任意一侧、可以伸出格子，用一条细线连回自己的圆点。
  */
 
@@ -50,9 +57,8 @@ const DOT_GAP = 3;
 /** 圆点离格子边、刻度线至少这么远 */
 const CELL_INSET = 8;
 
-/** 标签：标题最多相当于 6 个汉字宽，超出用省略号 */
+/** 标签文字的字号（与 .node-title 一致）；标题最大宽度 45ch，超出用省略号 */
 const LABEL_FONT = 12;
-const MAX_TITLE_W = LABEL_FONT * 6;
 const TEXT_PAD = 1;
 
 const colX = (boundary: number) => M.left + boundary * COL_W;
@@ -63,23 +69,26 @@ const valueY = (v: number) => M.top + (MATRIX_ROWS - v) * ROW_H;
 const OVERDUE_LEFT = colX(MATRIX_COLUMNS);
 const PLOT_RIGHT = OVERDUE_LEFT + COL_W * OVERDUE_CELLS;
 
-const isWide = (ch: string) => /[⺀-￿]/.test(ch);
-const charWidth = (ch: string) => (isWide(ch) ? LABEL_FONT : LABEL_FONT * 0.6);
-
-/** 按字符估算宽度（中日韩等全角字符按字号，其余按 0.6 倍字号），超出 maxWidth 截断加"…" */
-function fitTitle(text: string, maxWidth = MAX_TITLE_W): { text: string; width: number } {
-  const chars = Array.from(text);
-  const full = chars.reduce((sum, ch) => sum + charWidth(ch), 0);
-  if (full <= maxWidth) return { text, width: full };
-  const ellipsis = LABEL_FONT;
-  let width = 0;
-  let out = '';
-  for (const ch of chars) {
-    if (width + charWidth(ch) + ellipsis > maxWidth) break;
-    out += ch;
-    width += charWidth(ch);
+/**
+ * 标签文字的量尺：按 .node-title 实际使用的字体（字号、字体族）量宽度；
+ * 没有浏览器画布时按字号估算。
+ */
+function labelMeasure(): TextMeasure {
+  if (typeof document !== 'undefined') {
+    const probe = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    probe.style.position = 'absolute';
+    probe.style.visibility = 'hidden';
+    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text.setAttribute('class', 'node-title');
+    probe.appendChild(text);
+    document.body.appendChild(probe);
+    const style = getComputedStyle(text);
+    const font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+    probe.remove();
+    const measure = canvasMeasure(font);
+    if (measure) return measure;
   }
-  return { text: `${out}…`, width: width + ellipsis };
+  return estimateMeasure(LABEL_FONT);
 }
 
 /** 分类色标：多分类按切片显示 */
@@ -160,7 +169,7 @@ interface Drawn {
   label: ReturnType<typeof layoutLabels>[number];
 }
 
-function layout(points: readonly MatrixPoint[]): Drawn[] {
+function layout(points: readonly MatrixPoint[], measure: TextMeasure): Drawn[] {
   const onChart = points.filter((p): p is MatrixPoint & { slot: MatrixSlot } => p.slot !== null);
   const dots = separateDots(
     onChart.map((point) => {
@@ -175,7 +184,10 @@ function layout(points: readonly MatrixPoint[]): Drawn[] {
     }),
     DOT_GAP,
   );
-  const titles = new Map(onChart.map((p) => [p.task.id, fitTitle(p.task.title)]));
+  const maxTitleWidth = TITLE_MAX_CH * measure.ch;
+  const titles = new Map(
+    onChart.map((p) => [p.task.id, fitToWidth(p.task.title, maxTitleWidth, measure)]),
+  );
   const labels = layoutLabels(
     onChart.map((point) => {
       const dot = dots.get(point.task.id)!;
@@ -224,7 +236,9 @@ export function TaskMatrix({
 }) {
   const { open } = usePanels();
   const scrollRef = useRef<HTMLDivElement>(null);
-  const drawn = useMemo(() => layout(points), [points]);
+  // 量尺只建一次：字体与字号来自 .node-title 的实际样式
+  const [measure] = useState(labelMeasure);
+  const drawn = useMemo(() => layout(points, measure), [points, measure]);
   const ticks = xTicks(mode);
 
   // 窄屏下矩阵可横向滚动：初始滚到最右侧，先看到紧急区

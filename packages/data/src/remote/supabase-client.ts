@@ -9,10 +9,10 @@ export interface SupabaseClientConfig {
   /** 本项目的 publishable/anon key */
   anonKey: string;
   /**
-   * 返回当前用户的访问令牌。账号由独立身份项目签发（Third-Party Auth），本项目只验证不签发，
-   * 因此令牌由调用方注入。账号体系接入前不传：以 anon 身份访问，数据归属固定的 LOCAL_OWNER_ID。
+   * 返回当前登录用户的访问令牌。账号由独立的 Alethego 项目签发，本项目通过第三方认证
+   * （Third-Party Auth）只验证不签发，因此令牌由调用方（登录模块）注入。
    */
-  accessToken?: () => Promise<string | null>;
+  accessToken: () => Promise<string | null>;
 }
 
 export function createSupabaseClient(config: SupabaseClientConfig): TaskAppSupabaseClient {

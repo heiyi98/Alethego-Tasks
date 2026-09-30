@@ -1,5 +1,7 @@
 import { expect, type APIRequestContext, type Locator, type Page } from '@playwright/test';
 
+import { accessTokenFor, mainUser, type Credentials } from './auth';
+
 export const TIME_ZONE = 'Asia/Shanghai';
 
 /** 每个用例的随机前缀，用于在共享数据库中隔离数据 */
@@ -28,12 +30,17 @@ export function localDateTime(offsetDays: number, time: string): string {
   return `${localDate(offsetDays)}T${time}`;
 }
 
-/** 直接查询数据库（taskapp schema）验证落库结果 */
-export async function queryRest<T>(request: APIRequestContext, path: string): Promise<T> {
+/** 直接查询数据库（taskapp schema）验证落库结果；按 RLS 只看得到这个账号（默认主测试账号）的数据 */
+export async function queryRest<T>(
+  request: APIRequestContext,
+  path: string,
+  credentials: Credentials = mainUser(),
+): Promise<T> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+  const token = await accessTokenFor(credentials);
   const response = await request.get(`${url}/rest/v1/${path}`, {
-    headers: { apikey: key, Authorization: `Bearer ${key}`, 'Accept-Profile': 'taskapp' },
+    headers: { apikey: key, Authorization: `Bearer ${token}`, 'Accept-Profile': 'taskapp' },
   });
   return (await response.json()) as T;
 }

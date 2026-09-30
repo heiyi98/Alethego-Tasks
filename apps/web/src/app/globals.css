@@ -1716,3 +1716,175 @@ a {
     padding-left: 42px;
   }
 }
+
+/* ---------- 登录页 ---------- */
+.auth-loading {
+  min-height: 100vh;
+  background: var(--system-background);
+}
+
+.login-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px 16px;
+  background: var(--grouped-background);
+}
+
+.login-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  max-width: 360px;
+  padding: 28px 24px;
+  border-radius: 14px;
+  background: var(--system-background);
+}
+
+.login-brand {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.login-mode {
+  align-self: center;
+}
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.login-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--secondary-label);
+}
+
+.login-field input {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  font-size: 15px;
+  color: var(--label);
+}
+
+.login-notice {
+  margin: 0;
+  font-size: 13px;
+  color: var(--secondary-label);
+}
+
+.login-submit,
+.login-google {
+  height: 44px;
+  border-radius: 10px;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.login-submit {
+  border: none;
+  background: var(--accent);
+  color: #fff;
+}
+
+.login-google {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--label);
+}
+
+.login-cancel {
+  align-self: center;
+}
+
+/* ---------- 账号菜单（侧边栏最下面） ---------- */
+.account-menu {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.account-current {
+  width: 100%;
+  border: none;
+  background: transparent;
+  text-align: left;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.account-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.account-panel > .sidebar-item {
+  width: 100%;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.account-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.account-row {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 10px;
+  border-radius: 8px;
+}
+
+.account-row-current {
+  background: var(--accent-soft);
+}
+
+.account-switch,
+.account-row .account-name {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: 14px;
+  color: var(--label);
+  text-align: left;
+  cursor: pointer;
+}
+
+.account-switch {
+  width: 100%;
+}
+
+.account-email {
+  font-size: 12px;
+  color: var(--secondary-label);
+  overflow-wrap: anywhere;
+}
+
+.account-name-input {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 400;
+}

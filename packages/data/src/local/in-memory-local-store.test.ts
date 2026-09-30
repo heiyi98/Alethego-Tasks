@@ -2,15 +2,16 @@ import { reconcileOccurrences, seriesFromTask } from '@alethego/core';
 import { describe, expect, it } from 'vitest';
 
 import { DataError } from '../errors';
-import { LOCAL_OWNER_ID } from '../owner';
 import { InMemoryLocalStore } from './in-memory-local-store';
 
+const OWNER = '11111111-1111-4111-8111-111111111111';
+
 describe('InMemoryLocalStore', () => {
-  it('快速添加：只需标题，默认归属固定 owner，其余字段取默认值', async () => {
-    const store = new InMemoryLocalStore();
+  it('快速添加：只需标题，归属当前用户，其余字段取默认值', async () => {
+    const store = new InMemoryLocalStore({ ownerId: OWNER });
     const task = await store.tasks.create({ title: '  买牛奶 ' });
     expect(task).toMatchObject({
-      ownerId: LOCAL_OWNER_ID,
+      ownerId: OWNER,
       title: '买牛奶',
       description: '',
       deadlineAt: null,
@@ -32,7 +33,7 @@ describe('InMemoryLocalStore', () => {
   });
 
   it('空白标题不能创建或更新', async () => {
-    const store = new InMemoryLocalStore();
+    const store = new InMemoryLocalStore({ ownerId: OWNER });
     await expect(store.tasks.create({ title: '   ' })).rejects.toThrow(DataError);
     const task = await store.tasks.create({ title: 'x' });
     await expect(store.tasks.update(task.id, { title: '' })).rejects.toThrow(DataError);
@@ -40,7 +41,10 @@ describe('InMemoryLocalStore', () => {
 
   it('列表默认按截止时间从近到远，无截止时间排最后', async () => {
     let tick = 0;
-    const store = new InMemoryLocalStore({ now: () => new Date(Date.UTC(2026, 8, 1) + tick++) });
+    const store = new InMemoryLocalStore({
+      ownerId: OWNER,
+      now: () => new Date(Date.UTC(2026, 8, 1) + tick++),
+    });
     await store.tasks.create({ title: '无截止' });
     await store.tasks.create({ title: '下月', deadlineAt: new Date('2026-10-20T00:00:00Z') });
     await store.tasks.create({ title: '明天', deadlineAt: new Date('2026-09-26T00:00:00Z') });
@@ -54,7 +58,7 @@ describe('InMemoryLocalStore', () => {
   });
 
   it('软删除：列表与详情不可见、不可编辑，数据与关联保留，可恢复', async () => {
-    const store = new InMemoryLocalStore();
+    const store = new InMemoryLocalStore({ ownerId: OWNER });
     const work = await store.categories.create({ name: '工作', color: '#1E88E5' });
     const task = await store.tasks.create({ title: '周报' });
     await store.categories.setTaskCategories(task.id, [work.id]);
@@ -76,7 +80,7 @@ describe('InMemoryLocalStore', () => {
   });
 
   it('分类筛选为逻辑或；删除分类只解除关联，不删除任务', async () => {
-    const store = new InMemoryLocalStore();
+    const store = new InMemoryLocalStore({ ownerId: OWNER });
     const work = await store.categories.create({ name: '工作', color: '#1e88e5' });
     const home = await store.categories.create({ name: '家庭', color: '#43A047' });
     const a = await store.tasks.create({ title: 'A' });
@@ -97,7 +101,7 @@ describe('InMemoryLocalStore', () => {
   });
 
   it('分类颜色在用户范围内排他（不区分大小写）', async () => {
-    const store = new InMemoryLocalStore();
+    const store = new InMemoryLocalStore({ ownerId: OWNER });
     await store.categories.create({ name: '工作', color: '#1E88E5' });
     await expect(store.categories.create({ name: '学习', color: '#1e88e5' })).rejects.toThrow(
       DataError,
@@ -105,7 +109,7 @@ describe('InMemoryLocalStore', () => {
   });
 
   it('落库归档结果：补建记录、用户改过的记录不被覆盖、重复记录被忽略', async () => {
-    const store = new InMemoryLocalStore();
+    const store = new InMemoryLocalStore({ ownerId: OWNER });
     const task = await store.tasks.create({
       title: '健身',
       recurrenceRule: 'FREQ=WEEKLY;BYDAY=MO,WE,FR',
@@ -153,7 +157,7 @@ describe('InMemoryLocalStore', () => {
 
 describe('分类编辑', () => {
   it('可以修改名称、描述、颜色；颜色不能与其他分类重复；名称不能为空', async () => {
-    const store = new InMemoryLocalStore();
+    const store = new InMemoryLocalStore({ ownerId: OWNER });
     const work = await store.categories.create({ name: '工作', color: '#007AFF' });
     const home = await store.categories.create({
       name: ' 家庭 ',
@@ -181,7 +185,7 @@ describe('分类编辑', () => {
   });
 
   it('删除分类只解除关联，任务保留', async () => {
-    const store = new InMemoryLocalStore();
+    const store = new InMemoryLocalStore({ ownerId: OWNER });
     const work = await store.categories.create({ name: '工作', color: '#007AFF' });
     const task = await store.tasks.create({ title: 't' });
     await store.categories.setTaskCategories(task.id, [work.id]);

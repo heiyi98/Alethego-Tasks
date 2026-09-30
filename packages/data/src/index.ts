@@ -1,5 +1,5 @@
 export * from './errors';
-export * from './owner';
+export * from './remote/user-profile';
 
 export type * from './interfaces/repositories';
 export type * from './interfaces/stores';
