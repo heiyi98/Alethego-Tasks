@@ -1,91 +1,25 @@
-import { expect, test, type Browser, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 
-import { accessTokenFor, loginViaUi, newCredentials, signUpUser, type Credentials } from './auth';
+import { accessTokenFor } from './auth';
+import {
+  bell,
+  confirmDialog,
+  editGroup,
+  groupLink,
+  groupSection,
+  groupWith,
+  notificationList,
+  openAs,
+  openRoster,
+  rpc,
+  sidebar,
+  titleBar,
+  user,
+} from './group-helpers';
 import { dbUrl, queryRest, quickAdd, runId, setDbClock, taskItem } from './helpers';
 
 // 多个账号各用自己的浏览器上下文：从"没登录"开始
 test.use({ storageState: { cookies: [], origins: [] } });
-
-const sidebar = (page: Page) => page.getByRole('navigation', { name: '主菜单' });
-const groupSection = (page: Page) => sidebar(page).getByRole('region', { name: '组' });
-const groupLink = (page: Page, name: string) =>
-  groupSection(page).getByRole('link', { name, exact: false });
-const bell = (page: Page) => sidebar(page).getByRole('button', { name: '通知' });
-const notificationList = (page: Page) => sidebar(page).getByRole('region', { name: '通知列表' });
-const titleBar = (page: Page) => page.locator('h1.title-bar');
-
-async function user(tag: string, name: string): Promise<Credentials & { name: string }> {
-  const credentials = await signUpUser(newCredentials(tag), { full_name: name });
-  return { ...credentials, name };
-}
-
-/** 一个账号一个浏览器上下文，经登录页登录（第一次登录也会自动建好 TaskApp 的用户行） */
-async function openAs(browser: Browser, credentials: Credentials): Promise<Page> {
-  const context = await browser.newContext({ storageState: { cookies: [], origins: [] } });
-  const page = await context.newPage();
-  await page.goto('/');
-  await loginViaUi(page, credentials);
-  return page;
-}
-
-/** 直接调数据库函数（准备数据用；按这个账号的身份） */
-async function rpc<T>(credentials: Credentials, fn: string, args: object = {}): Promise<T> {
-  const response = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/rpc/${fn}`, {
-    method: 'POST',
-    headers: {
-      apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      Authorization: `Bearer ${await accessTokenFor(credentials)}`,
-      'Content-Profile': 'taskapp',
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(args),
-  });
-  const text = await response.text();
-  if (!response.ok) throw new Error(`${fn}: ${response.status} ${text}`);
-  return (text ? JSON.parse(text) : null) as T;
-}
-
-/** 准备：甲建组，其余的人直接入组（接受邀请） */
-async function groupWith(
-  owner: Credentials & { name: string },
-  members: (Credentials & { name: string })[],
-  name: string,
-): Promise<string> {
-  for (const u of [owner, ...members]) {
-    await rpc(u, 'ensure_current_user', { p_email: u.email, p_display_name: u.name });
-  }
-  const group = await rpc<{ id: string }>(owner, 'create_group', { p_name: name });
-  for (const member of members) {
-    await rpc(owner, 'invite_to_group', { p_group_id: group.id, p_email: member.email });
-    // 被邀请人自己看得到发给他的邀请
-    const [invitation] = await select<{ id: string }>(
-      member,
-      `group_invitations?select=id&group_id=eq.${group.id}`,
-    );
-    await rpc(member, 'accept_group_invitation', { p_invitation_id: invitation!.id });
-  }
-  return group.id;
-}
-
-/** 按这个账号的身份直接查表（RLS 决定看得到什么） */
-async function select<T>(credentials: Credentials, path: string): Promise<T[]> {
-  const response = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/${path}`, {
-    headers: {
-      apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      Authorization: `Bearer ${await accessTokenFor(credentials)}`,
-      'Accept-Profile': 'taskapp',
-    },
-  });
-  if (!response.ok) throw new Error(`${path}: ${response.status} ${await response.text()}`);
-  return (await response.json()) as T[];
-}
-
-async function openGroupPanel(page: Page) {
-  const name = titleBar(page).getByRole('button');
-  if ((await name.getAttribute('aria-expanded')) !== 'true') await name.click();
-  await expect(page.locator('.group-panel')).toBeVisible();
-  return page.locator('.group-panel');
-}
 
 test('建组、邀请（接受 / 拒绝）、昵称；组任务所有成员可见，非成员什么都看不到', async ({
   browser,
@@ -100,8 +34,14 @@ test('建组、邀请（接受 / 拒绝）、昵称；组任务所有成员可�
   // 甲：侧边栏「组」区新建组，建好后直接进入这个组
   const pa = await openAs(browser, a);
   await groupSection(pa).getByRole('button', { name: '+ 新建组' }).click();
-  await groupSection(pa).getByRole('textbox', { name: '组名' }).fill(groupName);
-  await groupSection(pa).getByRole('button', { name: '创建' }).click();
+  const createForm = groupSection(pa).getByRole('form', { name: '新建组' });
+  await createForm.getByRole('textbox', { name: '组名' }).fill(groupName);
+  // 默认是合作组
+  await expect(createForm.getByRole('radio', { name: '合作组' })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
+  await createForm.getByRole('button', { name: '创建组' }).click();
   await expect(pa).toHaveURL(/\?group=/);
   await expect(titleBar(pa)).toHaveText(groupName);
   await expect(groupLink(pa, groupName)).toHaveAttribute('aria-current', 'page');
@@ -143,10 +83,10 @@ test('建组、邀请（接受 / 拒绝）、昵称；组任务所有成员可�
   await expect(taskItem(pa, `${id} 甲建的组任务`)).toHaveCount(0);
   await expect(pa.getByRole('link', { name: '切换到矩阵' })).toBeVisible();
 
-  // 邀请：输入邮箱（不发邮件）
+  // 邀请：名单窗口上面输入邮箱（不发邮件）
   await groupLink(pa, groupName).click();
-  const groupPanel = await openGroupPanel(pa);
-  const invite = groupPanel.getByRole('form', { name: '邀请' });
+  const roster = await openRoster(pa);
+  const invite = roster.getByRole('form', { name: '邀请' });
   for (const u of [b, c]) {
     await invite.getByRole('textbox', { name: '邀请的邮箱' }).fill(u.email);
     await invite.getByRole('button', { name: '邀请' }).click();
@@ -158,6 +98,8 @@ test('建组、邀请（接受 / 拒绝）、昵称；组任务所有成员可�
   await invite.getByRole('textbox', { name: '邀请的邮箱' }).fill(a.email);
   await invite.getByRole('button', { name: '邀请' }).click();
   await expect(invite.getByRole('status')).toHaveText(`不能邀请自己：${a.email}`);
+  await roster.getByRole('button', { name: '关闭' }).click();
+  await expect(roster).toHaveCount(0);
 
   // 乙第一次登录 TaskApp：通知图标带小圆点，点开看到邀请，同意后组出现在侧边栏
   const pb = await openAs(browser, b);
@@ -189,26 +131,30 @@ test('建组、邀请（接受 / 拒绝）、昵称；组任务所有成员可�
   await pa.locator('.status-bar').getByRole('button', { name: '已完成' }).click();
   await expect(taskItem(pa, `${id} 甲建的组任务`)).toBeVisible();
 
-  // 昵称：每个组各自的名单；默认是 TaskApp 名字，自己的昵称点开原地编辑
-  const panelB = await openGroupPanel(pb);
-  const roster = panelB.getByRole('region', { name: '名单' });
-  await expect(roster.getByRole('listitem')).toHaveText([`${id}甲`, `${id}乙`]);
-  await roster.getByRole('button', { name: `我在本组的昵称：${id}乙` }).click();
-  const nickname = roster.getByRole('textbox', { name: '我在本组的昵称' });
-  await expect(nickname).toBeFocused();
-  await nickname.fill('小乙');
-  await nickname.press('Enter');
-  await expect(roster.getByRole('button', { name: '我在本组的昵称：小乙' })).toBeVisible();
+  // 名单窗口：组里所有人（合作组人人都是组长，不显示身份）
+  const rosterB = await openRoster(pb);
+  await expect(rosterB.locator('.roster-name')).toHaveText([`${id}甲`, `${id}乙`]);
+  await expect(rosterB.locator('.roster-role')).toHaveCount(0);
+  await rosterB.getByRole('button', { name: '关闭' }).click();
+
+  // 昵称：侧边栏组旁边的铅笔，每个人都能改自己在本组的昵称；默认是 TaskApp 名字
+  let form = await editGroup(pb, groupName);
+  // 合作组里人人都是组长：组名和颜色也能改
+  await expect(form.getByRole('textbox', { name: '组名' })).toBeVisible();
+  await form.getByLabel('我在本组的昵称').fill('小乙');
+  await form.getByRole('button', { name: '保存' }).click();
+  await expect(form).toHaveCount(0);
   await pa.reload();
-  const rosterA = (await openGroupPanel(pa)).getByRole('region', { name: '名单' });
-  await expect(rosterA.getByRole('listitem')).toHaveText([`${id}甲`, '小乙']);
+  await expect((await openRoster(pa)).locator('.roster-name')).toHaveText([`${id}甲`, '小乙']);
   // 昵称只在这个组里：乙的 TaskApp 名字不变
   await expect(sidebar(pb).locator('.account-current')).toHaveText(`${id}乙`);
   // 清空 = 恢复成 TaskApp 名字
-  await roster.getByRole('button', { name: '我在本组的昵称：小乙' }).click();
-  await nickname.fill('');
-  await nickname.press('Enter');
-  await expect(roster.getByRole('button', { name: `我在本组的昵称：${id}乙` })).toBeVisible();
+  form = await editGroup(pb, groupName);
+  await expect(form.getByLabel('我在本组的昵称')).toHaveValue('小乙');
+  await form.getByLabel('我在本组的昵称').fill('');
+  await form.getByRole('button', { name: '保存' }).click();
+  await expect(form).toHaveCount(0);
+  await expect((await openRoster(pb)).locator('.roster-name')).toHaveText([`${id}甲`, `${id}乙`]);
 
   // 非成员（拒绝了邀请的丙）什么都看不到：组、名单、任务都查不到；直接打开组的地址回到总览
   for (const path of [
@@ -257,7 +203,7 @@ test('在组里点分类：回到个人总览并选中这个分类；/matrix?gro
   // 建一个分类
   await sidebar(page).getByRole('button', { name: '+ 新建分类' }).click();
   const form = page.getByRole('form', { name: '新建分类' });
-  await form.getByLabel('分类名称').fill(`${id}工作`);
+  await form.getByLabel('分类名称', { exact: true }).fill(`${id}工作`);
   await form.getByRole('button', { name: '添加分类' }).click();
   await expect(sidebar(page).getByRole('button', { name: new RegExp(`^${id}工作`) })).toBeVisible();
 
@@ -289,8 +235,8 @@ test('删除组：只有自己时直接删除；有其他组长时投票，一�
   await groupWith(a, [], `${id}单人组`);
   const pa = await openAs(browser, a);
   await groupLink(pa, `${id}单人组`).click();
-  await (await openGroupPanel(pa)).getByRole('button', { name: '删除组' }).click();
-  await pa.getByRole('alertdialog').getByRole('button', { name: '删除' }).click();
+  await (await editGroup(pa, `${id}单人组`)).getByRole('button', { name: '删除组' }).click();
+  await confirmDialog(pa).getByRole('button', { name: '删除' }).click();
   await expect(titleBar(pa)).toHaveText('总览');
   await expect(groupLink(pa, `${id}单人组`)).toHaveCount(0);
 
@@ -300,9 +246,11 @@ test('删除组：只有自己时直接删除；有其他组长时投票，一�
   await pa.reload();
   await groupLink(pa, groupName).click();
   await quickAdd(pa, `${id} 组里的任务`);
-  await (await openGroupPanel(pa)).getByRole('button', { name: '删除组' }).click();
-  await pa.getByRole('alertdialog').getByRole('button', { name: '删除' }).click();
-  await expect(pa.locator('.group-panel').getByRole('status')).toHaveText('删除投票进行中');
+  let form = await editGroup(pa, groupName);
+  await form.getByRole('button', { name: '删除组' }).click();
+  await confirmDialog(pa).getByRole('button', { name: '删除' }).click();
+  await expect(form.getByRole('status')).toHaveText('删除投票进行中');
+  await expect(form.getByRole('button', { name: '删除组' })).toHaveCount(0);
 
   // 乙不同意：投票取消
   const pb = await openAs(browser, b);
@@ -316,13 +264,14 @@ test('删除组：只有自己时直接删除；有其他组长时投票，一�
   await bell(pc).click();
   await expect(notificationList(pc)).toHaveText(/没有通知/);
   await pa.reload();
-  await expect((await openGroupPanel(pa)).getByRole('button', { name: '删除组' })).toBeVisible();
+  form = await editGroup(pa, groupName);
+  await expect(form.getByRole('button', { name: '删除组' })).toBeVisible();
   await expect(groupLink(pb, groupName)).toBeVisible();
 
   // 之后可以重新发起；乙、丙都同意才删除（组和组里的任务一起删掉）
-  await pa.locator('.group-panel').getByRole('button', { name: '删除组' }).click();
-  await pa.getByRole('alertdialog').getByRole('button', { name: '删除' }).click();
-  await expect(pa.locator('.group-panel').getByRole('status')).toHaveText('删除投票进行中');
+  await form.getByRole('button', { name: '删除组' }).click();
+  await confirmDialog(pa).getByRole('button', { name: '删除' }).click();
+  await expect(form.getByRole('status')).toHaveText('删除投票进行中');
   await pb.reload();
   await bell(pb).click();
   await notificationList(pb).getByRole('button', { name: '同意', exact: true }).click();

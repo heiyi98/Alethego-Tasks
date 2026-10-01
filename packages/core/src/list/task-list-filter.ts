@@ -15,11 +15,18 @@ export const LIST_SCOPES: readonly ListScope[] = ['all', 'starred'];
 export const DEFAULT_LIST_SCOPE: ListScope = 'all';
 
 /**
- * 状态（每个清单页面内、添加栏下面一行，单选）：全部 / 未完成 / 已完成 / 已错过。
+ * 状态（每个清单页面内、添加栏下面一行，单选）：全部 / 未完成 / 已完成 / 已错过；
+ * 管理组多一个"待确认"（已标记完成、还没确认）。
  */
-export type StatusFilter = 'all' | 'todo' | 'completed' | 'missed';
+export type StatusFilter = 'all' | 'todo' | 'completed' | 'missed' | 'pending';
 
-export const STATUS_FILTERS: readonly StatusFilter[] = ['all', 'todo', 'completed', 'missed'];
+export const STATUS_FILTERS: readonly StatusFilter[] = [
+  'all',
+  'todo',
+  'completed',
+  'missed',
+  'pending',
+];
 
 /** 默认状态：未完成 */
 export const DEFAULT_STATUS_FILTER: StatusFilter = 'todo';
@@ -55,7 +62,7 @@ export function deriveListStatus(
 }
 
 export function matchesStatusFilter(
-  task: Pick<Task, 'deadlineAt' | 'completedAt'>,
+  task: Pick<Task, 'deadlineAt' | 'completedAt'> & Partial<Pick<Task, 'confirmedAt'>>,
   filter: StatusFilter,
   now: Date,
 ): boolean {

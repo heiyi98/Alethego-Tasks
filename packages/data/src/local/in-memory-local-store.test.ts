@@ -198,7 +198,7 @@ describe('分类编辑', () => {
 describe('组（本地只有自己一人）', () => {
   it('建组、组任务只属于这个组；组任务不能用重要性和收藏；删除组连同组任务一起删除', async () => {
     const store = new InMemoryLocalStore({ ownerId: OWNER });
-    const group = await store.groups.create('  小组  ');
+    const group = await store.groups.create({ name: '  小组  ', kind: 'cooperative', color: null });
     expect(group).toMatchObject({ name: '小组', kind: 'cooperative', createdBy: OWNER });
     const task = await store.tasks.create({ title: '组任务', groupId: group.id });
     expect(task.groupId).toBe(group.id);

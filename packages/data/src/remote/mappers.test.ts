@@ -14,6 +14,7 @@ const row = {
   recurrence_rule: null,
   recurrence_dtstart: null,
   completed_at: null,
+  confirmed_at: null,
   is_starred: true,
   created_at: '2026-09-25T00:00:00+00:00',
   updated_at: '2026-09-25T00:00:00+00:00',
@@ -21,6 +22,18 @@ const row = {
 };
 
 describe('task mappers', () => {
+  it('待确认：完成了还没确认；补丁里的确认时间写入 confirmed_at', () => {
+    const pending = taskFromRow({
+      ...row,
+      completed_at: '2026-09-26T10:00:00+00:00',
+      confirmed_at: null,
+    });
+    expect(pending.confirmedAt).toBeNull();
+    expect(taskPatchToUpdate({ confirmedAt: new Date('2026-09-26T11:00:00Z') })).toEqual({
+      confirmed_at: '2026-09-26T11:00:00.000Z',
+    });
+  });
+
   it('行 → 领域对象', () => {
     expect(taskFromRow(row)).toMatchObject({
       id: 't1',

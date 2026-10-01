@@ -9,7 +9,7 @@ import {
   type TaskPerson,
   type TaskPersonDraft,
 } from '@alethego/core';
-import type { NewTask, TaskDetail, TaskPatch } from '@alethego/data';
+import type { AssignmentDraft, NewTask, TaskDetail, TaskPatch } from '@alethego/data';
 
 import { fromDateTimeLocalValue, fromDateValue, toDateValue, toTimeValue } from './format';
 import {
@@ -46,6 +46,8 @@ export interface TaskFormValue {
   recurrence: RecurrenceFormState;
   location: TaskLocationDraft;
   people: PersonRow[];
+  /** RACI（管理组）；其他容器为空 */
+  raci: AssignmentDraft[];
 }
 
 let rowSeq = 0;
@@ -64,6 +66,7 @@ export function emptyTaskForm(categoryIds: string[] = []): TaskFormValue {
     recurrence: { enabled: false, spec: null, customRule: null, dtstart: '' },
     location: { name: '', address: '' },
     people: [],
+    raci: [],
   };
 }
 
@@ -75,7 +78,11 @@ export function locationDraft(location: TaskLocation | null): TaskLocationDraft 
   return { name: location?.name ?? '', address: location?.address ?? '' };
 }
 
-export function taskFormFromDetail(detail: TaskDetail, timeZone: string): TaskFormValue {
+export function taskFormFromDetail(
+  detail: TaskDetail,
+  timeZone: string,
+  raci: readonly AssignmentDraft[] = [],
+): TaskFormValue {
   const { task } = detail;
   return {
     title: task.title,
@@ -89,7 +96,18 @@ export function taskFormFromDetail(detail: TaskDetail, timeZone: string): TaskFo
     recurrence: recurrenceFormFromTask(task),
     location: locationDraft(detail.location),
     people: peopleRows(detail.people),
+    raci: [...raci],
   };
+}
+
+/** 两组 RACI 是否相同（不计顺序） */
+export function sameRaci(a: readonly AssignmentDraft[], b: readonly AssignmentDraft[]): boolean {
+  const key = (rows: readonly AssignmentDraft[]) =>
+    rows
+      .map((r) => `${r.role}:${r.userId ?? ''}:${r.contactId ?? ''}`)
+      .sort()
+      .join('|');
+  return key(a) === key(b);
 }
 
 /** 截止日期（本地日期）+ 可选时刻 → 截止时间；没选时刻时取该日的本地日终点 */
@@ -103,7 +121,11 @@ export function deadlineFromForm(date: string, time: string, timeZone: string): 
 /** 新建草稿是否已填写了内容（用于"放弃"前的确认）；与页面默认值（所选分类、收藏里的标星）相同不算 */
 export function isDraftDirty(
   form: TaskFormValue,
-  defaults: { categoryIds: readonly string[]; isStarred: boolean },
+  defaults: {
+    categoryIds: readonly string[];
+    isStarred: boolean;
+    raci?: readonly AssignmentDraft[];
+  },
 ): boolean {
   const defaultCategoryIds = defaults.categoryIds;
   return (
@@ -117,7 +139,8 @@ export function isDraftDirty(
     form.location.name.trim() !== '' ||
     form.location.address.trim() !== '' ||
     form.people.some((p) => p.name.trim() || p.relation.trim()) ||
-    [...form.categoryIds].sort().join() !== [...defaultCategoryIds].sort().join()
+    [...form.categoryIds].sort().join() !== [...defaultCategoryIds].sort().join() ||
+    !sameRaci(form.raci, defaults.raci ?? [])
   );
 }
 

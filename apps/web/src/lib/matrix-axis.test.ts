@@ -19,6 +19,7 @@ const task = (id: string, deadlineAt: Date | null): Task => ({
   recurrenceRule: null,
   recurrenceDtstart: null,
   completedAt: null,
+  confirmedAt: null,
   isStarred: false,
   createdAt: sh('2026-10-01T00:00:00'),
   updatedAt: sh('2026-10-01T00:00:00'),

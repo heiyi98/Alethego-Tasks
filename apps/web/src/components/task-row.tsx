@@ -1,8 +1,15 @@
 'use client';
 
-import { deriveTaskStatus, type Category, type Task, type TaskStatus } from '@alethego/core';
+import {
+  deriveTaskStatus,
+  taskPermissions,
+  type Category,
+  type Task,
+  type TaskStatus,
+} from '@alethego/core';
 
 import { CategoryDot } from './category-dot';
+import { useCurrentGroup } from './current-group';
 import { usePanels } from './panel-provider';
 import { StarButton } from './task-editor';
 import { useTaskData } from './task-data-provider';
@@ -33,7 +40,22 @@ export function TaskRow({
   status?: TaskStatus;
 }) {
   const { active, open } = usePanels();
-  const { toggleStar } = useTaskData();
+  const { data, toggleStar } = useTaskData();
+  const { group, kind, me } = useCurrentGroup();
+  // 管理组：只有 R 能标记完成，R 或 A 能取消完成（含待确认）
+  const inThisGroup = task.groupId !== null && task.groupId === group?.id;
+  const myRaci = inThisGroup
+    ? (data?.assignmentsByTask.get(task.id) ?? [])
+        .filter((a) => a.userId !== null && a.userId === me?.userId)
+        .map((a) => a.role)
+    : [];
+  const perms = taskPermissions(
+    task.groupId === null ? 'personal' : kind,
+    group?.myRole ?? null,
+    myRaci,
+  );
+  const done = status === 'completed' || status === 'pending';
+  const canToggle = done ? perms.uncomplete : perms.complete;
   // 列表中点击任务：标题所在的这一行留在原位并变为可编辑，面板从它下方展开；再次点击收起
   const expanded =
     active?.kind === 'edit' && active.taskId === task.id && active.surface === 'inline';
@@ -82,7 +104,7 @@ export function TaskRow({
                   aria-label={checkboxLabel(form.completed)}
                   // 普通任务绑定面板里的完成状态（随自动保存写入）；循环任务完成当前这一次实例
                   checked={!recurring && form.completed}
-                  disabled={recurring && status === 'completed'}
+                  disabled={(recurring && status === 'completed') || !canToggle}
                   onChange={() =>
                     recurring ? onToggleComplete(task) : onChange({ completed: !form.completed })
                   }
@@ -115,10 +137,10 @@ export function TaskRow({
           <input
             type="checkbox"
             className="task-check"
-            aria-label={checkboxLabel(status === 'completed')}
+            aria-label={checkboxLabel(done)}
             // 循环任务的勾选框永远代表"当前这一次"，勾选后代表实例顺延到下一次
-            checked={!recurring && status === 'completed'}
-            disabled={recurring && status === 'completed'}
+            checked={!recurring && done}
+            disabled={(recurring && status === 'completed') || !canToggle}
             onChange={() => onToggleComplete(task)}
           />
         )}

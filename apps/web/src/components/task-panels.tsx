@@ -3,6 +3,7 @@
 import {
   normalizeLocationDraft,
   normalizePeopleDrafts,
+  taskPermissions,
   type Category,
   type RecurrenceOccurrence,
   type Task,
@@ -10,6 +11,7 @@ import {
 import { loadTaskDetail, saveTaskExtensions, syncOccurrences } from '@alethego/data';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 
+import { useCurrentGroup } from './current-group';
 import { useFeedback } from './feedback-provider';
 import { CheckCircleIcon, CheckIcon, IconButton, TrashIcon } from './icons';
 import { PanelSurface } from './panel-surface';
@@ -25,6 +27,7 @@ import {
   peopleRows,
   sameLocation,
   samePeople,
+  sameRaci,
   taskFormFromDetail,
   taskPatchFromForms,
   validateTaskForm,
@@ -48,6 +51,9 @@ export function useCreateTask(groupId: string | null = null) {
         try {
           if (!groupId && form.categoryIds.length > 0) {
             await repositories.categories.setTaskCategories(task.id, form.categoryIds);
+          }
+          if (groupId && form.raci.length > 0) {
+            await repositories.assignments.set(task.id, form.raci);
           }
           const location = normalizeLocationDraft(form.location);
           const people = normalizePeopleDrafts(form.people);
@@ -115,6 +121,9 @@ export function EditPanel({
   const { data, now, timeZone, reload } = useTaskData();
   const { close } = usePanels();
   const { showUndo } = useFeedback();
+  const { group, kind, features, members, contacts } = useCurrentGroup();
+  const dataRef = useRef(data);
+  dataRef.current = data;
 
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [form, setForm] = useState<TaskFormValue | null>(null);
@@ -144,7 +153,12 @@ export function EditPanel({
           timeZone,
         });
         if (cancelled) return;
-        const initial = taskFormFromDetail(detail, timeZone);
+        const raci = (dataRef.current?.assignmentsByTask.get(taskId) ?? []).map((a) => ({
+          role: a.role,
+          userId: a.userId,
+          contactId: a.contactId,
+        }));
+        const initial = taskFormFromDetail(detail, timeZone, raci);
         formRef.current = initial;
         savedRef.current = initial;
         taskRef.current = detail.task;
@@ -178,9 +192,11 @@ export function EditPanel({
       const extensionsChanged =
         !sameLocation(current.location, saved.location) ||
         !samePeople(current.people, saved.people);
+      const raciChanged = !sameRaci(current.raci, saved.raci);
       if (
         Object.keys(patch).length === 0 &&
         !categoriesChanged &&
+        !raciChanged &&
         !(extensionsChanged && people.ok)
       ) {
         setSaveState(Object.keys(validateTaskForm(current)).length > 0 ? 'invalid' : 'saved');
@@ -195,6 +211,7 @@ export function EditPanel({
         if (categoriesChanged) {
           await repositories.categories.setTaskCategories(task.id, current.categoryIds);
         }
+        if (raciChanged) await repositories.assignments.set(task.id, current.raci);
         let savedPeople: PersonRow[] = saved.people;
         let savedLocation = saved.location;
         if (extensionsChanged && people.ok) {
@@ -227,6 +244,7 @@ export function EditPanel({
           completed: current.recurrence.enabled ? saved.completed : current.completed,
           recurrence: patch.recurrenceRule !== undefined ? current.recurrence : saved.recurrence,
           categoryIds: current.categoryIds,
+          raci: current.raci,
           location: extensionsChanged && people.ok ? savedLocation : saved.location,
           people: extensionsChanged && people.ok ? savedPeople : saved.people,
         };
@@ -346,6 +364,9 @@ export function EditPanel({
   }
 
   const errors: FormErrors = validateTaskForm(form);
+  const myId = members.find((m) => m.isMe)?.userId;
+  const me = (raci: TaskFormValue['raci']) =>
+    raci.filter((a) => a.userId !== null && a.userId === myId).map((a) => a.role);
   const categories: Category[] = data?.categories ?? [];
 
   /** 历史中某次实例：勾上 = 已完成，没勾 = 未完成 */
@@ -368,28 +389,67 @@ export function EditPanel({
 
   // 组任务不使用重要性、分类和收藏
   const inGroup = loaded.task.groupId !== null;
+  // 管理组：内容由组长、管理员编辑；R 标记完成，A 确认或不通过
+  const myRaci = me(form.raci);
+  const perms = taskPermissions(kind, group?.myRole ?? null, myRaci);
+  const pending = loaded.task.completedAt !== null && loaded.task.confirmedAt === null;
+
+  /** A 确认完成 / 不通过（回到未完成） */
+  async function settle(approve: boolean) {
+    const task = taskRef.current;
+    if (!task) return;
+    try {
+      await saveNowRef.current();
+      const next = await repositories.tasks.update(
+        task.id,
+        approve ? { confirmedAt: new Date() } : { completedAt: null },
+      );
+      taskRef.current = next;
+      setLoaded((l) => (l ? { ...l, task: next } : l));
+      if (!approve) {
+        formRef.current = { ...formRef.current!, completed: false };
+        savedRef.current = { ...savedRef.current!, completed: false };
+        setForm((f) => (f ? { ...f, completed: false } : f));
+      }
+      void reload();
+    } catch (e) {
+      setSaveState('error');
+      setSaveError(errorMessage(e));
+    }
+  }
+  const confirmBar = pending && perms.confirm && (
+    <div className="confirm-bar" role="group" aria-label="完成确认">
+      <button type="button" className="button-primary button-small" onClick={() => settle(true)}>
+        确认
+      </button>
+      <button type="button" className="button-danger button-small" onClick={() => settle(false)}>
+        不通过
+      </button>
+    </div>
+  );
   const star = !inGroup && (
     <StarButton
       starred={form.isStarred}
       onToggle={() => onChange({ isStarred: !form.isStarred })}
     />
   );
-  const completeButton = !form.recurrence.enabled && (
-    <IconButton
-      label={form.completed ? '标记为未完成' : '标记为完成'}
-      className={form.completed ? 'icon-button-active' : ''}
-      aria-pressed={form.completed}
-      onClick={() => onChange({ completed: !form.completed })}
-    >
-      <CheckCircleIcon />
-    </IconButton>
-  );
-  const deleteButton = (
+  const completeButton = !form.recurrence.enabled &&
+    (form.completed ? perms.uncomplete : perms.complete) && (
+      <IconButton
+        label={form.completed ? '标记为未完成' : '标记为完成'}
+        className={form.completed ? 'icon-button-active' : ''}
+        aria-pressed={form.completed}
+        onClick={() => onChange({ completed: !form.completed })}
+      >
+        <CheckCircleIcon />
+      </IconButton>
+    );
+  const deleteButton = perms.edit && (
     <IconButton label="删除任务" className="icon-button-danger" onClick={deleteTask}>
       <TrashIcon />
     </IconButton>
   );
-  const setTitle = (title: string) => onChange({ title });
+  const setTitle = (title: string) => perms.edit && onChange({ title });
   // 任务已经存在：右侧是 ✓，点击立即保存并收起（改动本来就会自动保存）
   const doneButton = (
     <IconButton
@@ -415,7 +475,8 @@ export function EditPanel({
           aria-label="标题"
           placeholder="标题"
           value={form.title}
-          autoFocus={focusTitle}
+          autoFocus={focusTitle && perms.edit}
+          readOnly={!perms.edit}
           onChange={(event) => setTitle(event.target.value)}
         />
         <span className="task-title mobile-only">{form.title}</span>
@@ -434,6 +495,7 @@ export function EditPanel({
       className={inlineRow ? 'mobile-only' : ''}
       value={form.title}
       onChange={setTitle}
+      readOnly={!perms.edit}
       actions={
         <>
           {star}
@@ -448,12 +510,15 @@ export function EditPanel({
   return wrap(
     header,
     <>
+      {confirmBar}
       <TaskEditor
         value={form}
         onChange={onChange}
         errors={errors}
         categories={categories}
         inGroup={inGroup}
+        readOnly={!perms.edit}
+        raci={features.raci ? { members, contacts, editable: perms.edit } : undefined}
         records={loaded.records}
         onToggleRecord={toggleRecord}
         now={now}

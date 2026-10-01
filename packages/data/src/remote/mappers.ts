@@ -36,6 +36,10 @@ export function taskFromRow(row: TableRow<'tasks'>): Task {
     recurrenceRule: row.recurrence_rule,
     recurrenceDtstart: toNullableDate(row.recurrence_dtstart),
     completedAt: toNullableDate(row.completed_at),
+    // 迁移前的数据库没有这一列：视为完成即确认
+    confirmedAt: toNullableDate(
+      row.confirmed_at === undefined ? row.completed_at : row.confirmed_at,
+    ),
     isStarred: row.is_starred,
     createdAt: toDate(row.created_at),
     updatedAt: toDate(row.updated_at),
@@ -68,6 +72,7 @@ export function taskPatchToUpdate(patch: TaskPatch): TableUpdate<'tasks'> {
     update.recurrence_dtstart = toNullableIso(patch.recurrenceDtstart);
   }
   if (patch.completedAt !== undefined) update.completed_at = toNullableIso(patch.completedAt);
+  if (patch.confirmedAt !== undefined) update.confirmed_at = toNullableIso(patch.confirmedAt);
   if (patch.isStarred !== undefined) update.is_starred = patch.isStarred;
   return update;
 }

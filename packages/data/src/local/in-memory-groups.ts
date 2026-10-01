@@ -1,13 +1,25 @@
-import type { Group, GroupMember, Task } from '@alethego/core';
+import type {
+  Group,
+  GroupContact,
+  GroupKind,
+  GroupMember,
+  Task,
+  TaskAssignment,
+} from '@alethego/core';
 
 import { DataError } from '../errors';
 import type {
   DeletionRequestResult,
   DeletionVoteResult,
   GroupDeletionRequest,
+  AssignmentDraft,
   GroupNotification,
+  IAssignmentRepository,
   IGroupRepository,
   InviteResult,
+  LeaderRequest,
+  LeaveResult,
+  MemberTaskRole,
 } from '../interfaces/repositories';
 
 interface MemoryGroupState {
@@ -33,17 +45,27 @@ export class MemoryGroupRepository implements IGroupRepository {
     return [...this.groups.values()].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
   }
 
-  async create(name: string) {
-    const trimmed = name.trim();
+  async create(input: { name: string; kind: GroupKind; color: string | null }) {
+    const trimmed = input.name.trim();
     if (!trimmed) throw new DataError('invalid', '组名不能为空');
     const group: Group = {
       id: this.state.newId(),
-      kind: 'cooperative',
+      kind: input.kind,
       name: trimmed,
+      color: input.color,
       createdBy: this.state.ownerId,
       createdAt: this.state.now(),
+      myRole: 'leader',
     };
     this.groups.set(group.id, group);
+    return group;
+  }
+
+  async update(groupId: string, input: { name: string; color: string | null }) {
+    const trimmed = input.name.trim();
+    if (!trimmed) throw new DataError('invalid', '组名不能为空');
+    const group = { ...this.group(groupId), name: trimmed, color: input.color };
+    this.groups.set(groupId, group);
     return group;
   }
 
@@ -63,6 +85,8 @@ export class MemoryGroupRepository implements IGroupRepository {
         hasCustomNickname: nickname !== null,
         isMe: true,
         joinedAt: group.createdAt,
+        role: 'leader',
+        email: '',
       },
     ];
   }
@@ -115,7 +139,76 @@ export class MemoryGroupRepository implements IGroupRepository {
     return 'no_request';
   }
 
-  async processExpiredDeletions() {
+  async processTimeouts() {
     return 0;
+  }
+
+  async contacts(groupId: string): Promise<GroupContact[]> {
+    this.group(groupId);
+    return [...this.contactList.values()].filter((c) => c.groupId === groupId);
+  }
+
+  async addContact(groupId: string, name: string): Promise<GroupContact> {
+    this.group(groupId);
+    const contact = { id: this.state.newId(), groupId, name: name.trim() };
+    this.contactList.set(contact.id, contact);
+    return contact;
+  }
+
+  async removeContact(contactId: string) {
+    this.contactList.delete(contactId);
+  }
+
+  // 只有自己一个人：没有别的成员可以任命、踢出
+  async setRole(): Promise<void> {
+    throw new DataError('invalid', '组里没有别的成员');
+  }
+
+  async leaderRequests(): Promise<LeaderRequest[]> {
+    return [];
+  }
+
+  async requestLeader(): Promise<'appointed'> {
+    throw new DataError('invalid', '组里没有别的成员');
+  }
+
+  async voteLeader(): Promise<'no_request'> {
+    return 'no_request';
+  }
+
+  async memberTaskRoles(): Promise<MemberTaskRole[]> {
+    return [];
+  }
+
+  async removeMember(): Promise<'removed'> {
+    throw new DataError('invalid', '组里没有别的成员');
+  }
+
+  async leave(groupId: string): Promise<LeaveResult> {
+    const group = this.group(groupId);
+    // 管理组：唯一的组长不能退出；合作组：最后一个成员退出，组和任务一起删除
+    if (group.kind === 'management') return 'last_leader';
+    await this.requestDeletion(groupId);
+    return 'deleted';
+  }
+
+  async dismissNotification() {}
+
+  private readonly contactList = new Map<string, GroupContact>();
+}
+
+/** 本地存储里的 RACI */
+export class MemoryAssignmentRepository implements IAssignmentRepository {
+  private readonly byTask = new Map<string, TaskAssignment[]>();
+
+  async listForTasks(taskIds: readonly string[]) {
+    return taskIds.flatMap((id) => this.byTask.get(id) ?? []);
+  }
+
+  async set(taskId: string, assignments: readonly AssignmentDraft[]) {
+    this.byTask.set(
+      taskId,
+      assignments.map((a) => ({ ...a, taskId })),
+    );
   }
 }

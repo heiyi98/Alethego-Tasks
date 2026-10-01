@@ -97,3 +97,17 @@ describe('选择：范围 + 分类 + 状态', () => {
     expect(selectionHref({ ...personal(inGroup), categoryIds: ['a'] })).toBe('/?cat=a');
   });
 });
+
+describe('责任分配矩阵与待确认', () => {
+  it('管理组：?view=raci 切到责任分配矩阵，状态行多一个待确认', () => {
+    const raci = parse('/?group=g1&view=raci&status=pending');
+    expect(raci).toMatchObject({ mode: 'raci', groupId: 'g1', status: 'pending' });
+    expect(selectionHref(raci)).toBe('/?group=g1&view=raci&status=pending');
+    expect(selectionHref({ ...raci, mode: 'list' })).toBe('/?group=g1&status=pending');
+  });
+
+  it('回到个人：不带责任分配矩阵和待确认', () => {
+    const raci = parse('/?group=g1&view=raci&status=pending');
+    expect(selectionHref(personal(raci))).toBe('/');
+  });
+});

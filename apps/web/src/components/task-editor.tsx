@@ -1,6 +1,15 @@
 'use client';
 
-import type { Category, RecurrenceOccurrence } from '@alethego/core';
+import {
+  RACI_ROLES,
+  raciAllowsContacts,
+  type Category,
+  type GroupContact,
+  type GroupMember,
+  type RaciRole,
+  type RecurrenceOccurrence,
+} from '@alethego/core';
+import type { AssignmentDraft } from '@alethego/data';
 import { useState, type ReactNode } from 'react';
 
 import { CategoryDot } from './category-dot';
@@ -39,6 +48,7 @@ export function QuickOptionsRow({
   toggleLabel,
   actions,
   inGroup = false,
+  readOnly = false,
 }: {
   value: Pick<TaskFormValue, 'importanceLevel' | 'deadline' | 'deadlineTime' | 'recurrence'>;
   onChange: (patch: Partial<TaskFormValue>) => void;
@@ -49,98 +59,101 @@ export function QuickOptionsRow({
   actions?: ReactNode;
   /** 组任务：不显示重要性 */
   inGroup?: boolean;
+  /** 只能看不能改（管理组里的组员）：三角照常可用 */
+  readOnly?: boolean;
 }) {
   // 时刻输入框：已选时刻时一直显示；否则点时钟图标后显示（日期被清空 / 创建后草稿重置时收回时钟图标）
   const [timeOpen, setTimeOpen] = useState(false);
   const showTime = value.deadlineTime !== '' || (timeOpen && value.deadline !== '');
   return (
     <div className="quick-options">
-      {!inGroup && (
-        <div className="option" role="group" aria-label="重要性">
-          <FieldIcon label="重要性">
-            <FlagIcon size={16} />
-          </FieldIcon>
-          <div className="mini-segmented">
-            {IMPORTANCE_LEVELS.map((level) => (
-              <button
-                key={level}
-                type="button"
-                aria-pressed={value.importanceLevel === level}
-                aria-label={`重要性 ${level}`}
-                onClick={() => onChange({ importanceLevel: level })}
-              >
-                {level}
-              </button>
-            ))}
+      <fieldset className="editor-fieldset quick-options-fields" disabled={readOnly}>
+        {!inGroup && (
+          <div className="option" role="group" aria-label="重要性">
+            <FieldIcon label="重要性">
+              <FlagIcon size={16} />
+            </FieldIcon>
+            <div className="mini-segmented">
+              {IMPORTANCE_LEVELS.map((level) => (
+                <button
+                  key={level}
+                  type="button"
+                  aria-pressed={value.importanceLevel === level}
+                  aria-label={`重要性 ${level}`}
+                  onClick={() => onChange({ importanceLevel: level })}
+                >
+                  {level}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {!value.recurrence.enabled && (
-        <div className="option">
-          <FieldIcon label="截止日期">
-            <CalendarIcon size={16} />
-          </FieldIcon>
-          <input
-            type="date"
-            aria-label="截止日期"
-            className={`date-input${value.deadline ? '' : ' date-input-empty'}`}
-            value={value.deadline}
-            onChange={(event) =>
-              // 清空日期时一并清空时刻
-              onChange(
-                event.target.value
-                  ? { deadline: event.target.value }
-                  : { deadline: '', deadlineTime: '' },
-              )
-            }
-          />
-          {showTime ? (
-            <>
-              <input
-                type="time"
-                aria-label="截止时刻"
-                className={`date-input time-input${value.deadlineTime ? '' : ' date-input-empty'}`}
-                value={value.deadlineTime}
-                autoFocus={timeOpen && !value.deadlineTime}
-                onChange={(event) => onChange({ deadlineTime: event.target.value })}
-              />
+        {!value.recurrence.enabled && (
+          <div className="option">
+            <FieldIcon label="截止日期">
+              <CalendarIcon size={16} />
+            </FieldIcon>
+            <input
+              type="date"
+              aria-label="截止日期"
+              className={`date-input${value.deadline ? '' : ' date-input-empty'}`}
+              value={value.deadline}
+              onChange={(event) =>
+                // 清空日期时一并清空时刻
+                onChange(
+                  event.target.value
+                    ? { deadline: event.target.value }
+                    : { deadline: '', deadlineTime: '' },
+                )
+              }
+            />
+            {showTime ? (
+              <>
+                <input
+                  type="time"
+                  aria-label="截止时刻"
+                  className={`date-input time-input${value.deadlineTime ? '' : ' date-input-empty'}`}
+                  value={value.deadlineTime}
+                  autoFocus={timeOpen && !value.deadlineTime}
+                  onChange={(event) => onChange({ deadlineTime: event.target.value })}
+                />
+                <IconButton
+                  label="清除时刻"
+                  className="icon-button-small"
+                  onClick={() => {
+                    setTimeOpen(false);
+                    onChange({ deadlineTime: '' });
+                  }}
+                >
+                  <XIcon size={14} />
+                </IconButton>
+              </>
+            ) : (
               <IconButton
-                label="清除时刻"
+                label="选择时刻"
                 className="icon-button-small"
                 onClick={() => {
-                  setTimeOpen(false);
-                  onChange({ deadlineTime: '' });
+                  setTimeOpen(true);
+                  // 还没选日期时默认今天
+                  if (!value.deadline) onChange({ deadline: toDateValue(new Date()) });
                 }}
+              >
+                <ClockIcon size={16} />
+              </IconButton>
+            )}
+            {value.deadline && !showTime && (
+              <IconButton
+                label="清除截止日期"
+                className="icon-button-small"
+                onClick={() => onChange({ deadline: '', deadlineTime: '' })}
               >
                 <XIcon size={14} />
               </IconButton>
-            </>
-          ) : (
-            <IconButton
-              label="选择时刻"
-              className="icon-button-small"
-              onClick={() => {
-                setTimeOpen(true);
-                // 还没选日期时默认今天
-                if (!value.deadline) onChange({ deadline: toDateValue(new Date()) });
-              }}
-            >
-              <ClockIcon size={16} />
-            </IconButton>
-          )}
-          {value.deadline && !showTime && (
-            <IconButton
-              label="清除截止日期"
-              className="icon-button-small"
-              onClick={() => onChange({ deadline: '', deadlineTime: '' })}
-            >
-              <XIcon size={14} />
-            </IconButton>
-          )}
-        </div>
-      )}
-
+            )}
+          </div>
+        )}
+      </fieldset>
       {actions && <div className="quick-options-actions desktop-only">{actions}</div>}
       <IconButton
         label={toggleLabel}
@@ -162,12 +175,14 @@ export function EditorTitleRow({
   actions,
   className = '',
   placeholder = '标题',
+  readOnly = false,
 }: {
   value: string;
   onChange: (title: string) => void;
   actions: ReactNode;
   className?: string;
   placeholder?: string;
+  readOnly?: boolean;
 }) {
   return (
     <div className={`editor-title-row ${className}`}>
@@ -176,6 +191,7 @@ export function EditorTitleRow({
         aria-label="标题"
         placeholder={placeholder}
         value={value}
+        readOnly={readOnly}
         onChange={(event) => onChange(event.target.value)}
       />
       <div className="editor-actions">{actions}</div>
@@ -203,6 +219,8 @@ export function TaskEditor({
   errors,
   categories,
   inGroup = false,
+  raci,
+  readOnly = false,
   records,
   onToggleRecord,
   now,
@@ -219,6 +237,10 @@ export function TaskEditor({
   categories: readonly Category[];
   /** 组任务：不显示重要性和分类（收藏由外层决定是否显示） */
   inGroup?: boolean;
+  /** 用 RACI 的组（管理组）：可选的成员与只有名字的人；editable = 能不能改 */
+  raci?: { members: readonly GroupMember[]; contacts: readonly GroupContact[]; editable: boolean };
+  /** 只能看不能改（管理组里的组员） */
+  readOnly?: boolean;
   records: readonly RecurrenceOccurrence[];
   /** 切换历史中某次实例的完成状态（编辑已有循环任务时） */
   onToggleRecord?: (record: RecurrenceOccurrence, completed: boolean) => void;
@@ -261,131 +283,243 @@ export function TaskEditor({
         toggleLabel="收起"
         actions={optionsActions}
         inGroup={inGroup}
+        readOnly={readOnly}
       />
 
-      <div className="editor-field">
-        <FieldIcon label="描述">
-          <TextIcon />
-        </FieldIcon>
-        <textarea
-          aria-label="描述"
-          placeholder="描述"
-          rows={2}
-          value={value.description}
-          onChange={(event) => onChange({ description: event.target.value })}
+      {raci && (
+        <RaciField
+          value={value.raci}
+          onChange={(next) => onChange({ raci: next })}
+          members={raci.members}
+          contacts={raci.contacts}
+          editable={raci.editable}
         />
-      </div>
-
-      {!inGroup && (
-        <div className="editor-field" role="group" aria-label="分类">
-          <FieldIcon label="分类">
-            <TagIcon />
-          </FieldIcon>
-          {categories.length === 0 ? (
-            <span className="muted">—</span>
-          ) : (
-            <div className="chip-row">
-              {categories.map((category) => (
-                <button
-                  key={category.id}
-                  type="button"
-                  className="chip chip-compact"
-                  aria-pressed={value.categoryIds.includes(category.id)}
-                  onClick={() => toggleCategory(category.id)}
-                >
-                  <CategoryDot color={category.color} />
-                  {category.name}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
       )}
 
-      <div className="editor-field editor-field-top">
-        <FieldIcon label="重复">
-          <RepeatIcon />
-        </FieldIcon>
-        <div className="editor-field-body">
-          <RecurrenceEditor
-            fallbackStart={fallbackStart ?? fromDateValue(value.deadline)}
-            value={value.recurrence}
-            onChange={(recurrence) => onChange({ recurrence })}
-            records={records}
-            onToggleRecord={onToggleRecord}
-            now={now}
-            timeZone={timeZone}
-          />
-          {errors.recurrence && <p className="field-error">{errors.recurrence}</p>}
-        </div>
-      </div>
-
-      <div className="editor-field" role="group" aria-label="地点">
-        <FieldIcon label="地点">
-          <LocationIcon />
-        </FieldIcon>
-        <div className="field-pair">
-          <input
-            aria-label="地点名称"
-            placeholder="地点"
-            value={value.location.name}
-            onChange={(event) =>
-              onChange({ location: { ...value.location, name: event.target.value } })
-            }
-          />
-          <input
-            aria-label="地址"
-            placeholder="地址"
-            value={value.location.address}
-            onChange={(event) =>
-              onChange({ location: { ...value.location, address: event.target.value } })
-            }
+      <fieldset className="editor-fieldset" disabled={readOnly}>
+        <div className="editor-field">
+          <FieldIcon label="描述">
+            <TextIcon />
+          </FieldIcon>
+          <textarea
+            aria-label="描述"
+            placeholder="描述"
+            rows={2}
+            value={value.description}
+            onChange={(event) => onChange({ description: event.target.value })}
           />
         </div>
-      </div>
 
-      <div className="editor-field editor-field-top" role="group" aria-label="人物">
-        <FieldIcon label="人物">
-          <PersonIcon />
-        </FieldIcon>
-        <div className="editor-field-body">
-          {value.people.length > 0 && (
-            <ul className="people-list">
-              {value.people.map((person, index) => (
-                <li key={person.key} className="person-row">
-                  <input
-                    aria-label={`第 ${index + 1} 个人物的姓名`}
-                    placeholder="姓名"
-                    value={person.name}
-                    onChange={(event) => setPerson(person.key, { name: event.target.value })}
-                  />
-                  <input
-                    aria-label={`第 ${index + 1} 个人物的关系`}
-                    placeholder="关系"
-                    value={person.relation}
-                    onChange={(event) => setPerson(person.key, { relation: event.target.value })}
-                  />
-                  <IconButton
-                    label={`删除第 ${index + 1} 个人物`}
-                    onClick={() => onRemovePerson(index)}
+        {!inGroup && (
+          <div className="editor-field" role="group" aria-label="分类">
+            <FieldIcon label="分类">
+              <TagIcon />
+            </FieldIcon>
+            {categories.length === 0 ? (
+              <span className="muted">—</span>
+            ) : (
+              <div className="chip-row">
+                {categories.map((category) => (
+                  <button
+                    key={category.id}
+                    type="button"
+                    className="chip chip-compact"
+                    aria-pressed={value.categoryIds.includes(category.id)}
+                    onClick={() => toggleCategory(category.id)}
                   >
-                    <TrashIcon size={16} />
-                  </IconButton>
-                </li>
-              ))}
-            </ul>
-          )}
-          <IconButton
-            label="添加人物"
-            className="add-person"
-            onClick={() =>
-              onChange({ people: [...value.people, { key: newRowKey(), name: '', relation: '' }] })
-            }
-          >
-            <PersonAddIcon />
-          </IconButton>
-          {errors.people && <p className="field-error">{errors.people}</p>}
+                    <CategoryDot color={category.color} />
+                    {category.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="editor-field editor-field-top">
+          <FieldIcon label="重复">
+            <RepeatIcon />
+          </FieldIcon>
+          <div className="editor-field-body">
+            <RecurrenceEditor
+              fallbackStart={fallbackStart ?? fromDateValue(value.deadline)}
+              value={value.recurrence}
+              onChange={(recurrence) => onChange({ recurrence })}
+              records={records}
+              onToggleRecord={onToggleRecord}
+              now={now}
+              timeZone={timeZone}
+            />
+            {errors.recurrence && <p className="field-error">{errors.recurrence}</p>}
+          </div>
         </div>
+
+        <div className="editor-field" role="group" aria-label="地点">
+          <FieldIcon label="地点">
+            <LocationIcon />
+          </FieldIcon>
+          <div className="field-pair">
+            <input
+              aria-label="地点名称"
+              placeholder="地点"
+              value={value.location.name}
+              onChange={(event) =>
+                onChange({ location: { ...value.location, name: event.target.value } })
+              }
+            />
+            <input
+              aria-label="地址"
+              placeholder="地址"
+              value={value.location.address}
+              onChange={(event) =>
+                onChange({ location: { ...value.location, address: event.target.value } })
+              }
+            />
+          </div>
+        </div>
+
+        <div className="editor-field editor-field-top" role="group" aria-label="人物">
+          <FieldIcon label="人物">
+            <PersonIcon />
+          </FieldIcon>
+          <div className="editor-field-body">
+            {value.people.length > 0 && (
+              <ul className="people-list">
+                {value.people.map((person, index) => (
+                  <li key={person.key} className="person-row">
+                    <input
+                      aria-label={`第 ${index + 1} 个人物的姓名`}
+                      placeholder="姓名"
+                      value={person.name}
+                      onChange={(event) => setPerson(person.key, { name: event.target.value })}
+                    />
+                    <input
+                      aria-label={`第 ${index + 1} 个人物的关系`}
+                      placeholder="关系"
+                      value={person.relation}
+                      onChange={(event) => setPerson(person.key, { relation: event.target.value })}
+                    />
+                    <IconButton
+                      label={`删除第 ${index + 1} 个人物`}
+                      onClick={() => onRemovePerson(index)}
+                    >
+                      <TrashIcon size={16} />
+                    </IconButton>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <IconButton
+              label="添加人物"
+              className="add-person"
+              onClick={() =>
+                onChange({
+                  people: [...value.people, { key: newRowKey(), name: '', relation: '' }],
+                })
+              }
+            >
+              <PersonAddIcon />
+            </IconButton>
+            {errors.people && <p className="field-error">{errors.people}</p>}
+          </div>
+        </div>
+      </fieldset>
+    </div>
+  );
+}
+
+/** 人：组内成员（u:id）或只有名字的人（c:id） */
+const keyOf = (a: Pick<AssignmentDraft, 'userId' | 'contactId'>) =>
+  a.userId ? `u:${a.userId}` : `c:${a.contactId}`;
+
+/**
+ * RACI：每个字母一行，列出已选的人；能改时每个人后面有 ✕，最后是添加的下拉框。
+ * R、A 只能选组内成员；C、I 还可以选只有名字的人。每个字母不限人数。
+ */
+function RaciField({
+  value,
+  onChange,
+  members,
+  contacts,
+  editable,
+}: {
+  value: readonly AssignmentDraft[];
+  onChange: (next: AssignmentDraft[]) => void;
+  members: readonly GroupMember[];
+  contacts: readonly GroupContact[];
+  editable: boolean;
+}) {
+  const nameOf = (a: AssignmentDraft) =>
+    a.userId
+      ? (members.find((m) => m.userId === a.userId)?.nickname ?? '')
+      : (contacts.find((c) => c.id === a.contactId)?.name ?? '');
+
+  return (
+    <div className="editor-field editor-field-top raci-field" role="group" aria-label="RACI">
+      <div className="raci-rows">
+        {RACI_ROLES.map((role) => {
+          const chosen = value.filter((a) => a.role === role);
+          const chosenKeys = new Set(chosen.map(keyOf));
+          const options = [
+            ...members.map((m) => ({ key: `u:${m.userId}`, name: m.nickname })),
+            ...(raciAllowsContacts(role)
+              ? contacts.map((c) => ({ key: `c:${c.id}`, name: c.name }))
+              : []),
+          ].filter((o) => !chosenKeys.has(o.key));
+          return (
+            <div key={role} className="raci-row" role="group" aria-label={role}>
+              <span className="raci-letter" aria-hidden>
+                {role}
+              </span>
+              <div className="chip-row">
+                {chosen.map((a) => (
+                  <span key={keyOf(a)} className="chip chip-compact raci-chip">
+                    {nameOf(a)}
+                    {editable && (
+                      <IconButton
+                        label={`从 ${role} 中去掉「${nameOf(a)}」`}
+                        className="icon-button-small"
+                        onClick={() =>
+                          onChange(value.filter((x) => !(x.role === role && keyOf(x) === keyOf(a))))
+                        }
+                      >
+                        <XIcon size={12} />
+                      </IconButton>
+                    )}
+                  </span>
+                ))}
+                {!editable && chosen.length === 0 && <span className="muted">—</span>}
+                {editable && options.length > 0 && (
+                  <select
+                    className="raci-add"
+                    aria-label={`添加 ${role}`}
+                    value=""
+                    onChange={(event) => {
+                      const key = event.target.value;
+                      if (!key) return;
+                      const [kind, id] = [key.slice(0, 1), key.slice(2)];
+                      onChange([
+                        ...value,
+                        {
+                          role: role as RaciRole,
+                          userId: kind === 'u' ? id : null,
+                          contactId: kind === 'c' ? id : null,
+                        },
+                      ]);
+                    }}
+                  >
+                    <option value="">＋</option>
+                    {options.map((o) => (
+                      <option key={o.key} value={o.key}>
+                        {o.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

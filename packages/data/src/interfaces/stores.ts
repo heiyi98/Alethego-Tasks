@@ -1,4 +1,5 @@
 import type {
+  IAssignmentRepository,
   ICategoryRepository,
   IGroupRepository,
   IOccurrenceRepository,
@@ -17,6 +18,8 @@ export interface DataStore {
   people: ITaskPeopleRepository;
   /** 组：名单、邀请、删除组的投票、通知 */
   groups: IGroupRepository;
+  /** 任务上的 RACI（管理组） */
+  assignments: IAssignmentRepository;
 }
 
 /** 只管与 Supabase 通信。 */

@@ -51,6 +51,7 @@ describe('listDeadlineOf', () => {
     recurrenceRule: null,
     recurrenceDtstart: null,
     completedAt: null,
+    confirmedAt: null,
     isStarred: false,
     createdAt: sh('2026-09-01T00:00:00'),
     updatedAt: sh('2026-09-01T00:00:00'),

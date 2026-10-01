@@ -166,6 +166,22 @@ export const GroupIcon = (p: IconProps) => (
   </Svg>
 );
 
+/** 责任分配矩阵（表格） */
+export const RaciIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
+    <path d="M3.5 9.5h17M9 4.5v15M14.5 4.5v15" />
+  </Svg>
+);
+/** 更多操作 */
+export const MoreIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <circle cx="6" cy="12" r="1.2" fill="currentColor" />
+    <circle cx="12" cy="12" r="1.2" fill="currentColor" />
+    <circle cx="18" cy="12" r="1.2" fill="currentColor" />
+  </Svg>
+);
+
 /** 只有图标的按钮：必须有 aria-label（给读屏软件，不显示；没有悬停提示） */
 export function IconButton({
   label,

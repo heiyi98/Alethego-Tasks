@@ -1,6 +1,13 @@
 'use client';
 
-import type { Category, Group, RecurrenceOccurrence, Task } from '@alethego/core';
+import {
+  CONTAINER_FEATURES,
+  type Category,
+  type Group,
+  type RecurrenceOccurrence,
+  type Task,
+  type TaskAssignment,
+} from '@alethego/core';
 import { syncOccurrences, type GroupNotification } from '@alethego/data';
 import { useCallback, useEffect, useState } from 'react';
 
@@ -15,14 +22,16 @@ export interface TaskListData {
   occurrencesByTask: Map<string, RecurrenceOccurrence[]>;
   /** 我所在的所有组 */
   groups: Group[];
-  /** 应用内通知（入组邀请、删除组的投票）与上次打开通知的时间 */
+  /** 任务上的 RACI（只有用 RACI 的组的任务） */
+  assignmentsByTask: Map<string, TaskAssignment[]>;
+  /** 应用内通知与上次打开通知的时间 */
   notifications: GroupNotification[];
   notificationsSeenAt: Date | null;
 }
 
 /**
- * 列表 / 矩阵页数据：任务（个人与我所在组的）+ 分类 + 分类关联 + 循环实例记录 + 组 + 通知。
- * 筛选在客户端完成，切换筛选无需重新请求。
+ * 所有看法（清单、时间管理矩阵、责任分配矩阵……）共用的数据：任务（个人与我所在组的）+ 分类 +
+ * 分类关联 + 循环实例记录 + RACI + 组 + 通知。各看法只负责怎么画；筛选在客户端完成，切换无需重新请求。
  */
 export function useTaskListData() {
   const repositories = useRepositories();
@@ -31,8 +40,8 @@ export function useTaskListData() {
 
   const reload = useCallback(async () => {
     try {
-      // 没有后台定时任务：打开 TaskApp 时检查删除组的投票是否已满一周（满一周未操作算作同意）
-      await repositories.groups.processExpiredDeletions();
+      // 没有后台定时任务：打开 TaskApp 时检查投票是否超时（删除组一周、任命组长三天，未操作算作同意）
+      await repositories.groups.processTimeouts();
       const [tasks, categories, groups, notifications] = await Promise.all([
         repositories.tasks.list(),
         repositories.categories.list(),
@@ -40,7 +49,13 @@ export function useTaskListData() {
         repositories.groups.notifications(),
       ]);
       const recurring = tasks.filter((task) => task.recurrenceRule);
-      const [categoryIdsByTask, occurrences] = await Promise.all([
+      const raciGroups = new Set(
+        groups.filter((g) => CONTAINER_FEATURES[g.kind].raci).map((g) => g.id),
+      );
+      const raciTaskIds = tasks
+        .filter((task) => task.groupId && raciGroups.has(task.groupId))
+        .map((task) => task.id);
+      const [categoryIdsByTask, occurrences, assignments] = await Promise.all([
         repositories.categories.listCategoryIdsByTask(tasks.map((task) => task.id)),
         // 读取时顺带执行归档（生成已出现实例的记录、把被取代的 pending 标为 missed）
         Promise.all(
@@ -51,13 +66,21 @@ export function useTaskListData() {
             }),
           ),
         ),
+        repositories.assignments.listForTasks(raciTaskIds),
       ]);
+      const assignmentsByTask = new Map<string, TaskAssignment[]>();
+      for (const assignment of assignments) {
+        const list = assignmentsByTask.get(assignment.taskId) ?? [];
+        list.push(assignment);
+        assignmentsByTask.set(assignment.taskId, list);
+      }
       const occurrencesByTask = new Map(recurring.map((task, i) => [task.id, occurrences[i]!]));
       setData({
         tasks,
         categories,
         categoryIdsByTask,
         occurrencesByTask,
+        assignmentsByTask,
         groups,
         notifications: notifications.items,
         notificationsSeenAt: notifications.seenAt,

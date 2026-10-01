@@ -25,10 +25,11 @@ import type {
   NewTask,
   TaskListQuery,
   TaskPatch,
+  IAssignmentRepository,
   IGroupRepository,
 } from '../interfaces/repositories';
 import type { ILocalStore } from '../interfaces/stores';
-import { MemoryGroupRepository } from './in-memory-groups';
+import { MemoryAssignmentRepository, MemoryGroupRepository } from './in-memory-groups';
 import {
   validateCategoryInput,
   validateNewTask,
@@ -101,6 +102,7 @@ class MemoryTaskRepository implements ITaskRepository {
       recurrenceRule: valid.recurrenceRule ?? null,
       recurrenceDtstart: valid.recurrenceDtstart ?? null,
       completedAt: null,
+      confirmedAt: null,
       isStarred: valid.isStarred ?? false,
       createdAt: now,
       updatedAt: now,
@@ -111,11 +113,14 @@ class MemoryTaskRepository implements ITaskRepository {
   }
 
   async update(id: string, patch: TaskPatch) {
-    const updated: Task = {
+    const merged: Task = {
       ...this.active(id),
       ...validateTaskPatch(patch),
       updatedAt: this.state.now(),
     };
+    // 本机只有自己一个人（既是 R 又是 A）：完成即确认
+    const updated: Task =
+      patch.completedAt !== undefined ? { ...merged, confirmedAt: merged.completedAt } : merged;
     this.state.tasks.set(id, updated);
     return updated;
   }
@@ -356,6 +361,7 @@ export class InMemoryLocalStore implements ILocalStore {
   readonly locations: ITaskLocationRepository;
   readonly people: ITaskPeopleRepository;
   readonly groups: IGroupRepository;
+  readonly assignments: IAssignmentRepository;
 
   constructor(options: InMemoryLocalStoreOptions) {
     const state: MemoryState = {
@@ -375,5 +381,6 @@ export class InMemoryLocalStore implements ILocalStore {
     this.locations = new MemoryTaskLocationRepository(state);
     this.people = new MemoryTaskPeopleRepository(state);
     this.groups = new MemoryGroupRepository(state);
+    this.assignments = new MemoryAssignmentRepository();
   }
 }

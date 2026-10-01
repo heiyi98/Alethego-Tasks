@@ -12,6 +12,21 @@ export type OccurrenceStatusEnum = 'pending' | 'completed' | 'missed';
 
 export type GroupKindEnum = 'cooperative' | 'management' | 'education';
 
+export type GroupRoleEnum = 'leader' | 'admin' | 'member';
+
+export type RaciRoleEnum = 'R' | 'A' | 'C' | 'I';
+
+export type NotificationKindEnum =
+  | 'group_invitation'
+  | 'group_deletion_vote'
+  | 'group_leader_vote'
+  | 'task_assigned'
+  | 'task_completed'
+  | 'task_rejected'
+  | 'task_changed';
+
+type NoWrite = { [_ in never]: never };
+
 export interface Database {
   taskapp: {
     Tables: {
@@ -20,6 +35,7 @@ export interface Database {
           id: string;
           kind: GroupKindEnum;
           name: string;
+          color: string | null;
           created_by: string;
           created_at: string;
           updated_at: string;
@@ -32,7 +48,7 @@ export interface Database {
         Row: {
           group_id: string;
           user_id: string;
-          role: 'leader' | 'member';
+          role: GroupRoleEnum;
           nickname: string | null;
           joined_at: string;
         };
@@ -62,6 +78,43 @@ export interface Database {
         Row: { group_id: string; user_id: string; voted_at: string };
         Insert: { [_ in never]: never };
         Update: { [_ in never]: never };
+        Relationships: [];
+      };
+      group_contacts: {
+        Row: { id: string; group_id: string; name: string; created_by: string; created_at: string };
+        Insert: NoWrite;
+        Update: NoWrite;
+        Relationships: [];
+      };
+      task_assignments: {
+        Row: {
+          id: string;
+          task_id: string;
+          role: RaciRoleEnum;
+          user_id: string | null;
+          contact_id: string | null;
+          created_at: string;
+        };
+        Insert: NoWrite;
+        Update: NoWrite;
+        Relationships: [];
+      };
+      group_leader_requests: {
+        Row: {
+          id: string;
+          group_id: string;
+          candidate_id: string;
+          initiated_by: string;
+          started_at: string;
+        };
+        Insert: NoWrite;
+        Update: NoWrite;
+        Relationships: [];
+      };
+      group_leader_votes: {
+        Row: { request_id: string; user_id: string; voted_at: string };
+        Insert: NoWrite;
+        Update: NoWrite;
         Relationships: [];
       };
       users: {
@@ -103,6 +156,7 @@ export interface Database {
           recurrence_rule: string | null;
           recurrence_dtstart: string | null;
           completed_at: string | null;
+          confirmed_at: string | null;
           is_starred: boolean;
           created_at: string;
           updated_at: string;
@@ -119,6 +173,7 @@ export interface Database {
           recurrence_rule?: string | null;
           recurrence_dtstart?: string | null;
           completed_at?: string | null;
+          confirmed_at?: string | null;
           is_starred?: boolean;
           created_at?: string;
           updated_at?: string;
@@ -135,6 +190,7 @@ export interface Database {
           recurrence_rule?: string | null;
           recurrence_dtstart?: string | null;
           completed_at?: string | null;
+          confirmed_at?: string | null;
           is_starred?: boolean;
           created_at?: string;
           updated_at?: string;
@@ -328,8 +384,50 @@ export interface Database {
           has_custom_nickname: boolean;
           is_me: boolean;
           joined_at: string;
+          role: GroupRoleEnum;
+          email: string;
         }[];
       };
+      create_group_v2: {
+        Args: { p_name: string; p_kind: GroupKindEnum; p_color: string | null };
+        Returns: Database['taskapp']['Tables']['groups']['Row'];
+      };
+      update_group: {
+        Args: { p_group_id: string; p_name: string; p_color: string | null };
+        Returns: Database['taskapp']['Tables']['groups']['Row'];
+      };
+      add_group_contact: {
+        Args: { p_group_id: string; p_name: string };
+        Returns: Database['taskapp']['Tables']['group_contacts']['Row'];
+      };
+      remove_group_contact: { Args: { p_contact_id: string }; Returns: undefined };
+      set_task_raci: { Args: { p_task_id: string; p_assignments: Json }; Returns: undefined };
+      set_group_member_role: {
+        Args: { p_group_id: string; p_user_id: string; p_role: 'admin' | 'member' };
+        Returns: undefined;
+      };
+      request_leader_appointment: {
+        Args: { p_group_id: string; p_user_id: string };
+        Returns: 'appointed' | 'requested' | 'already_requested';
+      };
+      vote_leader_appointment: {
+        Args: { p_request_id: string; p_agree: boolean };
+        Returns: 'appointed' | 'agreed' | 'cancelled' | 'no_request';
+      };
+      member_task_roles: {
+        Args: { p_group_id: string; p_user_id: string };
+        Returns: { task_id: string; task_title: string; role: RaciRoleEnum }[];
+      };
+      remove_group_member: {
+        Args: { p_group_id: string; p_user_id: string };
+        Returns: 'removed' | 'blocked';
+      };
+      leave_group: {
+        Args: { p_group_id: string };
+        Returns: 'left' | 'deleted' | 'blocked' | 'last_leader';
+      };
+      process_group_timeouts: { Args: Record<string, never>; Returns: number };
+      dismiss_notification: { Args: { p_id: string }; Returns: undefined };
       invite_to_group: {
         Args: { p_group_id: string; p_email: string };
         Returns: 'invited' | 'already_invited' | 'already_member' | 'self';
@@ -348,12 +446,15 @@ export interface Database {
       my_notifications: {
         Args: Record<string, never>;
         Returns: {
-          kind: 'group_invitation' | 'group_deletion_vote';
+          kind: NotificationKindEnum;
           id: string;
           group_id: string;
           group_name: string;
-          actor_name: string;
+          actor_name: string | null;
           created_at: string;
+          task_id: string | null;
+          task_title: string | null;
+          subject_name: string | null;
         }[];
       };
       mark_notifications_seen: { Args: Record<string, never>; Returns: string };

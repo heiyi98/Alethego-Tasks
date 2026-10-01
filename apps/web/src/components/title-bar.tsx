@@ -1,117 +1,112 @@
 'use client';
 
+import { CONTAINER_FEATURES } from '@alethego/core';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
 import { CategoryDot } from './category-dot';
-import { CategoryForm } from './category-form';
-import { GroupPanel } from './group-panel';
-import { IconButton, XIcon } from './icons';
+import { useCurrentGroup } from './current-group';
+import { GroupIcon, IconButton, ListIcon, RaciIcon, XIcon } from './icons';
+import { RosterDialog } from './roster-dialog';
 import { useSelection } from './selection';
 import { useTaskData } from './task-data-provider';
 import { selectionHref, toggleCategory } from '@/lib/selection';
 
 /**
- * 页面标题栏（清单页与矩阵页共用）：
- * - 收藏：永远只显示"收藏"（分类筛选照常生效，侧边栏的分类开关保持高亮）
- * - 没选分类：显示"总览"
- * - 在组里：组名；点它在标题栏下方原地展开组的面板（名单、昵称、邀请、删除组）
- * - 选了分类：每个分类一个胶囊（名字 + ✕）。点 ✕ 取消这个分类的选择；点名字在标题栏下方原地展开
- *   这个分类的编辑表单（不是浮层）；分类描述只在编辑表单里显示
- *
- * 标题栏由一栏或多栏组成，每栏高度固定；胶囊放不下时另起一栏。栏数不变时下方内容不动。
+ * 页面标题行（所有看法共用），高度固定：不管显示哪些按钮，标题和下面的快速添加栏都不上下移动。
+ * - 收藏：只显示"收藏"；没选分类：显示"总览"
+ * - 选了分类：每个分类一个胶囊（名字 + ✕）。名字不能点，只有 ✕ 取消选择；放不下时左右滑动
+ * - 在组里：组名（不能点）+ 右边的名单按钮（打开名单窗口）；有多种看法的组在最右边放切换按钮
  */
 export function TitleBar() {
-  const { data, reload } = useTaskData();
+  const { data } = useTaskData();
   const selection = useSelection();
   const router = useRouter();
-  const [editing, setEditing] = useState<string | null>(null);
+  const { group } = useCurrentGroup();
+  const [rosterOpen, setRosterOpen] = useState(false);
 
   const go = (href: string) => router.replace(href, { scroll: false });
-  const categories = selection.categoryIds
-    .map((id) => data?.categories.find((c) => c.id === id))
-    .filter((c) => c !== undefined);
-  const editingCategory = categories.find((c) => c.id === editing);
-  const group = selection.groupId
-    ? data?.groups.find((g) => g.id === selection.groupId)
-    : undefined;
 
   if (selection.groupId) {
+    const views = group ? CONTAINER_FEATURES[group.kind].views : [];
+    const nextView = selection.mode === 'raci' ? 'list' : 'raci';
     return (
       <header className="page-header">
-        <h1 className="title-bar">
+        <div className="title-row">
+          <h1 className="title-bar">
+            {group && <span className="title-bar-text">{group.name}</span>}
+          </h1>
           {group && (
-            <button
-              type="button"
-              className="title-bar-text title-group-name"
-              aria-expanded={editing === group.id}
-              onClick={() => setEditing(editing === group.id ? null : group.id)}
+            <IconButton
+              label="名单"
+              className="title-roster"
+              aria-haspopup="dialog"
+              onClick={() => setRosterOpen(true)}
             >
-              {group.name}
-            </button>
+              <GroupIcon />
+            </IconButton>
           )}
-        </h1>
-        {group && editing === group.id && <GroupPanel key={group.id} group={group} />}
+          <span className="spacer" />
+          {group && views.includes('raci') && (
+            <Link
+              href={selectionHref({ ...selection, mode: nextView })}
+              replace
+              scroll={false}
+              className="icon-button view-toggle"
+              aria-label={nextView === 'raci' ? '切换到责任分配矩阵' : '切换到清单'}
+            >
+              {nextView === 'raci' ? <RaciIcon /> : <ListIcon />}
+            </Link>
+          )}
+        </div>
+        {group && rosterOpen && <RosterDialog group={group} onClose={() => setRosterOpen(false)} />}
       </header>
     );
   }
 
+  const categories = selection.categoryIds
+    .map((id) => data?.categories.find((c) => c.id === id))
+    .filter((c) => c !== undefined);
+
   if (selection.scope === 'starred' || categories.length === 0) {
     return (
       <header className="page-header">
-        <h1 className="title-bar">
-          <span className="title-bar-text">{selection.scope === 'starred' ? '收藏' : '总览'}</span>
-        </h1>
+        <div className="title-row">
+          <h1 className="title-bar">
+            <span className="title-bar-text">
+              {selection.scope === 'starred' ? '收藏' : '总览'}
+            </span>
+          </h1>
+        </div>
       </header>
     );
   }
 
   return (
     <header className="page-header">
-      <h1 className="title-bar" aria-label={categories.map((c) => c.name).join('、')}>
-        {categories.map((category) => (
-          <span key={category.id} className="title-capsule" data-testid="title-capsule">
-            <button
-              type="button"
-              className="title-capsule-name"
-              aria-expanded={editing === category.id}
-              onClick={() => setEditing(editing === category.id ? null : category.id)}
-            >
-              <CategoryDot color={category.color} />
-              {category.name}
-            </button>
-            <IconButton
-              label={`取消选择「${category.name}」`}
-              className="title-capsule-remove"
-              onClick={() => {
-                if (editing === category.id) setEditing(null);
-                go(selectionHref(toggleCategory(selection, category.id)));
-              }}
-            >
-              <XIcon size={14} />
-            </IconButton>
-          </span>
-        ))}
-      </h1>
-      {editingCategory && data && (
-        <div className="title-editor" data-keep-panel>
-          <CategoryForm
-            key={editingCategory.id}
-            categories={data.categories}
-            category={editingCategory}
-            onCancel={() => setEditing(null)}
-            onSaved={async () => {
-              setEditing(null);
-              await reload();
-            }}
-            onDeleted={async (deleted) => {
-              setEditing(null);
-              go(selectionHref(toggleCategory(selection, deleted.id)));
-              await reload();
-            }}
-          />
-        </div>
-      )}
+      <div className="title-row">
+        <h1
+          className="title-bar title-bar-capsules"
+          aria-label={categories.map((c) => c.name).join('、')}
+        >
+          {categories.map((category) => (
+            <span key={category.id} className="title-capsule" data-testid="title-capsule">
+              <span className="title-capsule-name">
+                <CategoryDot color={category.color} />
+                {category.name}
+              </span>
+              <IconButton
+                label={`取消选择「${category.name}」`}
+                className="title-capsule-remove"
+                onClick={() => go(selectionHref(toggleCategory(selection, category.id)))}
+              >
+                <XIcon size={14} />
+              </IconButton>
+            </span>
+          ))}
+        </h1>
+      </div>
     </header>
   );
 }

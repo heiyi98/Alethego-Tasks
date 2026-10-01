@@ -24,6 +24,11 @@ export interface Task {
   recurrenceRule: string | null;
   recurrenceDtstart: Date | null;
   completedAt: Date | null;
+  /**
+   * 已确认的时间。个人任务、合作组任务完成即确认（与 completedAt 相同）；
+   * 管理组任务由 A 确认：completedAt 有值而它为 null = 待确认。
+   */
+  confirmedAt: Date | null;
   /** 标星：只是书签，不影响矩阵位置、排序或任何其他规则 */
   isStarred: boolean;
   createdAt: Date;

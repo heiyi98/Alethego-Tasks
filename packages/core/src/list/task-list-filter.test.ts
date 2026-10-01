@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Task } from '../domain/task';
+import { deriveTaskStatus } from '../domain/task-status';
 import {
   buildTaskList,
+  type StatusFilter,
   categoriesForQuickAdd,
   matchesCategoryFilter,
   matchesStatusFilter,
@@ -24,6 +26,8 @@ const task = (title: string, fields: Partial<Task> = {}): Task => ({
   recurrenceRule: null,
   recurrenceDtstart: null,
   completedAt: null,
+  // 个人任务完成即确认
+  confirmedAt: fields.completedAt ?? null,
   isStarred: false,
   createdAt: new Date(Date.UTC(2026, 8, 1) + seq++),
   updatedAt: new Date(Date.UTC(2026, 8, 1)),
@@ -219,5 +223,29 @@ describe('收藏', () => {
   it('在"收藏"里快速添加的任务自动标星', () => {
     expect(starredForQuickAdd('starred')).toBe(true);
     expect(starredForQuickAdd('all')).toBe(false);
+  });
+});
+
+describe('待确认（管理组）', () => {
+  it('已标记完成、还没确认：状态是待确认，截止时间过了也不算已错过', () => {
+    const pending = task('待确认', {
+      groupId: 'g',
+      deadlineAt: sh('2026-09-20T09:00:00'),
+      completedAt: sh('2026-09-19T09:00:00'),
+      confirmedAt: null,
+    });
+    const confirmed = task('已确认', {
+      groupId: 'g',
+      completedAt: sh('2026-09-19T09:00:00'),
+      confirmedAt: sh('2026-09-19T10:00:00'),
+    });
+    const sources = { tasks: [pending, confirmed], categoryIdsByTask: new Map() };
+    const list = (status: StatusFilter) =>
+      buildTaskList(sources, { status, categoryIds: [], groupId: 'g' }, context).map((t) => t.id);
+    expect(list('pending')).toEqual(['待确认']);
+    expect(list('completed')).toEqual(['已确认']);
+    expect(list('missed')).toEqual([]);
+    expect(list('todo')).toEqual([]);
+    expect(deriveTaskStatus(pending, context.now)).toBe('pending');
   });
 });

@@ -44,7 +44,7 @@ test('新建分类可以手动选择颜色；同一用户的分类颜色不能�
   // 手动选一个颜色（调色板中尚未被占用的最后一个；调色板用尽时改用自选颜色）
   await sidebar(page).getByRole('button', { name: '+ 新建分类' }).click();
   const form = page.getByRole('form', { name: '新建分类' });
-  await form.getByLabel('分类名称').fill(`${id}甲`);
+  await form.getByLabel('分类名称', { exact: true }).fill(`${id}甲`);
   const free = form.locator('button[role="radio"]:not([disabled])');
   let chosen: string;
   if ((await free.count()) > 0) {
@@ -69,7 +69,7 @@ test('新建分类可以手动选择颜色；同一用户的分类颜色不能�
   }
 
   // 自选颜色撞色（大小写不同也算）→ 立即提示，不能创建
-  await form2.getByLabel('分类名称').fill(`${id}乙`);
+  await form2.getByLabel('分类名称', { exact: true }).fill(`${id}乙`);
   await form2.getByLabel('自选颜色').fill(chosen.toLowerCase());
   await expect(form2.getByRole('alert')).toHaveText(`该颜色已被「${id}甲」使用，请换一个`);
   await expect(form2.getByRole('button', { name: '添加分类' })).toBeDisabled();
@@ -105,23 +105,21 @@ test('编辑分类：名称、描述、颜色；撞色提示；描述只在编�
 
   const newColor = randomColor().toUpperCase();
   await form.getByLabel('自选颜色').fill(newColor.toLowerCase());
-  await form.getByLabel('分类名称').fill(`${second}改`);
+  await form.getByLabel('分类名称', { exact: true }).fill(`${second}改`);
   await form.getByLabel('分类描述').fill('周末的家务');
   await form.getByRole('button', { name: '保存分类' }).click();
   await expect(form).toHaveCount(0);
 
-  // 没有悬停提示：描述不出现在标题栏胶囊、侧边栏或页面上，只在编辑表单里
+  // 没有悬停提示：描述不出现在标题栏胶囊、侧边栏或页面上，只在编辑表单里（侧边栏的铅笔）
   await toggleCategory(page, `${second}改`);
-  const capsule = page
-    .getByTestId('title-capsule')
-    .getByRole('button', { name: `${second}改`, exact: true });
+  const capsule = page.getByTestId('title-capsule').filter({ hasText: `${second}改` });
   await expect(capsule).not.toHaveAttribute('title', /.*/);
   await expect(categoryToggle(page, `${second}改`)).not.toHaveAttribute('title', /.*/);
   await expect(page.getByRole('main')).not.toContainText('周末的家务');
   await expect(sidebar(page)).not.toContainText('周末的家务');
-  await capsule.click();
-  await expect(page.getByLabel('分类描述').last()).toHaveValue('周末的家务');
-  await page.getByRole('button', { name: '取消' }).last().click();
+  const reopened = await editCategory(page, `${second}改`);
+  await expect(reopened.getByLabel('分类描述')).toHaveValue('周末的家务');
+  await reopened.getByRole('button', { name: '取消' }).click();
   await toggleCategory(page, `${second}改`);
 
   const [saved] = await queryRest<{ name: string; description: string; color: string }[]>(
@@ -132,7 +130,7 @@ test('编辑分类：名称、描述、颜色；撞色提示；描述只在编�
 
   // 空名称不能保存；✕ 取消不改动
   const again = await editCategory(page, `${second}改`);
-  await again.getByLabel('分类名称').fill('  ');
+  await again.getByLabel('分类名称', { exact: true }).fill('  ');
   await again.getByRole('button', { name: '保存分类' }).click();
   await expect(again).toContainText('请输入分类名称');
   await again.getByRole('button', { name: '取消' }).click();

@@ -592,7 +592,7 @@ test('左侧菜单的数字：按页面当前的状态计数；总览不分分�
   await expect(count(categoryToggle(page, work))).toHaveText('1');
 });
 
-test('标题栏：总览 / 分类胶囊（✕ 取消、点名字编辑）/ 收藏；每栏高度固定，换栏时才把下方内容顶下去', async ({
+test('标题栏：总览 / 分类胶囊（名字不能点，只有 ✕ 取消）/ 收藏；高度固定，胶囊再多也不把下方内容顶下去', async ({
   page,
 }) => {
   const id = runId();
@@ -611,43 +611,26 @@ test('标题栏：总览 / 分类胶囊（✕ 取消、点名字编辑）/ 收�
   await expect(bar).not.toContainText('总览');
   expect(await statusY()).toBe(baseY);
 
-  // 胶囊放不下时另起一栏：只在栏数变化时移动，且正好一栏的高度
-  let rows = 1;
+  // 胶囊放不下时在同一行里左右滑动：标题行高度不变，下方内容不动
   for (const name of names.slice(1)) {
     await toggleCategory(page, name);
-    const height = (await bar.boundingBox())!.height;
-    const newRows = Math.round(height / rowHeight);
-    expect(Math.abs(height - newRows * rowHeight)).toBeLessThan(1);
-    expect(Math.abs((await statusY()) - baseY - (newRows - 1) * rowHeight)).toBeLessThan(1);
-    rows = newRows;
+    expect((await bar.boundingBox())!.height).toBe(rowHeight);
+    expect(await statusY()).toBe(baseY);
   }
-  expect(rows).toBeGreaterThan(1);
+  expect(await bar.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
 
   // 点 ✕ 取消这个分类的选择
   await page.getByRole('button', { name: `取消选择「${names[5]}」` }).click();
   await expect(page.getByTestId('title-capsule')).toHaveCount(5);
   await expect(page.locator('main')).not.toContainText(names[5]!);
 
-  // 点胶囊上的名字：编辑表单在标题栏下方原地展开（不是浮层），下面的内容被顶下去
-  const capsuleName = (name: string) =>
-    page.getByTestId('title-capsule').getByRole('button', { name, exact: true });
-  const beforeEdit = await statusY();
-  await capsuleName(names[0]!).click();
-  const form = page.getByRole('form', { name: `编辑分类「${names[0]}」` }).last();
-  await expect(form.getByLabel('分类名称')).toHaveValue(names[0]!);
-  const editor = page.locator('.title-editor');
-  await expect(editor).toHaveCSS('position', 'static');
-  await expect(editor).toHaveCSS('box-shadow', 'none');
-  const barBox = (await bar.boundingBox())!;
-  expect((await editor.boundingBox())!.y).toBeGreaterThanOrEqual(barBox.y + barBox.height - 1);
-  expect(await statusY()).toBeGreaterThan(beforeEdit + 100);
-  await form.getByLabel('分类描述').fill('标题栏里改的');
-  await form.getByRole('button', { name: '保存分类' }).click();
-  await expect(form).toHaveCount(0);
-  expect(await statusY()).toBe(beforeEdit);
-  // 描述只在编辑表单里显示，没有悬停提示
-  await expect(capsuleName(names[0]!)).not.toHaveAttribute('title', /.*/);
-  await expect(page.getByRole('main')).not.toContainText('标题栏里改的');
+  // 胶囊上的名字不能点：没有按钮，点了什么都不发生（编辑分类只走侧边栏的铅笔）
+  const capsule = page.getByTestId('title-capsule').filter({ hasText: names[0]! });
+  await expect(capsule.getByRole('button')).toHaveCount(1);
+  await capsule.locator('.title-capsule-name').click();
+  await expect(page.getByRole('main').getByRole('form', { name: /编辑分类/ })).toHaveCount(0);
+  expect(await statusY()).toBe(baseY);
+  await expect(capsule).not.toHaveAttribute('title', /.*/);
 
   // 收藏：标题永远只显示"收藏"，分类筛选照常生效，侧边栏开关保持高亮
   await selectScope(page, '收藏');

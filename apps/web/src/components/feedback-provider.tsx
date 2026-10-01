@@ -28,10 +28,13 @@ interface Toast {
 
 interface ConfirmRequest {
   message: string;
-  detail?: string;
+  /** 说明或列表（例如踢出某人前列出他身上的 C、I） */
+  detail?: ReactNode;
   confirmLabel: string;
   cancelLabel: string;
   destructive?: boolean;
+  /** 只有一个关闭按钮（操作不能执行时告诉用户原因） */
+  alertOnly?: boolean;
   resolve: (ok: boolean) => void;
 }
 
@@ -134,7 +137,12 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
               <WarningIcon size={28} />
             </span>
             <p className="dialog-message">{request.message}</p>
-            {request.detail && <p className="dialog-detail">{request.detail}</p>}
+            {request.detail &&
+              (typeof request.detail === 'string' ? (
+                <p className="dialog-detail">{request.detail}</p>
+              ) : (
+                <div className="dialog-detail">{request.detail}</div>
+              ))}
             <div className="dialog-actions">
               <IconButton
                 label={request.cancelLabel}
@@ -144,13 +152,15 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
               >
                 <XIcon />
               </IconButton>
-              <IconButton
-                label={request.confirmLabel}
-                className={`dialog-button${request.destructive ? ' dialog-button-danger' : ' dialog-button-primary'}`}
-                onClick={() => answer(true)}
-              >
-                <CheckIcon />
-              </IconButton>
+              {!request.alertOnly && (
+                <IconButton
+                  label={request.confirmLabel}
+                  className={`dialog-button${request.destructive ? ' dialog-button-danger' : ' dialog-button-primary'}`}
+                  onClick={() => answer(true)}
+                >
+                  <CheckIcon />
+                </IconButton>
+              )}
             </div>
           </div>
         </div>

@@ -31,15 +31,21 @@ export type ActivePanel =
   | null;
 
 /**
- * 新建草稿。categoryIds / isStarred 为 null 表示用户还没动过，沿用当前页面的默认值
- * （所选分类；在"收藏"里默认标星）。
+ * 新建草稿。categoryIds / isStarred / raci 为 null 表示用户还没动过，沿用当前页面的默认值
+ * （所选分类；在"收藏"里默认标星；管理组里创建的人默认是 A）。
  */
-export type CreateDraft = Omit<TaskFormValue, 'categoryIds' | 'isStarred'> & {
+export type CreateDraft = Omit<TaskFormValue, 'categoryIds' | 'isStarred' | 'raci'> & {
   categoryIds: string[] | null;
   isStarred: boolean | null;
+  raci: TaskFormValue['raci'] | null;
 };
 
-const freshDraft = (): CreateDraft => ({ ...emptyTaskForm(), categoryIds: null, isStarred: null });
+const freshDraft = (): CreateDraft => ({
+  ...emptyTaskForm(),
+  categoryIds: null,
+  isStarred: null,
+  raci: null,
+});
 
 interface PanelValue {
   active: ActivePanel;

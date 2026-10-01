@@ -8,6 +8,7 @@ import {
   parseRecurrenceRule,
   weekdayName,
   weekdayOf,
+  type ContainerFeatures,
   type ImportanceLevel,
   type ListScope,
   type Quadrant,
@@ -27,10 +28,18 @@ export const STATUS_LABELS: Record<StatusFilter, string> = {
   todo: '未完成',
   completed: '已完成',
   missed: '已错过',
+  pending: '待确认',
 };
 
-/** 页面内状态行的显示顺序 */
-export const STATUS_ORDER: readonly StatusFilter[] = STATUS_FILTERS;
+/** 所有状态（解析地址用） */
+export const ALL_STATUSES: readonly StatusFilter[] = STATUS_FILTERS;
+
+/** 页面内状态行的显示顺序；"待确认"只在需要 A 确认的容器（管理组）里出现 */
+export const STATUS_ORDER: readonly StatusFilter[] = ['all', 'todo', 'completed', 'missed'];
+
+export function statusOrderFor(features: Pick<ContainerFeatures, 'confirmation'>) {
+  return features.confirmation ? [...STATUS_ORDER, 'pending' as const] : STATUS_ORDER;
+}
 
 /** 默认状态：未完成 */
 export const DEFAULT_STATUS: StatusFilter = DEFAULT_STATUS_FILTER;

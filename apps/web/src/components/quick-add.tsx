@@ -1,8 +1,9 @@
 'use client';
 
 import { normalizeTaskTitle, type Category } from '@alethego/core';
-import { useState, type KeyboardEvent } from 'react';
+import { useEffect, useState, type KeyboardEvent } from 'react';
 
+import { useCurrentGroup } from './current-group';
 import { useFeedback } from './feedback-provider';
 import { IconButton, PlusIcon, XIcon } from './icons';
 import { usePanels } from './panel-provider';
@@ -21,7 +22,8 @@ import {
  * 快速添加（每个清单页面都有）：输入栏本身就是标题，下方一行常用选项（重要性、截止日期 / 时刻），
  * 点输入栏右端的 ➕ 创建（回车是额外的快捷方式）；三角展开完整的新建面板，面板从输入栏下方延展出来。收起面板时草稿保留。
  * 新任务自动带上当前选中的全部分类（没选分类就不带）；在"收藏"里新建的任务自动标星。
- * 在组里：新任务属于这个组，没有重要性、分类和收藏。
+ * 在组里：新任务属于这个组，没有重要性、分类和收藏。管理组：只有组长和管理员能建任务（组员看到的
+ * 添加栏是禁用的，位置不变）；可以设定 RACI，创建的人默认是 A。
  */
 export function QuickAdd({
   categories,
@@ -39,6 +41,13 @@ export function QuickAdd({
   const { notify, confirm, showUndo } = useFeedback();
   const createTask = useCreateTask(groupId);
   const inGroup = groupId !== null;
+  const { features, permissions, me, members, contacts } = useCurrentGroup();
+  const disabled = inGroup && !permissions?.manageTasks;
+
+  // 换了组：草稿里的 RACI 回到默认（别的组的成员不在这个组里）
+  useEffect(() => {
+    setDraft((d) => (d.raci === null ? d : { ...d, raci: null }));
+  }, [groupId, setDraft]);
   const [errors, setErrors] = useState<FormErrors>({});
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -48,11 +57,13 @@ export function QuickAdd({
   const defaults = {
     categoryIds: inGroup ? [] : defaultCategoryIds,
     isStarred: inGroup ? false : starred,
+    raci: features.raci && me ? [{ role: 'A' as const, userId: me.userId, contactId: null }] : [],
   };
   const form: TaskFormValue = {
     ...draft,
     categoryIds: draft.categoryIds ?? defaults.categoryIds,
     isStarred: draft.isStarred ?? defaults.isStarred,
+    raci: draft.raci ?? defaults.raci,
   };
 
   const onChange = (patch: Partial<TaskFormValue>) => {
@@ -62,6 +73,7 @@ export function QuickAdd({
   };
 
   async function submit() {
+    if (disabled) return;
     if (!normalizeTaskTitle(form.title) || busy) {
       if (expanded) setErrors(validateTaskForm(form));
       return;
@@ -155,6 +167,7 @@ export function QuickAdd({
         onChange={(title) => onChange({ title })}
         onKeyDown={onEnter}
         onSubmit={submit}
+        disabled={disabled}
       />
       {expanded ? (
         <PanelSurface variant="inline" label="新建任务" onClose={close}>
@@ -172,6 +185,7 @@ export function QuickAdd({
               errors={errors}
               categories={data?.categories ?? []}
               inGroup={inGroup}
+              raci={features.raci ? { members, contacts, editable: true } : undefined}
               records={[]}
               now={now}
               timeZone={timeZone}
@@ -203,9 +217,10 @@ export function QuickAdd({
             value={form}
             onChange={onChange}
             expanded={false}
-            onToggle={() => open({ kind: 'create' })}
+            onToggle={() => !disabled && open({ kind: 'create' })}
             toggleLabel="展开完整选项"
             inGroup={inGroup}
+            readOnly={disabled}
           />
           {message && <p className="field-error">{message}</p>}
         </>
@@ -215,9 +230,14 @@ export function QuickAdd({
 }
 
 /** 还没创建的任务：右侧是 ➕，点击创建 */
-function CreateButton({ onClick }: { onClick: () => void }) {
+function CreateButton({ onClick, disabled }: { onClick: () => void; disabled?: boolean }) {
   return (
-    <IconButton label="创建" className="icon-button-primary quick-add-submit" onClick={onClick}>
+    <IconButton
+      label="创建"
+      className="icon-button-primary quick-add-submit"
+      onClick={onClick}
+      disabled={disabled}
+    >
       <PlusIcon />
     </IconButton>
   );
@@ -232,11 +252,13 @@ function QuickAddInputRow({
   onChange,
   onKeyDown,
   onSubmit,
+  disabled = false,
 }: {
   value: string;
   onChange: (title: string) => void;
   onKeyDown: (event: KeyboardEvent<HTMLInputElement>) => void;
   onSubmit: () => void;
+  disabled?: boolean;
 }) {
   return (
     <div className="quick-add-input" data-keep-panel>
@@ -245,9 +267,10 @@ function QuickAddInputRow({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         onKeyDown={onKeyDown}
+        disabled={disabled}
         autoFocus
       />
-      <CreateButton onClick={onSubmit} />
+      <CreateButton onClick={onSubmit} disabled={disabled} />
     </div>
   );
 }

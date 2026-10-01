@@ -1,7 +1,11 @@
 import type {
   Category,
   Group,
+  GroupContact,
+  GroupKind,
   GroupMember,
+  RaciRole,
+  TaskAssignment,
   ImportanceLevel,
   OccurrenceStatus,
   ReconcileResult,
@@ -48,6 +52,7 @@ export type TaskPatch = Partial<
     | 'recurrenceRule'
     | 'recurrenceDtstart'
     | 'completedAt'
+    | 'confirmedAt'
     | 'isStarred'
   >
 >;
@@ -133,16 +138,64 @@ export interface ITaskPeopleRepository {
   replace(taskId: string, drafts: readonly TaskPersonDraft[]): Promise<TaskPerson[]>;
 }
 
-/** 应用内通知：入组邀请、删除组的投票 */
+export type NotificationKind =
+  /** 入组邀请：同意 / 拒绝 */
+  | 'group_invitation'
+  /** 删除组的投票：同意 / 不同意 */
+  | 'group_deletion_vote'
+  /** 任命组长的投票：同意 / 不同意 */
+  | 'group_leader_vote'
+  /** 被标成 R */
+  | 'task_assigned'
+  /** R 标记完成，等我（A）确认 */
+  | 'task_completed'
+  /** A 不通过（发给 R） */
+  | 'task_rejected'
+  /** 我是 I 的任务状态或内容有变化 */
+  | 'task_changed';
+
+/** 应用内通知 */
 export interface GroupNotification {
-  kind: 'group_invitation' | 'group_deletion_vote';
-  /** 入组邀请：邀请的 id；删除组的投票：组的 id */
+  kind: NotificationKind;
+  /**
+   * 入组邀请：邀请的 id；删除组的投票：组的 id；任命组长的投票：投票的 id；
+   * 任务通知：这条通知的 id
+   */
   id: string;
   groupId: string;
   groupName: string;
-  /** 邀请人 / 发起删除的人（在那个组里的昵称） */
+  /** 邀请人 / 发起投票的人 / 改动任务的人（在那个组里的昵称） */
   actorName: string;
   createdAt: Date;
+  /** 任务通知：哪条任务 */
+  taskId: string | null;
+  taskTitle: string | null;
+  /** 任命组长的投票：候选人 */
+  subjectName: string | null;
+}
+
+/** 任务上的 RACI（整组替换时传入，不含 taskId） */
+export type AssignmentDraft = Pick<TaskAssignment, 'role' | 'userId' | 'contactId'>;
+
+/** 某人在本组任务上的 R、A、C、I（踢出 / 退出前列出） */
+export interface MemberTaskRole {
+  taskId: string;
+  taskTitle: string;
+  role: RaciRole;
+}
+
+export type LeaderRequestResult = 'appointed' | 'requested' | 'already_requested';
+export type LeaderVoteResult = 'appointed' | 'agreed' | 'cancelled' | 'no_request';
+export type RemoveMemberResult = 'removed' | 'blocked';
+export type LeaveResult = 'left' | 'deleted' | 'blocked' | 'last_leader';
+
+/** 正在进行的任命组长投票 */
+export interface LeaderRequest {
+  id: string;
+  groupId: string;
+  candidateId: string;
+  initiatedBy: string;
+  startedAt: Date;
 }
 
 export type InviteResult = 'invited' | 'already_invited' | 'already_member' | 'self';
@@ -165,8 +218,10 @@ export interface GroupDeletionRequest {
 export interface IGroupRepository {
   /** 我所在的所有组 */
   list(): Promise<Group[]>;
-  /** 建组（合作组），创建者是组长 */
-  create(name: string): Promise<Group>;
+  /** 建组，创建者是组长 */
+  create(input: { name: string; kind: GroupKind; color: string | null }): Promise<Group>;
+  /** 改组名和颜色（只有组长） */
+  update(groupId: string, input: { name: string; color: string | null }): Promise<Group>;
   roster(groupId: string): Promise<GroupMember[]>;
   /** 设置自己在本组的昵称；null = 恢复成 TaskApp 名字 */
   setNickname(groupId: string, nickname: string | null): Promise<void>;
@@ -178,6 +233,29 @@ export interface IGroupRepository {
   deletionRequest(groupId: string): Promise<GroupDeletionRequest | null>;
   requestDeletion(groupId: string): Promise<DeletionRequestResult>;
   voteDeletion(groupId: string, agree: boolean): Promise<DeletionVoteResult>;
-  /** 一周内没有操作的组长算作同意：打开 TaskApp 时检查并执行；返回删除的组数 */
-  processExpiredDeletions(): Promise<number>;
+  /** 投票超时（删除组一周、任命组长三天，不操作算同意）：打开 TaskApp 时检查并执行 */
+  processTimeouts(): Promise<number>;
+  /** 只有名字的人（管理组） */
+  contacts(groupId: string): Promise<GroupContact[]>;
+  addContact(groupId: string, name: string): Promise<GroupContact>;
+  /** 删除只有名字的人：他在任务上的 C、I 一并去掉 */
+  removeContact(contactId: string): Promise<void>;
+  /** 任命（admin）或撤销（member）管理员 */
+  setRole(groupId: string, userId: string, role: 'admin' | 'member'): Promise<void>;
+  leaderRequests(groupId: string): Promise<LeaderRequest[]>;
+  requestLeader(groupId: string, userId: string): Promise<LeaderRequestResult>;
+  voteLeader(requestId: string, agree: boolean): Promise<LeaderVoteResult>;
+  memberTaskRoles(groupId: string, userId: string): Promise<MemberTaskRole[]>;
+  /** 踢出：身上有 R 或 A 时不执行（blocked），否则连同他身上的 C、I 一起去掉 */
+  removeMember(groupId: string, userId: string): Promise<RemoveMemberResult>;
+  leave(groupId: string): Promise<LeaveResult>;
+  /** 任务通知看过 / 处理过之后不再显示 */
+  dismissNotification(id: string): Promise<void>;
+}
+
+/** 任务上的 RACI（管理组） */
+export interface IAssignmentRepository {
+  listForTasks(taskIds: readonly string[]): Promise<TaskAssignment[]>;
+  /** 整组替换（只有组长、管理员）；新标成 R 的人会收到通知 */
+  set(taskId: string, assignments: readonly AssignmentDraft[]): Promise<void>;
 }

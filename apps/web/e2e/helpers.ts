@@ -194,7 +194,7 @@ export async function toggleCategory(page: Page, name: string) {
 export async function createCategory(page: Page, name: string) {
   await sidebar(page).getByRole('button', { name: '+ 新建分类' }).click();
   const form = page.getByRole('form', { name: '新建分类' });
-  await form.getByLabel('分类名称').fill(name);
+  await form.getByLabel('分类名称', { exact: true }).fill(name);
   await form.getByRole('button', { name: '添加分类' }).click();
   await expect(categoryToggle(page, name)).toBeVisible();
 }

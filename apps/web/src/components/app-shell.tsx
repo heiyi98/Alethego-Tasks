@@ -3,15 +3,18 @@
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState, type ReactNode } from 'react';
 
+import { CurrentGroupProvider } from './current-group';
 import { ModeToggle } from './mode-toggle';
 import { Sidebar } from './sidebar';
 import { needsCanonicalRedirect, parseSelection, selectionHref } from '@/lib/selection';
 
-/** 切换页面或范围后收起抽屉；分类是多选开关，切换分类时抽屉保持打开 */
+/** 切换页面、范围或组后收起抽屉；分类是多选开关，切换分类时抽屉保持打开 */
 function CloseDrawerOnNavigate({ onNavigate }: { onNavigate: () => void }) {
   const pathname = usePathname();
-  const scope = useSearchParams().get('scope');
-  useEffect(() => onNavigate(), [pathname, scope, onNavigate]);
+  const params = useSearchParams();
+  const scope = params.get('scope');
+  const group = params.get('group');
+  useEffect(() => onNavigate(), [pathname, scope, group, onNavigate]);
   return null;
 }
 
@@ -69,7 +72,9 @@ export function AppShell({ children }: { children: ReactNode }) {
             <ModeToggle />
           </Suspense>
         </div>
-        {children}
+        <Suspense>
+          <CurrentGroupProvider>{children}</CurrentGroupProvider>
+        </Suspense>
       </div>
     </div>
   );

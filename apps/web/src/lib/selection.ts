@@ -1,6 +1,6 @@
 import { DEFAULT_LIST_SCOPE, LIST_SCOPES, type ListScope, type StatusFilter } from '@alethego/core';
 
-import { DEFAULT_STATUS, STATUS_ORDER } from './format';
+import { ALL_STATUSES, DEFAULT_STATUS } from './format';
 
 /**
  * 当前的选择：
@@ -12,7 +12,8 @@ import { DEFAULT_STATUS, STATUS_ORDER } from './format';
  * ?scope=starred&status=completed&cat=id1,id2（取默认值时省略）。
  */
 
-export type ViewMode = 'list' | 'matrix';
+/** 看法：清单 / 时间管理矩阵（个人）/ 责任分配矩阵（管理组，?view=raci） */
+export type ViewMode = 'list' | 'matrix' | 'raci';
 
 export interface Selection {
   mode: ViewMode;
@@ -24,7 +25,7 @@ export interface Selection {
 }
 
 export function isStatusFilter(value: string | null | undefined): value is StatusFilter {
-  return STATUS_ORDER.some((status) => status === value);
+  return ALL_STATUSES.some((status) => status === value);
 }
 
 export function isListScope(value: string | null | undefined): value is ListScope {
@@ -44,8 +45,8 @@ export function parseSelection(pathname: string, params: URLSearchParams): Selec
   const legacyStarred = rawStatus === 'starred';
   const groupId = params.get('group') || null;
   return {
-    // 组里没有矩阵
-    mode: groupId ? 'list' : modeOfPath(pathname),
+    // 组里没有时间管理矩阵；管理组可以切到责任分配矩阵
+    mode: groupId ? (params.get('view') === 'raci' ? 'raci' : 'list') : modeOfPath(pathname),
     groupId,
     scope: legacyStarred ? 'starred' : isListScope(rawScope) ? rawScope : DEFAULT_LIST_SCOPE,
     status: isStatusFilter(rawStatus) ? rawStatus : DEFAULT_STATUS,
@@ -56,9 +57,10 @@ export function parseSelection(pathname: string, params: URLSearchParams): Selec
 /** 选择 → URL */
 export function selectionHref(selection: Selection): string {
   const params = new URLSearchParams();
-  if (selection.groupId && selection.mode === 'list') {
-    // 组里：只有状态
+  if (selection.groupId && selection.mode !== 'matrix') {
+    // 组里：只有看法和状态
     params.set('group', selection.groupId);
+    if (selection.mode === 'raci') params.set('view', 'raci');
     if (selection.status !== DEFAULT_STATUS) params.set('status', selection.status);
     return `/?${params.toString()}`;
   }
@@ -77,14 +79,16 @@ export function needsCanonicalRedirect(params: URLSearchParams): boolean {
   return (status !== null && !isStatusFilter(status)) || (scope !== null && !isListScope(scope));
 }
 
-/** 进入一个组的任务清单（状态行保持当前选择） */
+/** 进入一个组的任务清单（状态行保持当前选择；"待确认"只在管理组里有，进别的组时回到默认） */
 export function groupHref(selection: Selection, groupId: string): string {
   return selectionHref({ ...selection, mode: 'list', groupId });
 }
 
-/** 回到个人（总览） */
+/** 回到个人（总览）；个人没有"待确认" */
 export function personal(selection: Selection): Selection {
-  return { ...selection, groupId: null };
+  const mode = selection.mode === 'raci' ? 'list' : selection.mode;
+  const status = selection.status === 'pending' ? DEFAULT_STATUS : selection.status;
+  return { ...selection, groupId: null, mode, status };
 }
 
 export function toggleCategory(selection: Selection, categoryId: string): Selection {
