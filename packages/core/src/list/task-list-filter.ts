@@ -24,8 +24,13 @@ export const STATUS_FILTERS: readonly StatusFilter[] = ['all', 'todo', 'complete
 /** 默认状态：未完成 */
 export const DEFAULT_STATUS_FILTER: StatusFilter = 'todo';
 
-/** 内容 = 所选范围 ∩ 所选分类的并集 ∩ 所选状态。 */
+/**
+ * 内容 = 容器（个人 / 某一个组）∩ 所选范围 ∩ 所选分类的并集 ∩ 所选状态。
+ * 在组里时范围和分类不起作用（组里没有收藏和分类）。
+ */
 export interface TaskListFilter {
+  /** 容器：null / 不传 = 个人（总览）；组 id = 这个组的任务 */
+  groupId?: string | null;
   /** 默认"全部" */
   scope?: ListScope;
   status: StatusFilter;
@@ -88,11 +93,15 @@ export function buildTaskList(
   context: EvaluationContext,
 ): Task[] {
   const scope = filter.scope ?? DEFAULT_LIST_SCOPE;
+  const groupId = filter.groupId ?? null;
   const rows = sources.tasks
     .filter((task) => !task.deletedAt)
-    .filter((task) => matchesScope(task, scope))
-    .filter((task) =>
-      matchesCategoryFilter(sources.categoryIdsByTask.get(task.id) ?? [], filter.categoryIds),
+    .filter((task) => task.groupId === groupId)
+    .filter((task) => groupId !== null || matchesScope(task, scope))
+    .filter(
+      (task) =>
+        groupId !== null ||
+        matchesCategoryFilter(sources.categoryIdsByTask.get(task.id) ?? [], filter.categoryIds),
     )
     .filter((task) => {
       if (filter.status === 'all') return true;

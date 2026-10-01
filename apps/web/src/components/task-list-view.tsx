@@ -15,13 +15,21 @@ import { selectionHref } from '@/lib/selection';
 
 /**
  * 清单模式：内容 = 所选范围（全部 / 收藏）∩ 所选分类的并集 ∩ 所选状态。
+ * 在组里：内容 = 这个组的任务 ∩ 所选状态（组任务不出现在个人的总览、收藏和分类里）。
  * 添加栏每个页面都有；状态行在添加栏下面。
  * 当前状态是"已完成""已错过"时新建的任务看不见是正常的，不做自动切换。
  */
 export function TaskListView() {
   const { data, error, actionError, now, timeZone, toggleComplete } = useTaskData();
   const selection = useSelection();
-  const { scope, status, categoryIds } = selection;
+  const { scope, status, categoryIds, groupId } = selection;
+  const router = useRouter();
+
+  // 组不存在了（被删除）或者我不在这个组里：回到个人总览
+  const groupMissing = Boolean(groupId && data && !data.groups.some((g) => g.id === groupId));
+  useEffect(() => {
+    if (groupMissing) router.replace('/', { scroll: false });
+  }, [groupMissing, router]);
 
   const visibleTasks = useMemo(
     () =>
@@ -32,11 +40,11 @@ export function TaskListView() {
               categoryIdsByTask: data.categoryIdsByTask,
               occurrencesByTask: data.occurrencesByTask,
             },
-            { scope, status, categoryIds },
+            { scope, status, categoryIds, groupId },
             { now, timeZone },
           )
         : [],
-    [data, scope, status, categoryIds, now, timeZone],
+    [data, scope, status, categoryIds, groupId, now, timeZone],
   );
 
   // 正在编辑的任务即使改完后不再符合筛选（例如标记完成、取消标星），也先留在原位，收起面板后再消失
@@ -65,7 +73,11 @@ export function TaskListView() {
     <main className="page">
       <TitleBar />
 
-      <QuickAdd categories={selectedCategories} starred={scope === 'starred'} />
+      {groupId ? (
+        <QuickAdd key={groupId} categories={[]} starred={false} groupId={groupId} />
+      ) : (
+        <QuickAdd categories={selectedCategories} starred={scope === 'starred'} />
+      )}
 
       <StatusBar />
 

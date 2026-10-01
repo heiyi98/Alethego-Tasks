@@ -9,6 +9,7 @@ export type { Database, TableInsert, TableRow, TableUpdate } from './remote/data
 export * from './remote/mappers';
 export * from './remote/supabase-client';
 export * from './remote/supabase-remote-store';
+export * from './remote/supabase-groups';
 
 export * from './local/in-memory-local-store';
 

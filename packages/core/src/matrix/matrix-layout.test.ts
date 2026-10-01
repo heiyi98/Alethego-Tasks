@@ -17,6 +17,7 @@ let seq = 0;
 const task = (id: string, fields: Partial<Task> = {}): Task => ({
   id,
   ownerId: 'u',
+  groupId: null,
   title: id,
   description: '',
   deadlineAt: null,
@@ -155,6 +156,16 @@ describe('buildMatrixLayout', () => {
     expect(alone).toMatchObject({ offsetX: first[3]!.offsetX, offsetY: first[3]!.offsetY });
     // 不同 id 的偏移各不相同
     expect(new Set(first.map((p) => p.offsetX)).size).toBe(9);
+  });
+});
+
+describe('组任务不进矩阵', () => {
+  it('图和四象限清单里都没有组任务', () => {
+    const result = layout([
+      task('mine', { deadlineAt: sh('2026-09-25T09:00:00'), importanceLevel: 4 }),
+      task('group', { deadlineAt: sh('2026-09-25T09:00:00'), groupId: 'g1' }),
+    ]);
+    expect(result.points.map((p) => p.task.id)).toEqual(['mine']);
   });
 });
 

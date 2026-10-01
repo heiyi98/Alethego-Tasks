@@ -194,3 +194,23 @@ describe('分类编辑', () => {
     expect(await store.categories.listCategoryIdsByTask([task.id])).toEqual(new Map());
   });
 });
+
+describe('组（本地只有自己一人）', () => {
+  it('建组、组任务只属于这个组；组任务不能用重要性和收藏；删除组连同组任务一起删除', async () => {
+    const store = new InMemoryLocalStore({ ownerId: OWNER });
+    const group = await store.groups.create('  小组  ');
+    expect(group).toMatchObject({ name: '小组', kind: 'cooperative', createdBy: OWNER });
+    const task = await store.tasks.create({ title: '组任务', groupId: group.id });
+    expect(task.groupId).toBe(group.id);
+    await expect(
+      store.tasks.create({ title: 'x', groupId: group.id, importanceLevel: 3 }),
+    ).rejects.toMatchObject({ code: 'invalid' });
+    await expect(
+      store.tasks.create({ title: 'x', groupId: group.id, isStarred: true }),
+    ).rejects.toMatchObject({ code: 'invalid' });
+    expect((await store.groups.roster(group.id)).map((m) => m.isMe)).toEqual([true]);
+    expect(await store.groups.requestDeletion(group.id)).toBe('deleted');
+    expect(await store.groups.list()).toEqual([]);
+    expect(await store.tasks.getById(task.id)).toBeNull();
+  });
+});

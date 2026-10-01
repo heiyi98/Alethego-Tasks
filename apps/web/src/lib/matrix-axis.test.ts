@@ -11,6 +11,7 @@ const context = { now: sh('2026-10-05T15:54:00'), timeZone };
 const task = (id: string, deadlineAt: Date | null): Task => ({
   id,
   ownerId: 'u',
+  groupId: null,
   title: id,
   description: '',
   deadlineAt,

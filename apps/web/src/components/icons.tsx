@@ -149,6 +149,23 @@ export const ListIcon = (p: IconProps) => (
   </Svg>
 );
 
+/** 通知 */
+export const BellIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 1.5h-15z" />
+    <path d="M10 20.5a2.2 2.2 0 0 0 4 0" />
+  </Svg>
+);
+/** 组 */
+export const GroupIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <circle cx="9" cy="8.5" r="3" />
+    <path d="M3.5 19c.6-3 2.8-4.8 5.5-4.8s4.9 1.8 5.5 4.8" />
+    <circle cx="16.5" cy="9.5" r="2.4" />
+    <path d="M16 14.3c2.3.1 4 1.6 4.5 4.2" />
+  </Svg>
+);
+
 /** 只有图标的按钮：必须有 aria-label（给读屏软件，不显示；没有悬停提示） */
 export function IconButton({
   label,

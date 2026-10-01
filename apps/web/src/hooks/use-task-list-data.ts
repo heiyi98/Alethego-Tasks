@@ -1,7 +1,7 @@
 'use client';
 
-import type { Category, RecurrenceOccurrence, Task } from '@alethego/core';
-import { syncOccurrences } from '@alethego/data';
+import type { Category, Group, RecurrenceOccurrence, Task } from '@alethego/core';
+import { syncOccurrences, type GroupNotification } from '@alethego/data';
 import { useCallback, useEffect, useState } from 'react';
 
 import { useRepositories } from '@/components/repositories-provider';
@@ -13,9 +13,17 @@ export interface TaskListData {
   categoryIdsByTask: Map<string, string[]>;
   /** 循环任务的实例记录（用于确定代表实例）；普通任务不在其中 */
   occurrencesByTask: Map<string, RecurrenceOccurrence[]>;
+  /** 我所在的所有组 */
+  groups: Group[];
+  /** 应用内通知（入组邀请、删除组的投票）与上次打开通知的时间 */
+  notifications: GroupNotification[];
+  notificationsSeenAt: Date | null;
 }
 
-/** 列表 / 矩阵页数据：任务 + 分类 + 分类关联 + 循环实例记录。筛选在客户端完成，切换筛选无需重新请求。 */
+/**
+ * 列表 / 矩阵页数据：任务（个人与我所在组的）+ 分类 + 分类关联 + 循环实例记录 + 组 + 通知。
+ * 筛选在客户端完成，切换筛选无需重新请求。
+ */
 export function useTaskListData() {
   const repositories = useRepositories();
   const [data, setData] = useState<TaskListData | null>(null);
@@ -23,9 +31,13 @@ export function useTaskListData() {
 
   const reload = useCallback(async () => {
     try {
-      const [tasks, categories] = await Promise.all([
+      // 没有后台定时任务：打开 TaskApp 时检查删除组的投票是否已满一周（满一周未操作算作同意）
+      await repositories.groups.processExpiredDeletions();
+      const [tasks, categories, groups, notifications] = await Promise.all([
         repositories.tasks.list(),
         repositories.categories.list(),
+        repositories.groups.list(),
+        repositories.groups.notifications(),
       ]);
       const recurring = tasks.filter((task) => task.recurrenceRule);
       const [categoryIdsByTask, occurrences] = await Promise.all([
@@ -41,7 +53,15 @@ export function useTaskListData() {
         ),
       ]);
       const occurrencesByTask = new Map(recurring.map((task, i) => [task.id, occurrences[i]!]));
-      setData({ tasks, categories, categoryIdsByTask, occurrencesByTask });
+      setData({
+        tasks,
+        categories,
+        categoryIdsByTask,
+        occurrencesByTask,
+        groups,
+        notifications: notifications.items,
+        notificationsSeenAt: notifications.seenAt,
+      });
       setError(null);
     } catch (e) {
       setError(errorMessage(e));

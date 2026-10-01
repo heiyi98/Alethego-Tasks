@@ -16,6 +16,7 @@ let seq = 0;
 const task = (title: string, fields: Partial<Task> = {}): Task => ({
   id: title,
   ownerId: 'u',
+  groupId: null,
   title,
   description: '',
   deadlineAt: null,
@@ -132,6 +133,34 @@ describe('循环任务在列表中的状态', () => {
       '健身',
       '下周',
     ]);
+  });
+});
+
+describe('容器：个人与组各归各的', () => {
+  const personal = task('个人', { isStarred: true });
+  const inGroup = task('组任务', { groupId: 'g1' });
+  const otherGroup = task('别的组', { groupId: 'g2' });
+  const sources = {
+    tasks: [personal, inGroup, otherGroup],
+    categoryIdsByTask: new Map([['个人', ['work']]]),
+  };
+
+  it('总览（个人）只有个人任务，组任务不进总览', () => {
+    expect(titles(buildTaskList(sources, { status: 'all', categoryIds: [] }, context))).toEqual([
+      '个人',
+    ]);
+  });
+
+  it('组里只有这个组的任务；范围和分类在组里不起作用', () => {
+    expect(
+      titles(
+        buildTaskList(
+          sources,
+          { groupId: 'g1', scope: 'starred', status: 'all', categoryIds: ['work'] },
+          context,
+        ),
+      ),
+    ).toEqual(['组任务']);
   });
 });
 

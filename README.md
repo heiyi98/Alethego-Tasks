@@ -8,8 +8,9 @@
 packages/core/   领域层：纯 TypeScript，无框架依赖（Web / Mobile 共享）
 packages/data/   数据层：仓储接口、Supabase 远程实现、本地存储接口
 apps/web/        Next.js：任务列表、快速添加、展开面板新建/编辑、矩阵（直接读写 Supabase）
-supabase/        数据库迁移（taskapp schema：tasks、categories、task_categories、recurrence_occurrences、
-                 task_locations、task_people + RLS）
+supabase/        数据库迁移（taskapp schema：users、tasks、categories、task_categories、recurrence_occurrences、
+                 task_locations、task_people、groups、group_members、group_invitations、
+                 group_deletion_requests、group_deletion_votes + RLS）
 ```
 
 ### packages/core
@@ -122,6 +123,15 @@ pnpm dev
   - 逾期区：圆点按重要性竖向定位、互不重叠，外加红色外圈；标签红色
   - 下方为按象限分组的列表（按当前模式判定紧急与否；有哪些任务与模式无关），同样遵守左侧选择；
     每行有完成勾选，行为与清单页相同
+- 合作组（组是和个人同级的任务容器，类型建组时确定，目前只开放合作组）：
+  - 侧边栏三区：总览 / 收藏、组（可折叠，列出我所在的组 + 新建组）、分类；在组里点分类回到个人总览并选中这个分类
+  - 组的清单：状态行、快速添加、展开面板和个人一样，快速添加的任务属于这个组；组任务没有重要性、分类和收藏，
+    不进总览和矩阵，组里不显示清单 / 矩阵切换（`/matrix?group=…` 改成组的清单）
+  - 合作组里人人都是组长，对每条任务都是 R 和 A（在后台按组的类型生效）；所有成员看得到组里的全部任务
+  - 点标题栏上的组名展开组的面板：名单（本组昵称，默认 TaskApp 名字，自己的原地编辑）、按邮箱邀请、删除组
+  - 通知只在应用内：侧边栏底部账号旁的铃铛，有未读时带小圆点；入组邀请（同意 / 拒绝）、删除组的投票（同意 / 不同意）
+  - 删除组：发起者算同意，一个不同意就取消，一周内没操作算同意（没有定时任务，任何成员打开 TaskApp 时检查），
+    全部同意后删除组和组里的全部任务；只有发起者一个人时直接删除
 - 「重复」开关打开后可设置重复规则（每 N 天 / 每 N 周的周几，可设结束次数或日期与开始时间），
   截止日期与完成状态改由规则和每次实例决定；库里已有的每月 / 每年规则保持原样、照常计算，编辑器只显示原文
 - 循环任务的历史嵌在展开面板里（重复规则下方）：最近两次已过去的实例（最新在上），每行日期、星期、时刻和勾选框
@@ -140,7 +150,10 @@ pnpm dev
 
 驱动真实页面读写本地环境（不连真实的 Alethego / 数据项目）：本地数据项目（Postgres + PostgREST，已应用迁移）
 与本地 Supabase Auth（模拟 Alethego，邮箱自动确认，JWT 密钥与本地 PostgREST 一致），`.env.local` 指向它们。
-每次运行先注册一个新的主测试账号并保存登录状态（`e2e/global-setup.ts`），账号相关用例各自注册账号：
+每次运行先注册一个新的主测试账号并保存登录状态（`e2e/global-setup.ts`），账号相关用例各自注册账号。
+合作组的用例同时登录多个账号；删除组投票的一周超时要固定数据库时钟：在 `.env.local` 里配置本地数据库的直连地址
+`E2E_DATABASE_URL`（例如 `postgres://postgres@localhost/app?host=/tmp/alethego-pg&port=54329`），全局准备时会执行
+`e2e/sql/test-clock.sql`（只用于本地，绝不要在真实项目上执行）；没配置时这条用例跳过：
 
 ```bash
 pnpm --filter @alethego/web test:e2e

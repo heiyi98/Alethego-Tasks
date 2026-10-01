@@ -1,5 +1,7 @@
 import type {
   Category,
+  Group,
+  GroupMember,
   ImportanceLevel,
   OccurrenceStatus,
   ReconcileResult,
@@ -30,8 +32,10 @@ export interface NewTask {
   importanceLevel?: ImportanceLevel;
   recurrenceRule?: string | null;
   recurrenceDtstart?: Date | null;
-  /** 标星（书签），默认 false */
+  /** 标星（书签），默认 false；组任务不能标星 */
   isStarred?: boolean;
+  /** 所属的组；不传 / null = 个人任务。创建后不能移动到别的容器 */
+  groupId?: string | null;
 }
 
 export type TaskPatch = Partial<
@@ -127,4 +131,53 @@ export interface ITaskPeopleRepository {
    * 完全空白的行会被忽略；只有关系没有姓名时抛出 DataError('invalid')。
    */
   replace(taskId: string, drafts: readonly TaskPersonDraft[]): Promise<TaskPerson[]>;
+}
+
+/** 应用内通知：入组邀请、删除组的投票 */
+export interface GroupNotification {
+  kind: 'group_invitation' | 'group_deletion_vote';
+  /** 入组邀请：邀请的 id；删除组的投票：组的 id */
+  id: string;
+  groupId: string;
+  groupName: string;
+  /** 邀请人 / 发起删除的人（在那个组里的昵称） */
+  actorName: string;
+  createdAt: Date;
+}
+
+export type InviteResult = 'invited' | 'already_invited' | 'already_member' | 'self';
+export type DeletionRequestResult = 'deleted' | 'requested' | 'already_requested';
+export type DeletionVoteResult = 'deleted' | 'agreed' | 'cancelled' | 'no_request';
+
+/** 正在进行的删除组投票 */
+export interface GroupDeletionRequest {
+  groupId: string;
+  initiatedBy: string;
+  startedAt: Date;
+  /** 已经同意的成员（发起者算作同意） */
+  agreedUserIds: string[];
+}
+
+/**
+ * 组：建组、名单与昵称、邀请、删除组的投票、通知。
+ * 权限按组的类型在后台生效（见数据库函数），这里只是调用。
+ */
+export interface IGroupRepository {
+  /** 我所在的所有组 */
+  list(): Promise<Group[]>;
+  /** 建组（合作组），创建者是组长 */
+  create(name: string): Promise<Group>;
+  roster(groupId: string): Promise<GroupMember[]>;
+  /** 设置自己在本组的昵称；null = 恢复成 TaskApp 名字 */
+  setNickname(groupId: string, nickname: string | null): Promise<void>;
+  invite(groupId: string, email: string): Promise<InviteResult>;
+  notifications(): Promise<{ items: GroupNotification[]; seenAt: Date | null }>;
+  markNotificationsSeen(): Promise<Date>;
+  acceptInvitation(invitationId: string): Promise<string>;
+  declineInvitation(invitationId: string): Promise<void>;
+  deletionRequest(groupId: string): Promise<GroupDeletionRequest | null>;
+  requestDeletion(groupId: string): Promise<DeletionRequestResult>;
+  voteDeletion(groupId: string, agree: boolean): Promise<DeletionVoteResult>;
+  /** 一周内没有操作的组长算作同意：打开 TaskApp 时检查并执行；返回删除的组数 */
+  processExpiredDeletions(): Promise<number>;
 }

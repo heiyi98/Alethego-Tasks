@@ -8,12 +8,14 @@ import { useMemo, useState } from 'react';
 import { AccountMenu } from '@/auth';
 import { CategoryDot } from './category-dot';
 import { CategoryForm } from './category-form';
+import { GroupSection } from './sidebar-groups';
 import { IconButton, PencilIcon } from './icons';
 import { ModeToggle } from './mode-toggle';
+import { NotificationBell } from './notifications';
 import { useSelection } from './selection';
 import { useTaskData } from './task-data-provider';
 import { SCOPE_LABELS, SCOPE_ORDER } from '@/lib/format';
-import { selectionHref, toggleCategory } from '@/lib/selection';
+import { personal, selectionHref, toggleCategory } from '@/lib/selection';
 
 const SCOPE_ICONS: Record<ListScope, string> = {
   all: '☰',
@@ -23,7 +25,10 @@ const SCOPE_ICONS: Record<ListScope, string> = {
 /**
  * 左侧菜单：
  * - 上区：总览 / 收藏，单选。总览 = 没有选任何分类，点它会清空分类选择
- * - 下区「分类」：每个分类是一个开关，可多选累加；一个都不选 = 所有分类
+ * - 中区「组」：可以折叠；我所在的每个组 + 新建组。点组进入这个组的任务清单
+ * - 下区「分类」：每个分类是一个开关，可多选累加；一个都不选 = 所有分类。
+ *   分类只属于个人：在组里点分类会回到个人总览并选中这个分类
+ * - 最下面：账号 + 通知
  * 状态（全部 / 未完成 / 已完成 / 已错过）不在菜单里，在清单页面内的添加栏下面。
  *
  * 数字：清单模式下按页面当前选中的状态计数（点了之后看到几个就是几个）；
@@ -38,6 +43,9 @@ export function Sidebar() {
   const [editing, setEditing] = useState<string | null>(null);
 
   const countStatus = selection.mode === 'list' ? selection.status : 'todo';
+  const inGroup = selection.groupId !== null;
+  // 个人的选择（在组里时：回到个人后的选择）
+  const own = personal(selection);
   const counts = useMemo(() => {
     if (!data) return null;
     const sources = {
@@ -54,7 +62,17 @@ export function Sidebar() {
       starred: count('starred', selection.categoryIds),
     };
     const byCategory = new Map(data.categories.map((c) => [c.id, count(selection.scope, [c.id])]));
-    return { byScope, byCategory };
+    const byGroup = new Map(
+      data.groups.map((g) => [
+        g.id,
+        buildTaskList(
+          sources,
+          { scope: 'all', status: countStatus, categoryIds: [], groupId: g.id },
+          context,
+        ).length,
+      ]),
+    );
+    return { byScope, byCategory, byGroup };
   }, [data, now, timeZone, countStatus, selection.scope, selection.categoryIds]);
 
   const go = (href: string) => router.replace(href, { scroll: false });
@@ -71,10 +89,10 @@ export function Sidebar() {
           {SCOPE_ORDER.map((scope) => {
             // 总览 = 没有选任何分类：点它会清空当前所有分类选择
             const selected =
+              !inGroup &&
               selection.scope === scope &&
               (scope === 'starred' || selection.categoryIds.length === 0);
-            const target =
-              scope === 'all' ? { ...selection, scope, categoryIds: [] } : { ...selection, scope };
+            const target = scope === 'all' ? { ...own, scope, categoryIds: [] } : { ...own, scope };
             return (
               <li key={scope}>
                 <Link
@@ -96,11 +114,13 @@ export function Sidebar() {
         </ul>
       </section>
 
+      <GroupSection counts={counts?.byGroup ?? null} />
+
       <section className="sidebar-section" aria-label="分类">
         <h2 className="sidebar-heading">分类</h2>
         <ul>
           {data?.categories.map((category) => {
-            const selected = selection.categoryIds.includes(category.id);
+            const selected = !inGroup && selection.categoryIds.includes(category.id);
             if (editing === category.id) {
               return (
                 <li key={category.id}>
@@ -128,7 +148,15 @@ export function Sidebar() {
                   type="button"
                   className="sidebar-item sidebar-toggle"
                   aria-pressed={selected}
-                  onClick={() => go(selectionHref(toggleCategory(selection, category.id)))}
+                  onClick={() =>
+                    go(
+                      selectionHref(
+                        inGroup
+                          ? { ...own, categoryIds: [category.id] }
+                          : toggleCategory(selection, category.id),
+                      ),
+                    )
+                  }
                 >
                   <span className="sidebar-icon" aria-hidden>
                     <CategoryDot color={category.color} />
@@ -165,7 +193,10 @@ export function Sidebar() {
         )}
       </section>
 
-      <AccountMenu />
+      <div className="sidebar-bottom">
+        <AccountMenu />
+        <NotificationBell />
+      </div>
     </nav>
   );
 }

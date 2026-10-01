@@ -1,3 +1,5 @@
+import { execFileSync } from 'node:child_process';
+
 import { expect, type APIRequestContext, type Locator, type Page } from '@playwright/test';
 
 import { accessTokenFor, mainUser, type Credentials } from './auth';
@@ -203,4 +205,28 @@ export async function switchMode(page: Page, to: 'matrix' | 'list') {
     .getByRole('link', { name: to === 'matrix' ? '切换到矩阵' : '切换到清单' })
     .click();
   await expect(page).toHaveURL(to === 'matrix' ? /\/matrix/ : /localhost:\d+\/(\?|$)/);
+}
+
+/* ---------------- 数据库时钟（只用于本地端到端测试） ---------------- */
+
+/**
+ * 本地数据库的直连地址（E2E_DATABASE_URL，写在 .env.local）。
+ * 全局准备时执行 e2e/sql/test-clock.sql，之后可以用 setDbClock 把数据库的"当前时间"固定下来。
+ */
+export const dbUrl = () => process.env.E2E_DATABASE_URL;
+
+export function runSql(sql: string) {
+  const url = dbUrl();
+  if (!url) throw new Error('需要在 .env.local 中配置 E2E_DATABASE_URL');
+  execFileSync('psql', [url, '-v', 'ON_ERROR_STOP=1', '-q', '-c', sql], { stdio: 'pipe' });
+}
+
+/** 固定数据库时钟（taskapp.clock_now()）；null = 恢复成真实时间 */
+export function setDbClock(at: Date | null) {
+  runSql(
+    at
+      ? `insert into taskapp.test_clock (id, fixed_at) values (1, '${at.toISOString()}')
+         on conflict (id) do update set fixed_at = excluded.fixed_at`
+      : 'delete from taskapp.test_clock',
+  );
 }

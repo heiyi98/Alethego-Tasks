@@ -25,8 +25,10 @@ import type {
   NewTask,
   TaskListQuery,
   TaskPatch,
+  IGroupRepository,
 } from '../interfaces/repositories';
 import type { ILocalStore } from '../interfaces/stores';
+import { MemoryGroupRepository } from './in-memory-groups';
 import {
   validateCategoryInput,
   validateNewTask,
@@ -91,6 +93,7 @@ class MemoryTaskRepository implements ITaskRepository {
     const task: Task = {
       id: this.state.newId(),
       ownerId: this.state.ownerId,
+      groupId: valid.groupId ?? null,
       title: valid.title,
       description: valid.description ?? '',
       deadlineAt: valid.deadlineAt ?? null,
@@ -352,6 +355,7 @@ export class InMemoryLocalStore implements ILocalStore {
   readonly occurrences: IOccurrenceRepository;
   readonly locations: ITaskLocationRepository;
   readonly people: ITaskPeopleRepository;
+  readonly groups: IGroupRepository;
 
   constructor(options: InMemoryLocalStoreOptions) {
     const state: MemoryState = {
@@ -370,5 +374,6 @@ export class InMemoryLocalStore implements ILocalStore {
     this.occurrences = new MemoryOccurrenceRepository(state);
     this.locations = new MemoryTaskLocationRepository(state);
     this.people = new MemoryTaskPeopleRepository(state);
+    this.groups = new MemoryGroupRepository(state);
   }
 }

@@ -37,16 +37,16 @@ import {
 /* 新建                                                                 */
 /* ------------------------------------------------------------------ */
 
-/** 新建：把草稿写入数据库（任务 + 分类 + 地点 / 人物） */
-export function useCreateTask() {
+/** 新建：把草稿写入数据库（任务 + 分类 + 地点 / 人物）；groupId 不为空时是这个组的任务（不带分类） */
+export function useCreateTask(groupId: string | null = null) {
   const repositories = useRepositories();
   const { reload, timeZone } = useTaskData();
   return useCallback(
     async (form: TaskFormValue): Promise<{ created: boolean; message?: string }> => {
       try {
-        const task = await repositories.tasks.create(newTaskFromForm(form, timeZone));
+        const task = await repositories.tasks.create(newTaskFromForm(form, timeZone, groupId));
         try {
-          if (form.categoryIds.length > 0) {
+          if (!groupId && form.categoryIds.length > 0) {
             await repositories.categories.setTaskCategories(task.id, form.categoryIds);
           }
           const location = normalizeLocationDraft(form.location);
@@ -67,7 +67,7 @@ export function useCreateTask() {
         await reload();
       }
     },
-    [repositories, reload, timeZone],
+    [repositories, reload, timeZone, groupId],
   );
 }
 
@@ -366,7 +366,9 @@ export function EditPanel({
     }
   }
 
-  const star = (
+  // 组任务不使用重要性、分类和收藏
+  const inGroup = loaded.task.groupId !== null;
+  const star = !inGroup && (
     <StarButton
       starred={form.isStarred}
       onToggle={() => onChange({ isStarred: !form.isStarred })}
@@ -451,6 +453,7 @@ export function EditPanel({
         onChange={onChange}
         errors={errors}
         categories={categories}
+        inGroup={inGroup}
         records={loaded.records}
         onToggleRecord={toggleRecord}
         now={now}

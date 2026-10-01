@@ -38,6 +38,7 @@ export function QuickOptionsRow({
   onToggle,
   toggleLabel,
   actions,
+  inGroup = false,
 }: {
   value: Pick<TaskFormValue, 'importanceLevel' | 'deadline' | 'deadlineTime' | 'recurrence'>;
   onChange: (patch: Partial<TaskFormValue>) => void;
@@ -46,30 +47,34 @@ export function QuickOptionsRow({
   toggleLabel: string;
   /** 放在三角左边的操作图标（桌面上的新建面板：标星、放弃） */
   actions?: ReactNode;
+  /** 组任务：不显示重要性 */
+  inGroup?: boolean;
 }) {
   // 时刻输入框：已选时刻时一直显示；否则点时钟图标后显示（日期被清空 / 创建后草稿重置时收回时钟图标）
   const [timeOpen, setTimeOpen] = useState(false);
   const showTime = value.deadlineTime !== '' || (timeOpen && value.deadline !== '');
   return (
     <div className="quick-options">
-      <div className="option" role="group" aria-label="重要性">
-        <FieldIcon label="重要性">
-          <FlagIcon size={16} />
-        </FieldIcon>
-        <div className="mini-segmented">
-          {IMPORTANCE_LEVELS.map((level) => (
-            <button
-              key={level}
-              type="button"
-              aria-pressed={value.importanceLevel === level}
-              aria-label={`重要性 ${level}`}
-              onClick={() => onChange({ importanceLevel: level })}
-            >
-              {level}
-            </button>
-          ))}
+      {!inGroup && (
+        <div className="option" role="group" aria-label="重要性">
+          <FieldIcon label="重要性">
+            <FlagIcon size={16} />
+          </FieldIcon>
+          <div className="mini-segmented">
+            {IMPORTANCE_LEVELS.map((level) => (
+              <button
+                key={level}
+                type="button"
+                aria-pressed={value.importanceLevel === level}
+                aria-label={`重要性 ${level}`}
+                onClick={() => onChange({ importanceLevel: level })}
+              >
+                {level}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {!value.recurrence.enabled && (
         <div className="option">
@@ -197,6 +202,7 @@ export function TaskEditor({
   onChange,
   errors,
   categories,
+  inGroup = false,
   records,
   onToggleRecord,
   now,
@@ -211,6 +217,8 @@ export function TaskEditor({
   onChange: (patch: Partial<TaskFormValue>) => void;
   errors: FormErrors;
   categories: readonly Category[];
+  /** 组任务：不显示重要性和分类（收藏由外层决定是否显示） */
+  inGroup?: boolean;
   records: readonly RecurrenceOccurrence[];
   /** 切换历史中某次实例的完成状态（编辑已有循环任务时） */
   onToggleRecord?: (record: RecurrenceOccurrence, completed: boolean) => void;
@@ -252,6 +260,7 @@ export function TaskEditor({
         onToggle={onToggle}
         toggleLabel="收起"
         actions={optionsActions}
+        inGroup={inGroup}
       />
 
       <div className="editor-field">
@@ -267,29 +276,31 @@ export function TaskEditor({
         />
       </div>
 
-      <div className="editor-field" role="group" aria-label="分类">
-        <FieldIcon label="分类">
-          <TagIcon />
-        </FieldIcon>
-        {categories.length === 0 ? (
-          <span className="muted">—</span>
-        ) : (
-          <div className="chip-row">
-            {categories.map((category) => (
-              <button
-                key={category.id}
-                type="button"
-                className="chip chip-compact"
-                aria-pressed={value.categoryIds.includes(category.id)}
-                onClick={() => toggleCategory(category.id)}
-              >
-                <CategoryDot color={category.color} />
-                {category.name}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
+      {!inGroup && (
+        <div className="editor-field" role="group" aria-label="分类">
+          <FieldIcon label="分类">
+            <TagIcon />
+          </FieldIcon>
+          {categories.length === 0 ? (
+            <span className="muted">—</span>
+          ) : (
+            <div className="chip-row">
+              {categories.map((category) => (
+                <button
+                  key={category.id}
+                  type="button"
+                  className="chip chip-compact"
+                  aria-pressed={value.categoryIds.includes(category.id)}
+                  onClick={() => toggleCategory(category.id)}
+                >
+                  <CategoryDot color={category.color} />
+                  {category.name}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="editor-field editor-field-top">
         <FieldIcon label="重复">

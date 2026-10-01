@@ -28,6 +28,7 @@ export function taskFromRow(row: TableRow<'tasks'>): Task {
   return {
     id: row.id,
     ownerId: row.owner_id,
+    groupId: row.group_id,
     title: row.title,
     description: row.description,
     deadlineAt: toNullableDate(row.deadline_at),
@@ -45,6 +46,7 @@ export function taskFromRow(row: TableRow<'tasks'>): Task {
 export function taskToInsert(input: NewTask, ownerId: string): TableInsert<'tasks'> {
   return {
     owner_id: ownerId,
+    group_id: input.groupId ?? null,
     title: input.title,
     description: input.description ?? '',
     deadline_at: toNullableIso(input.deadlineAt),

@@ -10,6 +10,7 @@ import {
   type Category,
   type MatrixMode,
 } from '@alethego/core';
+import { useRouter } from 'next/navigation';
 import { Suspense, useEffect, useMemo, useState } from 'react';
 
 import { usePanels } from '@/components/panel-provider';
@@ -20,6 +21,7 @@ import { TaskMatrix } from '@/components/task-matrix';
 import { TaskRow } from '@/components/task-row';
 import { TitleBar } from '@/components/title-bar';
 import { QUADRANT_LABELS } from '@/lib/format';
+import { selectionHref } from '@/lib/selection';
 
 /** 记住上次看的是短期还是长期（只是本机的便利设置，读不到就用默认的短期） */
 const MODE_STORAGE_KEY = 'alethego.matrix-mode';
@@ -49,7 +51,14 @@ function storeMode(mode: MatrixMode) {
 function MatrixPage() {
   const { data, error, now, timeZone, toggleComplete } = useTaskData();
   const { active } = usePanels();
-  const { scope, categoryIds } = useSelection();
+  const selection = useSelection();
+  const { scope, categoryIds } = selection;
+  // 组里没有矩阵：/matrix?group=… 改成这个组的清单
+  const router = useRouter();
+  const groupHrefTarget = selection.groupId ? selectionHref(selection) : null;
+  useEffect(() => {
+    if (groupHrefTarget) router.replace(groupHrefTarget);
+  }, [groupHrefTarget, router]);
   const [mode, setMode] = useState<MatrixMode>(DEFAULT_MATRIX_MODE);
   useEffect(() => {
     const stored = readStoredMode();

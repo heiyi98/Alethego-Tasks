@@ -1888,3 +1888,186 @@ a {
   font-size: 14px;
   font-weight: 400;
 }
+
+/* ---------- 组 ---------- */
+.sidebar-heading-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.sidebar-heading-toggle svg {
+  transition: transform 0.15s;
+}
+
+.sidebar-heading-toggle[aria-expanded='false'] svg {
+  transform: rotate(-90deg);
+}
+
+.group-create {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 10px;
+  border-radius: 10px;
+  background: var(--system-background);
+}
+
+.group-create input,
+.group-invite input {
+  width: 100%;
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  font: inherit;
+  font-size: 14px;
+}
+
+.title-group-name {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* 组的面板：在标题栏下方原地展开，没有外框（与分类编辑一致） */
+.group-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 420px;
+  margin-bottom: 16px;
+}
+
+.group-roster ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.group-member {
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: var(--tertiary-fill);
+  font-size: 14px;
+}
+
+.group-member-me {
+  background: var(--accent-soft);
+}
+
+.group-nickname {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.group-nickname-input {
+  width: 10em;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.group-invite-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.group-invite-row button {
+  flex: none;
+  white-space: nowrap;
+}
+
+.group-invite-message,
+.group-deletion-pending {
+  margin: 6px 0 0;
+  font-size: 13px;
+}
+
+.group-danger {
+  display: flex;
+}
+
+/* ---------- 侧边栏底部：账号 + 通知 ---------- */
+.sidebar-bottom {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  column-gap: 4px;
+  margin-top: auto;
+}
+
+.sidebar-bottom .account-menu {
+  margin-top: 0;
+}
+
+.notification-bell {
+  position: relative;
+}
+
+.notification-dot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--system-red);
+}
+
+.notification-panel {
+  grid-column: 1 / -1;
+  margin-top: 6px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--system-background);
+}
+
+.notification-panel ul {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.notification-text {
+  margin: 0 0 6px;
+  font-size: 14px;
+}
+
+.notification-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+}
+
+.notification-empty {
+  margin: 0;
+  font-size: 14px;
+}

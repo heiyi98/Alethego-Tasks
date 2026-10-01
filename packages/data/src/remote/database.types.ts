@@ -10,14 +10,66 @@ export type Json = string | number | boolean | null | { [key: string]: Json | un
 
 export type OccurrenceStatusEnum = 'pending' | 'completed' | 'missed';
 
+export type GroupKindEnum = 'cooperative' | 'management' | 'education';
+
 export interface Database {
   taskapp: {
     Tables: {
+      groups: {
+        Row: {
+          id: string;
+          kind: GroupKindEnum;
+          name: string;
+          created_by: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: { [_ in never]: never };
+        Update: { [_ in never]: never };
+        Relationships: [];
+      };
+      group_members: {
+        Row: {
+          group_id: string;
+          user_id: string;
+          role: 'leader' | 'member';
+          nickname: string | null;
+          joined_at: string;
+        };
+        Insert: { [_ in never]: never };
+        Update: { nickname?: string | null };
+        Relationships: [];
+      };
+      group_invitations: {
+        Row: {
+          id: string;
+          group_id: string;
+          email: string;
+          invited_by: string;
+          created_at: string;
+        };
+        Insert: { [_ in never]: never };
+        Update: { [_ in never]: never };
+        Relationships: [];
+      };
+      group_deletion_requests: {
+        Row: { group_id: string; initiated_by: string; started_at: string };
+        Insert: { [_ in never]: never };
+        Update: { [_ in never]: never };
+        Relationships: [];
+      };
+      group_deletion_votes: {
+        Row: { group_id: string; user_id: string; voted_at: string };
+        Insert: { [_ in never]: never };
+        Update: { [_ in never]: never };
+        Relationships: [];
+      };
       users: {
         Row: {
           id: string;
           email: string | null;
           display_name: string;
+          notifications_seen_at: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -25,6 +77,7 @@ export interface Database {
           id?: string;
           email?: string | null;
           display_name: string;
+          notifications_seen_at?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -32,6 +85,7 @@ export interface Database {
           id?: string;
           email?: string | null;
           display_name?: string;
+          notifications_seen_at?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -41,6 +95,7 @@ export interface Database {
         Row: {
           id: string;
           owner_id: string;
+          group_id: string | null;
           title: string;
           description: string;
           deadline_at: string | null;
@@ -56,6 +111,7 @@ export interface Database {
         Insert: {
           id?: string;
           owner_id?: string;
+          group_id?: string | null;
           title: string;
           description?: string;
           deadline_at?: string | null;
@@ -71,6 +127,7 @@ export interface Database {
         Update: {
           id?: string;
           owner_id?: string;
+          group_id?: string | null;
           title?: string;
           description?: string;
           deadline_at?: string | null;
@@ -259,6 +316,47 @@ export interface Database {
     };
     Views: { [_ in never]: never };
     Functions: {
+      create_group: {
+        Args: { p_name: string };
+        Returns: Database['taskapp']['Tables']['groups']['Row'];
+      };
+      group_roster: {
+        Args: { p_group_id: string };
+        Returns: {
+          user_id: string;
+          nickname: string;
+          has_custom_nickname: boolean;
+          is_me: boolean;
+          joined_at: string;
+        }[];
+      };
+      invite_to_group: {
+        Args: { p_group_id: string; p_email: string };
+        Returns: 'invited' | 'already_invited' | 'already_member' | 'self';
+      };
+      accept_group_invitation: { Args: { p_invitation_id: string }; Returns: string };
+      decline_group_invitation: { Args: { p_invitation_id: string }; Returns: undefined };
+      request_group_deletion: {
+        Args: { p_group_id: string };
+        Returns: 'deleted' | 'requested' | 'already_requested';
+      };
+      vote_group_deletion: {
+        Args: { p_group_id: string; p_agree: boolean };
+        Returns: 'deleted' | 'agreed' | 'cancelled' | 'no_request';
+      };
+      process_expired_group_deletions: { Args: Record<string, never>; Returns: number };
+      my_notifications: {
+        Args: Record<string, never>;
+        Returns: {
+          kind: 'group_invitation' | 'group_deletion_vote';
+          id: string;
+          group_id: string;
+          group_name: string;
+          actor_name: string;
+          created_at: string;
+        }[];
+      };
+      mark_notifications_seen: { Args: Record<string, never>; Returns: string };
       ensure_current_user: {
         Args: { p_email: string | null; p_display_name: string };
         Returns: Database['taskapp']['Tables']['users']['Row'];

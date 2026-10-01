@@ -64,6 +64,12 @@ describe('新建', () => {
     });
   });
 
+  it('组任务：写入组，不带重要性和收藏', () => {
+    const task = newTaskFromForm(form({ importanceLevel: 3, isStarred: true }), TZ, 'g1');
+    expect(task).toMatchObject({ groupId: 'g1', importanceLevel: 0, isStarred: false });
+    expect(newTaskFromForm(form({}), TZ).groupId).toBeUndefined();
+  });
+
   it('打开循环时忽略截止日期，写入规则与起始时间', () => {
     const task = newTaskFromForm(form({ deadline: '2026-10-01', recurrence: daily }), TZ);
     expect(task.deadlineAt).toBeNull();

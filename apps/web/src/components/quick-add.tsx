@@ -21,26 +21,34 @@ import {
  * 快速添加（每个清单页面都有）：输入栏本身就是标题，下方一行常用选项（重要性、截止日期 / 时刻），
  * 点输入栏右端的 ➕ 创建（回车是额外的快捷方式）；三角展开完整的新建面板，面板从输入栏下方延展出来。收起面板时草稿保留。
  * 新任务自动带上当前选中的全部分类（没选分类就不带）；在"收藏"里新建的任务自动标星。
+ * 在组里：新任务属于这个组，没有重要性、分类和收藏。
  */
 export function QuickAdd({
   categories,
   starred,
+  groupId = null,
 }: {
   categories: readonly Category[];
   /** 在"收藏"里：新任务默认标星 */
   starred: boolean;
+  /** 当前所在的组；null = 个人 */
+  groupId?: string | null;
 }) {
   const { draft, setDraft, resetDraft, open, close, isOpen } = usePanels();
   const { data, now, timeZone } = useTaskData();
   const { notify, confirm, showUndo } = useFeedback();
-  const createTask = useCreateTask();
+  const createTask = useCreateTask(groupId);
+  const inGroup = groupId !== null;
   const [errors, setErrors] = useState<FormErrors>({});
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const defaultCategoryIds = categories.map((c) => c.id);
   const expanded = isOpen({ kind: 'create' });
-  const defaults = { categoryIds: defaultCategoryIds, isStarred: starred };
+  const defaults = {
+    categoryIds: inGroup ? [] : defaultCategoryIds,
+    isStarred: inGroup ? false : starred,
+  };
   const form: TaskFormValue = {
     ...draft,
     categoryIds: draft.categoryIds ?? defaults.categoryIds,
@@ -115,7 +123,7 @@ export function QuickAdd({
     }
   };
 
-  const star = (
+  const star = !inGroup && (
     <StarButton
       starred={form.isStarred}
       onToggle={() => onChange({ isStarred: !form.isStarred })}
@@ -163,6 +171,7 @@ export function QuickAdd({
               onChange={onChange}
               errors={errors}
               categories={data?.categories ?? []}
+              inGroup={inGroup}
               records={[]}
               now={now}
               timeZone={timeZone}
@@ -196,6 +205,7 @@ export function QuickAdd({
             expanded={false}
             onToggle={() => open({ kind: 'create' })}
             toggleLabel="展开完整选项"
+            inGroup={inGroup}
           />
           {message && <p className="field-error">{message}</p>}
         </>

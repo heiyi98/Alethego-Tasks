@@ -126,9 +126,12 @@ export function TaskRow({
           <span className="task-title">{task.title}</span>
           {meta}
         </button>
-        <div className="row-actions">
-          <StarButton starred={task.isStarred} onToggle={() => void toggleStar(task)} />
-        </div>
+        {/* 组任务不使用收藏 */}
+        {task.groupId === null && (
+          <div className="row-actions">
+            <StarButton starred={task.isStarred} onToggle={() => void toggleStar(task)} />
+          </div>
+        )}
       </div>
     </li>
   );

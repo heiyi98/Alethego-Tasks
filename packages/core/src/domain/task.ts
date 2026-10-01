@@ -8,7 +8,13 @@ import type { ImportanceLevel } from './importance';
  */
 export interface Task {
   id: string;
+  /** 个人任务：所有者；组任务：创建者 */
   ownerId: string;
+  /**
+   * 所属的组；null = 个人任务。一条任务只属于一个容器（个人或某一个组），创建后不能移动。
+   * 组任务不使用重要性、分类、收藏，不进总览和矩阵。
+   */
+  groupId: string | null;
   title: string;
   description: string;
   /** 截止时间（UTC），null 表示无截止时间 */

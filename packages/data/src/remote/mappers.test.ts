@@ -6,6 +6,7 @@ import { taskFromRow, taskPatchToUpdate, taskToInsert } from './mappers';
 const row = {
   id: 't1',
   owner_id: 'u1',
+  group_id: null,
   title: '写周报',
   description: '',
   deadline_at: '2026-09-26T10:00:00+00:00',
@@ -39,6 +40,7 @@ describe('task mappers', () => {
   it('新建任务填默认值，owner_id 由调用方指定', () => {
     expect(taskToInsert({ title: 'x' }, 'owner-1')).toEqual({
       owner_id: 'owner-1',
+      group_id: null,
       title: 'x',
       description: '',
       deadline_at: null,
@@ -47,6 +49,10 @@ describe('task mappers', () => {
       recurrence_dtstart: null,
       is_starred: false,
     });
+  });
+
+  it('组任务写入 group_id', () => {
+    expect(taskToInsert({ title: 'x', groupId: 'g1' }, 'o').group_id).toBe('g1');
   });
 
   it('标星写入 is_starred', () => {

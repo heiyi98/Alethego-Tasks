@@ -11,6 +11,7 @@ const context = { now: sh('2026-09-24T10:00:00'), timeZone }; // 周四
 const baseTask: Task = {
   id: 'task-1',
   ownerId: 'user-1',
+  groupId: null,
   title: '任务',
   description: '',
   deadlineAt: null,

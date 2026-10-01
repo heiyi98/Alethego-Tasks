@@ -43,6 +43,7 @@ import {
   taskToInsert,
 } from './mappers';
 import type { TaskAppSupabaseClient } from './supabase-client';
+import { SupabaseGroupRepository } from './supabase-groups';
 
 function errorCode(error: PostgrestError): DataErrorCode {
   switch (error.code) {
@@ -422,6 +423,7 @@ export class SupabaseRemoteStore implements IRemoteStore {
   readonly occurrences: SupabaseOccurrenceRepository;
   readonly locations: SupabaseTaskLocationRepository;
   readonly people: SupabaseTaskPeopleRepository;
+  readonly groups: SupabaseGroupRepository;
 
   constructor(client: TaskAppSupabaseClient, options: SupabaseRemoteStoreOptions) {
     const { ownerId } = options;
@@ -430,5 +432,6 @@ export class SupabaseRemoteStore implements IRemoteStore {
     this.occurrences = new SupabaseOccurrenceRepository(client);
     this.locations = new SupabaseTaskLocationRepository(client);
     this.people = new SupabaseTaskPeopleRepository(client);
+    this.groups = new SupabaseGroupRepository(client, ownerId);
   }
 }

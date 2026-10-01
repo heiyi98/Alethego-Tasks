@@ -5,6 +5,7 @@ import { useState } from 'react';
 
 import { CategoryDot } from './category-dot';
 import { CategoryForm } from './category-form';
+import { GroupPanel } from './group-panel';
 import { IconButton, XIcon } from './icons';
 import { useSelection } from './selection';
 import { useTaskData } from './task-data-provider';
@@ -14,6 +15,7 @@ import { selectionHref, toggleCategory } from '@/lib/selection';
  * 页面标题栏（清单页与矩阵页共用）：
  * - 收藏：永远只显示"收藏"（分类筛选照常生效，侧边栏的分类开关保持高亮）
  * - 没选分类：显示"总览"
+ * - 在组里：组名；点它在标题栏下方原地展开组的面板（名单、昵称、邀请、删除组）
  * - 选了分类：每个分类一个胶囊（名字 + ✕）。点 ✕ 取消这个分类的选择；点名字在标题栏下方原地展开
  *   这个分类的编辑表单（不是浮层）；分类描述只在编辑表单里显示
  *
@@ -30,6 +32,29 @@ export function TitleBar() {
     .map((id) => data?.categories.find((c) => c.id === id))
     .filter((c) => c !== undefined);
   const editingCategory = categories.find((c) => c.id === editing);
+  const group = selection.groupId
+    ? data?.groups.find((g) => g.id === selection.groupId)
+    : undefined;
+
+  if (selection.groupId) {
+    return (
+      <header className="page-header">
+        <h1 className="title-bar">
+          {group && (
+            <button
+              type="button"
+              className="title-bar-text title-group-name"
+              aria-expanded={editing === group.id}
+              onClick={() => setEditing(editing === group.id ? null : group.id)}
+            >
+              {group.name}
+            </button>
+          )}
+        </h1>
+        {group && editing === group.id && <GroupPanel key={group.id} group={group} />}
+      </header>
+    );
+  }
 
   if (selection.scope === 'starred' || categories.length === 0) {
     return (

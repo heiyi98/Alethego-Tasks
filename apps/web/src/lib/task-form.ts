@@ -137,18 +137,26 @@ export function validateTaskForm(form: TaskFormValue): FormErrors {
   return errors;
 }
 
-/** 新建：表单 → 任务字段（调用前应先通过 validateTaskForm） */
-export function newTaskFromForm(form: TaskFormValue, timeZone: string): NewTask {
+/**
+ * 新建：表单 → 任务字段（调用前应先通过 validateTaskForm）。
+ * 传了 groupId 就是这个组的任务：组任务不使用重要性、分类和收藏。
+ */
+export function newTaskFromForm(
+  form: TaskFormValue,
+  timeZone: string,
+  groupId: string | null = null,
+): NewTask {
   const recurrence = recurrencePatch(form.recurrence);
   const recurring = recurrence.ok && recurrence.recurrenceRule !== null;
   return {
     title: normalizeTaskTitle(form.title) ?? form.title,
     description: form.description.trim(),
-    importanceLevel: form.importanceLevel,
+    importanceLevel: groupId ? 0 : form.importanceLevel,
     deadlineAt: recurring ? null : deadlineFromForm(form.deadline, form.deadlineTime, timeZone),
-    isStarred: form.isStarred,
+    isStarred: groupId ? false : form.isStarred,
     recurrenceRule: recurrence.ok ? recurrence.recurrenceRule : null,
     recurrenceDtstart: recurrence.ok ? (recurrence.recurrenceDtstart ?? null) : null,
+    ...(groupId ? { groupId } : {}),
   };
 }
 
