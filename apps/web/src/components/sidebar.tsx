@@ -79,120 +79,125 @@ export function Sidebar() {
 
   return (
     <nav className="sidebar" aria-label="主菜单">
-      <div className="sidebar-brand">
-        <span>Alethego</span>
-        <ModeToggle />
-      </div>
+      {/* 上面的内容可以滚动；最下面的账号和通知固定在左下角，展开的内容都从它们上方弹出 */}
+      <div className="sidebar-scroll">
+        <div className="sidebar-brand">
+          <span>Alethego</span>
+          <ModeToggle />
+        </div>
 
-      <section className="sidebar-section" aria-label="范围">
-        <ul>
-          {SCOPE_ORDER.map((scope) => {
-            // 总览 = 没有选任何分类：点它会清空当前所有分类选择
-            const selected =
-              !inGroup &&
-              selection.scope === scope &&
-              (scope === 'starred' || selection.categoryIds.length === 0);
-            const target = scope === 'all' ? { ...own, scope, categoryIds: [] } : { ...own, scope };
-            return (
-              <li key={scope}>
-                <Link
-                  href={selectionHref(target)}
-                  replace
-                  scroll={false}
-                  className="sidebar-item"
-                  aria-current={selected ? 'page' : undefined}
-                >
-                  <span className={`sidebar-icon sidebar-icon-${scope}`} aria-hidden>
-                    {SCOPE_ICONS[scope]}
-                  </span>
-                  <span className="sidebar-label">{SCOPE_LABELS[scope]}</span>
-                  {counts && <span className="sidebar-count">{counts.byScope[scope]}</span>}
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
-      </section>
-
-      <GroupSection counts={counts?.byGroup ?? null} />
-
-      <section className="sidebar-section" aria-label="分类">
-        <h2 className="sidebar-heading">分类</h2>
-        <ul>
-          {data?.categories.map((category) => {
-            const selected = !inGroup && selection.categoryIds.includes(category.id);
-            if (editing === category.id) {
+        <section className="sidebar-section" aria-label="范围">
+          <ul>
+            {SCOPE_ORDER.map((scope) => {
+              // 总览 = 没有选任何分类：点它会清空当前所有分类选择
+              const selected =
+                !inGroup &&
+                selection.scope === scope &&
+                (scope === 'starred' || selection.categoryIds.length === 0);
+              const target =
+                scope === 'all' ? { ...own, scope, categoryIds: [] } : { ...own, scope };
               return (
-                <li key={category.id}>
-                  <CategoryForm
-                    categories={data.categories}
-                    category={category}
-                    onCancel={() => setEditing(null)}
-                    onSaved={async () => {
-                      setEditing(null);
-                      await reload();
-                    }}
-                    onDeleted={async () => {
-                      setEditing(null);
-                      // 删除已选中的分类时同时把它从选择中去掉
-                      if (selected) go(selectionHref(toggleCategory(selection, category.id)));
-                      await reload();
-                    }}
-                  />
+                <li key={scope}>
+                  <Link
+                    href={selectionHref(target)}
+                    replace
+                    scroll={false}
+                    className="sidebar-item"
+                    aria-current={selected ? 'page' : undefined}
+                  >
+                    <span className={`sidebar-icon sidebar-icon-${scope}`} aria-hidden>
+                      {SCOPE_ICONS[scope]}
+                    </span>
+                    <span className="sidebar-label">{SCOPE_LABELS[scope]}</span>
+                    {counts && <span className="sidebar-count">{counts.byScope[scope]}</span>}
+                  </Link>
                 </li>
               );
-            }
-            return (
-              <li key={category.id} className="sidebar-category">
-                <button
-                  type="button"
-                  className="sidebar-item sidebar-toggle"
-                  aria-pressed={selected}
-                  onClick={() =>
-                    go(
-                      selectionHref(
-                        inGroup
-                          ? { ...own, categoryIds: [category.id] }
-                          : toggleCategory(selection, category.id),
-                      ),
-                    )
-                  }
-                >
-                  <span className="sidebar-icon" aria-hidden>
-                    <CategoryDot color={category.color} />
-                  </span>
-                  <span className="sidebar-label">{category.name}</span>
-                  {counts && (
-                    <span className="sidebar-count">{counts.byCategory.get(category.id) ?? 0}</span>
-                  )}
-                </button>
-                <IconButton
-                  label={`编辑分类「${category.name}」`}
-                  className="sidebar-edit"
-                  onClick={() => setEditing(category.id)}
-                >
-                  <PencilIcon size={14} />
-                </IconButton>
-              </li>
-            );
-          })}
-        </ul>
-        {editing === 'new' && data ? (
-          <CategoryForm
-            categories={data.categories}
-            onCancel={() => setEditing(null)}
-            onSaved={async () => {
-              setEditing(null);
-              await reload();
-            }}
-          />
-        ) : (
-          <button type="button" className="sidebar-add" onClick={() => setEditing('new')}>
-            + 新建分类
-          </button>
-        )}
-      </section>
+            })}
+          </ul>
+        </section>
 
+        <GroupSection counts={counts?.byGroup ?? null} />
+
+        <section className="sidebar-section" aria-label="分类">
+          <h2 className="sidebar-heading">分类</h2>
+          <ul>
+            {data?.categories.map((category) => {
+              const selected = !inGroup && selection.categoryIds.includes(category.id);
+              if (editing === category.id) {
+                return (
+                  <li key={category.id}>
+                    <CategoryForm
+                      categories={data.categories}
+                      category={category}
+                      onCancel={() => setEditing(null)}
+                      onSaved={async () => {
+                        setEditing(null);
+                        await reload();
+                      }}
+                      onDeleted={async () => {
+                        setEditing(null);
+                        // 删除已选中的分类时同时把它从选择中去掉
+                        if (selected) go(selectionHref(toggleCategory(selection, category.id)));
+                        await reload();
+                      }}
+                    />
+                  </li>
+                );
+              }
+              return (
+                <li key={category.id} className="sidebar-category">
+                  <button
+                    type="button"
+                    className="sidebar-item sidebar-toggle"
+                    aria-pressed={selected}
+                    onClick={() =>
+                      go(
+                        selectionHref(
+                          inGroup
+                            ? { ...own, categoryIds: [category.id] }
+                            : toggleCategory(selection, category.id),
+                        ),
+                      )
+                    }
+                  >
+                    <span className="sidebar-icon" aria-hidden>
+                      <CategoryDot color={category.color} />
+                    </span>
+                    <span className="sidebar-label">{category.name}</span>
+                    {counts && (
+                      <span className="sidebar-count">
+                        {counts.byCategory.get(category.id) ?? 0}
+                      </span>
+                    )}
+                  </button>
+                  <IconButton
+                    label={`编辑分类「${category.name}」`}
+                    className="sidebar-edit"
+                    onClick={() => setEditing(category.id)}
+                  >
+                    <PencilIcon size={14} />
+                  </IconButton>
+                </li>
+              );
+            })}
+          </ul>
+          {editing === 'new' && data ? (
+            <CategoryForm
+              categories={data.categories}
+              onCancel={() => setEditing(null)}
+              onSaved={async () => {
+                setEditing(null);
+                await reload();
+              }}
+            />
+          ) : (
+            <button type="button" className="sidebar-add" onClick={() => setEditing('new')}>
+              + 新建分类
+            </button>
+          )}
+        </section>
+      </div>
       <div className="sidebar-bottom">
         <AccountMenu />
         <NotificationBell />

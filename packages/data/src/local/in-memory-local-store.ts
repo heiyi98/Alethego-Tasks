@@ -143,14 +143,6 @@ class MemoryTaskRepository implements ITaskRepository {
 class MemoryCategoryRepository implements ICategoryRepository {
   constructor(private readonly state: MemoryState) {}
 
-  private assertColorAvailable(color: string, exceptId?: string) {
-    for (const category of this.state.categories.values()) {
-      if (category.id !== exceptId && normalizeColor(category.color) === normalizeColor(color)) {
-        throw new DataError('conflict', `颜色 ${color} 已被分类「${category.name}」使用`);
-      }
-    }
-  }
-
   async list() {
     return [...this.state.categories.values()].sort(
       (a, b) => a.createdAt.getTime() - b.createdAt.getTime(),
@@ -159,7 +151,6 @@ class MemoryCategoryRepository implements ICategoryRepository {
 
   async create(input: NewCategory) {
     input = validateCategoryInput(input);
-    this.assertColorAvailable(input.color);
     const category: Category = {
       id: this.state.newId(),
       ownerId: this.state.ownerId,
@@ -175,7 +166,6 @@ class MemoryCategoryRepository implements ICategoryRepository {
   async update(id: string, patch: CategoryPatch) {
     patch = validateCategoryInput(patch);
     const existing = this.state.categories.get(id) ?? notFound('分类', id);
-    if (patch.color !== undefined) this.assertColorAvailable(patch.color, id);
     const updated: Category = {
       ...existing,
       ...patch,

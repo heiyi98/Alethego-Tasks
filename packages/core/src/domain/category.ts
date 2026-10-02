@@ -12,7 +12,7 @@ export interface Category {
 
 /**
  * 起步九色调色板：红黄蓝、橙绿紫、粉棕青，取 Apple Human Interface Guidelines 的系统色（浅色外观）。
- * 用户也可以自选任意颜色；颜色在同一用户的分类集合内不重复。
+ * 用户也可以自选任意颜色；不同分类（以及不同的组）可以用同一个颜色。
  */
 export const DEFAULT_CATEGORY_PALETTE = [
   '#FF3B30', // systemRed 红
@@ -26,7 +26,7 @@ export const DEFAULT_CATEGORY_PALETTE = [
   '#32ADE6', // systemCyan 青
 ] as const;
 
-/** 颜色是否已被同一用户的其他分类使用（不区分大小写） */
+/** 颜色是否已被使用（不区分大小写） */
 export function isColorTaken(color: string, usedColors: Iterable<string>): boolean {
   const target = normalizeColor(color);
   for (const used of usedColors) if (normalizeColor(used) === target) return true;
@@ -50,4 +50,15 @@ export function normalizeColor(color: string): string {
 export function nextAvailablePaletteColor(usedColors: Iterable<string>): string | null {
   const used = new Set(Array.from(usedColors, normalizeColor));
   return DEFAULT_CATEGORY_PALETTE.find((color) => !used.has(color)) ?? null;
+}
+
+/**
+ * 新建分类 / 组时的默认颜色：调色板里还没用过的第一个；全都用过了就从头开始依次轮换
+ * （按已用的个数取，第 10 个取第 1 个，第 11 个取第 2 个……）。
+ */
+export function defaultPaletteColor(usedColors: readonly string[]): string {
+  return (
+    nextAvailablePaletteColor(usedColors) ??
+    DEFAULT_CATEGORY_PALETTE[usedColors.length % DEFAULT_CATEGORY_PALETTE.length]!
+  );
 }

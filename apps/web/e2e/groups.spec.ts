@@ -106,7 +106,7 @@ test('建组、邀请（接受 / 拒绝）、昵称；组任务所有成员可�
   await expect(bell(pb)).toHaveAttribute('data-unread', 'true');
   await bell(pb).click();
   const invitation = notificationList(pb).getByRole('listitem');
-  await expect(invitation).toHaveText(new RegExp(`${id}甲 邀请你加入「${groupName}」`));
+  await expect(invitation).toHaveText(new RegExp(`${id}甲邀请你加入「${groupName}」`));
   await expect(bell(pb)).not.toHaveAttribute('data-unread', 'true');
   await invitation.getByRole('button', { name: '同意', exact: true }).click();
   await expect(groupLink(pb, groupName)).toBeVisible();
@@ -257,7 +257,7 @@ test('删除组：只有自己时直接删除；有其他组长时投票，一�
   await expect(bell(pb)).toHaveAttribute('data-unread', 'true');
   await bell(pb).click();
   const vote = notificationList(pb).getByRole('listitem');
-  await expect(vote).toHaveText(new RegExp(`${id}甲 发起删除「${groupName}」`));
+  await expect(vote).toHaveText(new RegExp(`${id}甲发起删除「${groupName}」`));
   await vote.getByRole('button', { name: '不同意' }).click();
   await expect(notificationList(pb)).toHaveText(/没有通知/);
   const pc = await openAs(browser, c);

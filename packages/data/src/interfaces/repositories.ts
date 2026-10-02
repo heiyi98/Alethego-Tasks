@@ -40,6 +40,13 @@ export interface NewTask {
   isStarred?: boolean;
   /** 所属的组；不传 / null = 个人任务。创建后不能移动到别的容器 */
   groupId?: string | null;
+  /**
+   * 管理组的任务：RACI（至少一个执行人和一个负责人）以及地点、人物，和任务在同一个事务里一起写入。
+   * 传了 assignments 时走这条路；不传就是普通的建任务。
+   */
+  assignments?: readonly AssignmentDraft[];
+  location?: TaskLocationDraft | null;
+  people?: readonly TaskPersonDraft[];
 }
 
 export type TaskPatch = Partial<
@@ -78,7 +85,7 @@ export interface ITaskRepository {
 
 export interface NewCategory {
   name: string;
-  /** #RRGGBB，在同一用户的分类内不可重复（冲突时抛出 DataError('conflict')） */
+  /** #RRGGBB；不同分类可以用同一个颜色 */
   color: string;
   description?: string;
 }
@@ -145,14 +152,30 @@ export type NotificationKind =
   | 'group_deletion_vote'
   /** 任命组长的投票：同意 / 不同意 */
   | 'group_leader_vote'
-  /** 被标成 R */
-  | 'task_assigned'
-  /** R 标记完成，等我（A）确认 */
-  | 'task_completed'
-  /** A 不通过（发给 R） */
-  | 'task_rejected'
-  /** 我是 I 的任务状态或内容有变化 */
-  | 'task_changed';
+  /** 任务通知（动作见 action） */
+  | 'task';
+
+/**
+ * 任务通知的动作：设为执行人、完成、确认、退回、修改。
+ * 收件人：设为执行人 → 被设的人和知会；完成 → 负责人和知会；确认 / 退回 / 修改 → 执行人和知会
+ */
+export type TaskNotificationAction =
+  'assigned' | 'completed' | 'confirmed' | 'rejected' | 'modified';
+
+/** "修改"里改动的字段（deleted / restored 是删除和恢复任务） */
+export type TaskNotificationField =
+  | 'title'
+  | 'description'
+  | 'deadline'
+  | 'recurrence'
+  | 'deleted'
+  | 'restored'
+  | 'R'
+  | 'A'
+  | 'C'
+  | 'I'
+  | 'people'
+  | 'location';
 
 /** 应用内通知 */
 export interface GroupNotification {
@@ -164,14 +187,24 @@ export interface GroupNotification {
   id: string;
   groupId: string;
   groupName: string;
-  /** 邀请人 / 发起投票的人 / 改动任务的人（在那个组里的昵称） */
+  /** 操作者：邀请人 / 发起投票的人 / 改动任务的人（在那个组里的名字） */
   actorName: string;
   createdAt: Date;
   /** 任务通知：哪条任务 */
   taskId: string | null;
   taskTitle: string | null;
-  /** 任命组长的投票：候选人 */
+  /** 对象：任命组长的候选人；"设为执行人"里被设的人（在那个组里的名字） */
   subjectName: string | null;
+  /** 对象就是收到通知的人自己 */
+  subjectIsMe: boolean;
+  /** 任务通知的动作；其他通知为 null */
+  action: TaskNotificationAction | null;
+  /** "修改"改动的字段 */
+  fields: TaskNotificationField[];
+  /** "完成"通知且我是负责人、任务还待确认：可以直接确认 */
+  canConfirm: boolean;
+  /** 任务已经删除（只剩"删除"这条通知） */
+  taskDeleted: boolean;
 }
 
 /** 任务上的 RACI（整组替换时传入，不含 taskId） */

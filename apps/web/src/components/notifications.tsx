@@ -1,55 +1,55 @@
 'use client';
 
+import { deriveListStatus } from '@alethego/core';
 import type { GroupNotification } from '@alethego/data';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { BellIcon, IconButton, XIcon } from './icons';
 import { useRepositories } from './repositories-provider';
 import { useSelection } from './selection';
 import { useTaskData } from './task-data-provider';
+import { messages } from '@/i18n';
 import { errorMessage } from '@/lib/format';
+import { notificationText } from '@/lib/notification-text';
 import { groupHref } from '@/lib/selection';
 
-/** 通知的文字 */
-function notificationText(item: GroupNotification): string {
-  const task = `「${item.taskTitle ?? ''}」`;
-  switch (item.kind) {
-    case 'group_invitation':
-      return `${item.actorName} 邀请你加入「${item.groupName}」`;
-    case 'group_deletion_vote':
-      return `${item.actorName} 发起删除「${item.groupName}」`;
-    case 'group_leader_vote':
-      return `${item.actorName} 提议任命 ${item.subjectName ?? ''} 为「${item.groupName}」的组长`;
-    case 'task_assigned':
-      return `${item.actorName} 把${task}分配给你`;
-    case 'task_completed':
-      return `${item.actorName} 完成了${task}`;
-    case 'task_rejected':
-      return `${item.actorName} 没有通过${task}`;
-    case 'task_changed':
-      return `${item.actorName} 更新了${task}`;
-  }
-}
-
 /**
- * 通知（只在应用内）：侧边栏底部账号旁边的铃铛，有未读时带一个小圆点。点开列出通知并全部记为已读。
+ * 通知（只在应用内）：侧边栏左下角账号旁边的铃铛，有未读时带一个小圆点。
+ * 点铃铛，通知以窗口的形式出现在铃铛上方（铃铛和账号的位置不动），打开时全部记为已读。
  * - 入组邀请：同意 / 拒绝；删除组、任命组长的投票：同意 / 不同意
- * - R 标记完成（发给 A）：确认（直接确认完成）/ 查看（进入组并打开这条任务）
- * - 分配给你、没有通过、任务有变化：查看 / ✕（看过或关掉后不再显示）
+ * - 负责人收到的"完成"（任务还待确认）：确认 / 查看
+ * - 其他任务通知：✕ / 查看（查看或关掉后不再显示）；任务已删除时只有 ✕
  */
 export function NotificationBell() {
   const repositories = useRepositories();
-  const { data, reload } = useTaskData();
+  const { data, reload, now, timeZone } = useTaskData();
   const selection = useSelection();
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
 
   const items = data?.notifications ?? [];
   const seenAt = data?.notificationsSeenAt ?? null;
   const unread = items.some((item) => !seenAt || item.createdAt > seenAt);
+
+  // 点窗口外面或按 Esc 关闭
+  useEffect(() => {
+    if (!open) return;
+    const onPointer = (event: PointerEvent) => {
+      if (document.querySelector('[data-dialog-open]')) return;
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => event.key === 'Escape' && setOpen(false);
+    document.addEventListener('pointerdown', onPointer);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', onPointer);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
 
   async function toggle() {
     const next = !open;
@@ -77,8 +77,8 @@ export function NotificationBell() {
         await repositories.groups.voteDeletion(item.groupId, agree);
       } else if (item.kind === 'group_leader_vote') {
         await repositories.groups.voteLeader(item.id, agree);
-      } else if (item.kind === 'task_completed') {
-        // 确认完成（不通过要在任务详情里点）
+      } else if (agree && item.canConfirm) {
+        // 负责人直接确认完成（退回要在任务详情里点）
         await repositories.tasks.update(item.taskId!, { confirmedAt: new Date() });
       } else {
         await repositories.groups.dismissNotification(item.id);
@@ -91,23 +91,36 @@ export function NotificationBell() {
     }
   }
 
-  /** 查看：进入这个组并打开这条任务的详情（状态行切到"全部"，保证任务在清单里） */
-  async function viewTask(item: GroupNotification) {
+  /**
+   * 查看：进入这条任务所在的组，在清单里原地展开它的详情并滚动到屏幕中间。
+   * 当前的状态行看不到这条任务时，切到它所在的状态。
+   */
+  function viewTask(item: GroupNotification) {
     if (!item.taskId) return;
     setOpen(false);
-    if (item.kind !== 'task_completed') {
+    if (!item.canConfirm) {
       void repositories.groups.dismissNotification(item.id).then(reload);
     }
-    const href = groupHref({ ...selection, status: 'all' }, item.groupId);
+    const task = data?.tasks.find((t) => t.id === item.taskId);
+    let status = selection.status;
+    if (task) {
+      const own = deriveListStatus(task, data?.occurrencesByTask.get(task.id) ?? [], {
+        now,
+        timeZone,
+      });
+      if (status !== 'all' && status !== own) status = own;
+    }
+    const href = groupHref({ ...selection, status }, item.groupId);
     router.push(`${href}&task=${item.taskId}`);
   }
 
   return (
-    <>
+    <div className="notification-root" ref={rootRef}>
       <IconButton
         label="通知"
         className={`notification-bell${unread ? ' notification-bell-unread' : ''}`}
         aria-expanded={open}
+        aria-haspopup="dialog"
         data-unread={unread || undefined}
         onClick={() => void toggle()}
       >
@@ -116,21 +129,18 @@ export function NotificationBell() {
       </IconButton>
 
       {open && (
-        <section className="notification-panel" aria-label="通知列表">
+        <section className="notification-panel" role="dialog" aria-label="通知列表">
           {items.length === 0 ? (
             <p className="muted notification-empty">没有通知</p>
           ) : (
             <ul>
               {items.map((item) => {
                 const key = `${item.kind}:${item.id}`;
-                const vote =
-                  item.kind === 'group_invitation' ||
-                  item.kind === 'group_deletion_vote' ||
-                  item.kind === 'group_leader_vote';
-                const view = () => void viewTask(item);
+                const vote = item.kind !== 'task';
+                const view = () => viewTask(item);
                 return (
                   <li key={key} className="notification-item">
-                    <p className="notification-text">{notificationText(item)}</p>
+                    <p className="notification-text">{notificationText(item, messages)}</p>
                     <div className="notification-actions">
                       {vote ? (
                         <>
@@ -151,7 +161,7 @@ export function NotificationBell() {
                             同意
                           </button>
                         </>
-                      ) : item.kind === 'task_completed' ? (
+                      ) : item.canConfirm ? (
                         <>
                           <button
                             type="button"
@@ -180,14 +190,16 @@ export function NotificationBell() {
                           >
                             <XIcon size={14} />
                           </IconButton>
-                          <button
-                            type="button"
-                            className="button-primary button-small"
-                            disabled={busy === key}
-                            onClick={view}
-                          >
-                            查看
-                          </button>
+                          {!item.taskDeleted && (
+                            <button
+                              type="button"
+                              className="button-primary button-small"
+                              disabled={busy === key}
+                              onClick={view}
+                            >
+                              查看
+                            </button>
+                          )}
                         </>
                       )}
                     </div>
@@ -199,6 +211,6 @@ export function NotificationBell() {
           {error && <p className="field-error">{error}</p>}
         </section>
       )}
-    </>
+    </div>
   );
 }

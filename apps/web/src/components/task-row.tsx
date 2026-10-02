@@ -41,7 +41,7 @@ export function TaskRow({
 }) {
   const { active, open } = usePanels();
   const { data, toggleStar } = useTaskData();
-  const { group, kind, me } = useCurrentGroup();
+  const { group, kind, me, features, members } = useCurrentGroup();
   // 管理组：只有 R 能标记完成，R 或 A 能取消完成（含待确认）
   const inThisGroup = task.groupId !== null && task.groupId === group?.id;
   const myRaci = inThisGroup
@@ -63,7 +63,35 @@ export function TaskRow({
   const checkboxLabel = (completed: boolean) =>
     recurring ? `完成本次：${task.title}` : `${completed ? '取消完成' : '完成'}：${task.title}`;
 
-  const meta = (
+  // 管理组的简介行：时间、执行人、负责人
+  const showRaci = inThisGroup && features.raci;
+  const assignments = showRaci ? (data?.assignmentsByTask.get(task.id) ?? []) : [];
+  const namesOf = (role: 'R' | 'A') =>
+    assignments
+      .filter((a) => a.role === role && a.userId)
+      .map((a) => members.find((m) => m.userId === a.userId)?.nickname ?? '')
+      .filter(Boolean)
+      .join('、');
+
+  // 简介行一直存在、高度固定；没有内容时留空，每个任务行一样高
+  const meta = showRaci ? (
+    <span className="task-meta">
+      {deadline && (
+        <span className="task-deadline">
+          {recurring && '本次 '}
+          {formatDeadline(deadline, now, timeZone)}
+        </span>
+      )}
+      {(['R', 'A'] as const).map(
+        (role) =>
+          namesOf(role) && (
+            <span key={role} className="task-raci" data-role={role}>
+              <span className="task-raci-letter">{role}</span> {namesOf(role)}
+            </span>
+          ),
+      )}
+    </span>
+  ) : (
     <span className="task-meta">
       {deadline && (
         <span className="task-deadline">
@@ -88,7 +116,7 @@ export function TaskRow({
 
   if (expanded) {
     return (
-      <li className={`task-item task-item-open task-${status}`}>
+      <li className={`task-item task-item-open task-${status}`} data-task-row={task.id}>
         <EditPanel
           taskId={task.id}
           surface="inline"
@@ -117,7 +145,7 @@ export function TaskRow({
   }
 
   return (
-    <li className={`task-item task-${status}`}>
+    <li className={`task-item task-${status}`} data-task-row={task.id}>
       {/* 点任务名：展开并让标题进入编辑；点行内其他区域（勾选框和星标除外）：只展开 */}
       <div
         className="task-row"

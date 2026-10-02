@@ -4,7 +4,7 @@ import {
   CREATABLE_GROUP_KINDS,
   DEFAULT_CATEGORY_PALETTE,
   GROUP_KIND_LABELS,
-  nextAvailablePaletteColor,
+  defaultPaletteColor,
   normalizeColor,
   type Group,
   type GroupKind,
@@ -63,10 +63,8 @@ export function NewGroupForm({
   const repositories = useRepositories();
   const [name, setName] = useState('');
   const [kind, setKind] = useState<GroupKind>('cooperative');
-  const [color, setColor] = useState(
-    () =>
-      nextAvailablePaletteColor(groups.flatMap((g) => (g.color ? [g.color] : []))) ??
-      DEFAULT_CATEGORY_PALETTE[0]!,
+  const [color, setColor] = useState(() =>
+    defaultPaletteColor(groups.flatMap((g) => (g.color ? [g.color] : []))),
   );
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);

@@ -2,34 +2,21 @@
 
 import {
   DEFAULT_CATEGORY_PALETTE,
-  isColorTaken,
+  defaultPaletteColor,
   isHexColor,
-  nextAvailablePaletteColor,
   normalizeColor,
   type Category,
 } from '@alethego/core';
-import { DataError } from '@alethego/data';
 import { useState, type FormEvent } from 'react';
 
 import { useFeedback } from './feedback-provider';
-import { CheckIcon, IconButton, TrashIcon, WarningIcon, XIcon } from './icons';
+import { CheckIcon, IconButton, TrashIcon, XIcon } from './icons';
 import { useRepositories } from './repositories-provider';
 import { errorMessage } from '@/lib/format';
 
-/** 调色板用尽时的默认值：随机取一个未被使用的颜色（不因颜色不足限制分类数量） */
-function randomUnusedColor(used: readonly string[]): string {
-  for (;;) {
-    const color = `#${Math.floor(Math.random() * 0xffffff)
-      .toString(16)
-      .padStart(6, '0')
-      .toUpperCase()}`;
-    if (!isColorTaken(color, used)) return color;
-  }
-}
-
 /**
  * 分类表单（新建与编辑共用）：名称 + 描述 + 颜色。颜色可以从默认调色板挑，也可以自选任意颜色；
- * 同一用户的分类颜色不能重复：已被其他分类占用的色块不可选，自选颜色撞色时立即提示。
+ * 颜色可以和其他分类（以及组）相同；默认取调色板里还没用过的第一个，全都用过就从头轮换。
  * 编辑时可删除分类：只解除与任务的关联，任务本身保留（删除前确认一次）。
  */
 export function CategoryForm({
@@ -48,22 +35,16 @@ export function CategoryForm({
 }) {
   const repositories = useRepositories();
   const { confirm } = useFeedback();
-  const others = categories.filter((c) => c.id !== category?.id);
-  const used = others.map((c) => c.color);
+  const used = categories.filter((c) => c.id !== category?.id).map((c) => c.color);
   const [name, setName] = useState(category?.name ?? '');
   const [description, setDescription] = useState(category?.description ?? '');
-  const [color, setColor] = useState(
-    () => category?.color ?? nextAvailablePaletteColor(used) ?? randomUnusedColor(used),
-  );
+  const [color, setColor] = useState(() => category?.color ?? defaultPaletteColor(used));
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const ownerOf = (value: string) =>
-    others.find((c) => normalizeColor(c.color) === normalizeColor(value));
   const isPalette = DEFAULT_CATEGORY_PALETTE.some(
     (c) => normalizeColor(c) === normalizeColor(color),
   );
-  const colorOwner = ownerOf(color);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -76,7 +57,6 @@ export function CategoryForm({
       setError('请选择颜色');
       return;
     }
-    if (isColorTaken(color, used)) return; // 撞色提示已在颜色下方显示
     setSaving(true);
     try {
       const input = { name: trimmed, description: description.trim(), color };
@@ -85,11 +65,7 @@ export function CategoryForm({
         : await repositories.categories.create(input);
       await onSaved(saved);
     } catch (e) {
-      setError(
-        e instanceof DataError && e.code === 'conflict'
-          ? '该颜色已被其他分类使用，请换一个'
-          : `${category ? '保存' : '创建'}失败：${errorMessage(e)}`,
-      );
+      setError(`${category ? '保存' : '创建'}失败：${errorMessage(e)}`);
     } finally {
       setSaving(false);
     }
@@ -143,7 +119,6 @@ export function CategoryForm({
       />
       <div className="swatches" role="radiogroup" aria-label="分类颜色">
         {DEFAULT_CATEGORY_PALETTE.map((swatch) => {
-          const owner = ownerOf(swatch);
           const selected = normalizeColor(color) === normalizeColor(swatch);
           return (
             <button
@@ -151,8 +126,7 @@ export function CategoryForm({
               type="button"
               role="radio"
               aria-checked={selected}
-              aria-label={owner ? `${swatch}（已被「${owner.name}」使用）` : swatch}
-              disabled={Boolean(owner)}
+              aria-label={swatch}
               className="swatch"
               style={{ backgroundColor: swatch }}
               onClick={() => {
@@ -177,12 +151,6 @@ export function CategoryForm({
           />
         </label>
       </div>
-      {colorOwner && (
-        <p className="field-warning" role="alert">
-          <WarningIcon size={14} />
-          该颜色已被「{colorOwner.name}」使用，请换一个
-        </p>
-      )}
       {error && <p className="field-error">{error}</p>}
       <div className="category-form-actions">
         {category && (
@@ -198,7 +166,7 @@ export function CategoryForm({
           label={category ? '保存分类' : '添加分类'}
           type="submit"
           className="icon-button-primary"
-          disabled={saving || Boolean(colorOwner)}
+          disabled={saving}
         >
           <CheckIcon />
         </IconButton>

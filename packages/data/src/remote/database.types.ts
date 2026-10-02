@@ -17,13 +17,10 @@ export type GroupRoleEnum = 'leader' | 'admin' | 'member';
 export type RaciRoleEnum = 'R' | 'A' | 'C' | 'I';
 
 export type NotificationKindEnum =
-  | 'group_invitation'
-  | 'group_deletion_vote'
-  | 'group_leader_vote'
-  | 'task_assigned'
-  | 'task_completed'
-  | 'task_rejected'
-  | 'task_changed';
+  'group_invitation' | 'group_deletion_vote' | 'group_leader_vote' | 'task';
+
+export type TaskNotificationActionEnum =
+  'assigned' | 'completed' | 'confirmed' | 'rejected' | 'modified';
 
 type NoWrite = { [_ in never]: never };
 
@@ -455,7 +452,26 @@ export interface Database {
           task_id: string | null;
           task_title: string | null;
           subject_name: string | null;
+          action: TaskNotificationActionEnum | null;
+          fields: string[] | null;
+          subject_is_me: boolean | null;
+          can_confirm: boolean;
+          task_deleted: boolean;
         }[];
+      };
+      create_task_with_raci: {
+        Args: {
+          p_group_id: string;
+          p_title: string;
+          p_description: string;
+          p_deadline_at: string | null;
+          p_recurrence_rule: string | null;
+          p_recurrence_dtstart: string | null;
+          p_assignments: Json;
+          p_location: Json | null;
+          p_people: Json;
+        };
+        Returns: Database['taskapp']['Tables']['tasks']['Row'];
       };
       mark_notifications_seen: { Args: Record<string, never>; Returns: string };
       ensure_current_user: {

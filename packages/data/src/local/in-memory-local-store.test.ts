@@ -100,12 +100,14 @@ describe('InMemoryLocalStore', () => {
     );
   });
 
-  it('分类颜色在用户范围内排他（不区分大小写）', async () => {
+  it('分类颜色可以重复', async () => {
     const store = new InMemoryLocalStore({ ownerId: OWNER });
     await store.categories.create({ name: '工作', color: '#1E88E5' });
-    await expect(store.categories.create({ name: '学习', color: '#1e88e5' })).rejects.toThrow(
-      DataError,
-    );
+    await expect(
+      store.categories.create({ name: '学习', color: '#1e88e5' }),
+    ).resolves.toMatchObject({
+      color: '#1E88E5',
+    });
   });
 
   it('落库归档结果：补建记录、用户改过的记录不被覆盖、重复记录被忽略', async () => {
@@ -156,7 +158,7 @@ describe('InMemoryLocalStore', () => {
 });
 
 describe('分类编辑', () => {
-  it('可以修改名称、描述、颜色；颜色不能与其他分类重复；名称不能为空', async () => {
+  it('可以修改名称、描述、颜色；颜色可以和其他分类相同；名称不能为空', async () => {
     const store = new InMemoryLocalStore({ ownerId: OWNER });
     const work = await store.categories.create({ name: '工作', color: '#007AFF' });
     const home = await store.categories.create({
@@ -174,10 +176,9 @@ describe('分类编辑', () => {
     });
     expect(edited).toMatchObject({ name: '公司', description: '上班相关', color: '#FF9500' });
 
-    // 保持自己的颜色不算冲突；换成别人的颜色冲突
-    await expect(store.categories.update(work.id, { color: '#FF9500' })).resolves.toBeTruthy();
-    await expect(store.categories.update(work.id, { color: '#34c759' })).rejects.toMatchObject({
-      code: 'conflict',
+    // 换成别的分类正在用的颜色也可以
+    await expect(store.categories.update(work.id, { color: '#34c759' })).resolves.toMatchObject({
+      color: '#34C759',
     });
     await expect(store.categories.update(work.id, { name: '  ' })).rejects.toMatchObject({
       code: 'invalid',

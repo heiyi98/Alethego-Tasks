@@ -47,13 +47,24 @@ export function useCreateTask(groupId: string | null = null) {
   return useCallback(
     async (form: TaskFormValue): Promise<{ created: boolean; message?: string }> => {
       try {
-        const task = await repositories.tasks.create(newTaskFromForm(form, timeZone, groupId));
+        // 管理组：任务、RACI、地点、人物一起写入（数据库要求必须有执行人和负责人）
+        const withRaci = groupId !== null && form.raci.length > 0;
+        const people = normalizePeopleDrafts(form.people);
+        const input = newTaskFromForm(form, timeZone, groupId);
+        const task = await repositories.tasks.create(
+          withRaci
+            ? {
+                ...input,
+                assignments: form.raci,
+                location: normalizeLocationDraft(form.location),
+                people: people.ok ? people.people : [],
+              }
+            : input,
+        );
+        if (withRaci) return { created: true };
         try {
           if (!groupId && form.categoryIds.length > 0) {
             await repositories.categories.setTaskCategories(task.id, form.categoryIds);
-          }
-          if (groupId && form.raci.length > 0) {
-            await repositories.assignments.set(task.id, form.raci);
           }
           const location = normalizeLocationDraft(form.location);
           const people = normalizePeopleDrafts(form.people);

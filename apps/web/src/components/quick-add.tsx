@@ -72,8 +72,13 @@ export function QuickAdd({
     setDraft((d) => ({ ...d, ...patch }));
   };
 
+  // 管理组：必须有执行人和负责人才能创建
+  const missingAssignees =
+    features.raci &&
+    !(form.raci.some((a) => a.role === 'R') && form.raci.some((a) => a.role === 'A'));
+
   async function submit() {
-    if (disabled) return;
+    if (disabled || missingAssignees) return;
     if (!normalizeTaskTitle(form.title) || busy) {
       if (expanded) setErrors(validateTaskForm(form));
       return;
@@ -151,7 +156,7 @@ export function QuickAdd({
     <>
       {star}
       {discardButton}
-      <CreateButton onClick={submit} />
+      <CreateButton onClick={submit} disabled={missingAssignees} />
     </>
   );
 
@@ -168,6 +173,7 @@ export function QuickAdd({
         onKeyDown={onEnter}
         onSubmit={submit}
         disabled={disabled}
+        submitDisabled={missingAssignees}
       />
       {expanded ? (
         <PanelSurface variant="inline" label="新建任务" onClose={close}>
@@ -221,6 +227,7 @@ export function QuickAdd({
             toggleLabel="展开完整选项"
             inGroup={inGroup}
             readOnly={disabled}
+            assignees={features.raci ? members : undefined}
           />
           {message && <p className="field-error">{message}</p>}
         </>
@@ -253,12 +260,15 @@ function QuickAddInputRow({
   onKeyDown,
   onSubmit,
   disabled = false,
+  submitDisabled = false,
 }: {
   value: string;
   onChange: (title: string) => void;
   onKeyDown: (event: KeyboardEvent<HTMLInputElement>) => void;
   onSubmit: () => void;
   disabled?: boolean;
+  /** 输入栏能用、但还不能创建（管理组还没选执行人） */
+  submitDisabled?: boolean;
 }) {
   return (
     <div className="quick-add-input" data-keep-panel>
@@ -270,7 +280,7 @@ function QuickAddInputRow({
         disabled={disabled}
         autoFocus
       />
-      <CreateButton onClick={onSubmit} disabled={disabled} />
+      <CreateButton onClick={onSubmit} disabled={disabled || submitDisabled} />
     </div>
   );
 }

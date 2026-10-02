@@ -12,7 +12,7 @@ export const groupLink = (page: Page, name: string) =>
   groupSection(page).getByRole('link', { name, exact: false });
 export const bell = (page: Page) => sidebar(page).getByRole('button', { name: '通知' });
 export const notificationList = (page: Page) =>
-  sidebar(page).getByRole('region', { name: '通知列表' });
+  sidebar(page).getByRole('dialog', { name: '通知列表' });
 export const titleBar = (page: Page) => page.locator('h1.title-bar');
 export const rosterDialog = (page: Page) => page.getByRole('dialog', { name: '名单' });
 export const confirmDialog = (page: Page) => page.getByRole('alertdialog');
@@ -132,6 +132,21 @@ export async function groupTask(
   raci: { role: 'R' | 'A' | 'C' | 'I'; userId?: string; contactId?: string }[] = [],
   fields: Record<string, unknown> = {},
 ): Promise<string> {
+  // 管理组：任务和 RACI 必须一起写入（至少一个执行人和一个负责人）
+  if (raci.length > 0) {
+    const task = await rpc<{ id: string }>(creator, 'create_task_with_raci', {
+      p_group_id: groupId,
+      p_title: title,
+      p_description: (fields.description as string | undefined) ?? '',
+      p_deadline_at: (fields.deadline_at as string | undefined) ?? null,
+      p_recurrence_rule: null,
+      p_recurrence_dtstart: null,
+      p_assignments: raci.map((a) =>
+        a.userId ? { role: a.role, user_id: a.userId } : { role: a.role, contact_id: a.contactId },
+      ),
+    });
+    return task.id;
+  }
   const response = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/tasks`, {
     method: 'POST',
     headers: {
@@ -145,13 +160,5 @@ export async function groupTask(
   });
   if (!response.ok) throw new Error(`tasks: ${response.status} ${await response.text()}`);
   const [task] = (await response.json()) as { id: string }[];
-  if (raci.length > 0) {
-    await rpc(creator, 'set_task_raci', {
-      p_task_id: task!.id,
-      p_assignments: raci.map((a) =>
-        a.userId ? { role: a.role, user_id: a.userId } : { role: a.role, contact_id: a.contactId },
-      ),
-    });
-  }
   return task!.id;
 }

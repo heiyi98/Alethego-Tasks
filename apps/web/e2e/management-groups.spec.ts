@@ -62,6 +62,8 @@ async function openNotifications(page: Page): Promise<Locator> {
   return list;
 }
 
+const notificationText = (page: Page, text: string | RegExp) =>
+  notification(page, text).locator('.notification-text');
 const notification = (page: Page, text: string | RegExp) =>
   notificationList(page).getByRole('listitem').filter({ hasText: text });
 
@@ -220,23 +222,45 @@ test('RACI：创建时设定（创建人默认是 A）；R 标记完成进入待
   });
   const title = `${id} 写发布说明`;
 
-  // 管理员建任务：展开完整选项设定 RACI，A 默认是自己
+  // 管理员建任务：快速添加栏在时间旁边选执行人和负责人；负责人默认是自己，执行人没选时不能创建
   const pa = await openAs(browser, A);
   await groupLink(pa, groupName).click();
   const bar = pa.locator('.quick-add');
   await pa.getByLabel('快速添加任务').fill(title);
+  const quickR = bar.getByRole('combobox', { name: '执行人（R）' });
+  const quickA = bar.getByRole('combobox', { name: '负责人（A）' });
+  await expect(quickA).toHaveValue(await userId(A));
+  await expect(quickR).toHaveValue('');
+  await expect(bar.getByRole('button', { name: '创建', exact: true })).toBeDisabled();
+  await pa.getByLabel('快速添加任务').press('Enter');
+  await expect(pa.getByLabel('快速添加任务')).toHaveValue(title);
+  await quickR.selectOption({ label: `${id}组员` });
+  await expect(bar.getByRole('button', { name: '创建', exact: true })).toBeEnabled();
+  // 展开后四个角色写全称；R、A 只能选组内成员，C、I 还可以选只有名字的人
   await bar.getByRole('button', { name: '展开完整选项' }).click();
   const raci = bar.getByRole('group', { name: 'RACI' });
+  await expect(raci.locator('.raci-letter')).toHaveText([
+    '执行人（R）',
+    '负责人（A）',
+    '顾问（C）',
+    '知会（I）',
+  ]);
+  await expect(raci.getByRole('group', { name: '负责人（A）' }).locator('.raci-chip')).toHaveText([
+    `${id}管理`,
+  ]);
+  await expect(raci.getByRole('group', { name: '执行人（R）' }).locator('.raci-chip')).toHaveText([
+    `${id}组员`,
+  ]);
+  // 只剩一个执行人 / 负责人时不能去掉
+  await expect(raci.getByRole('button', { name: /^从执行人（R）中去掉/ })).toHaveCount(0);
+  await expect(raci.getByRole('button', { name: /^从负责人（A）中去掉/ })).toHaveCount(0);
   await expect(
-    raci.getByRole('group', { name: 'A', exact: true }).locator('.raci-chip'),
-  ).toHaveText([`${id}管理`]);
-  await raci.getByRole('combobox', { name: '添加 R' }).selectOption({ label: `${id}组员` });
-  // R、A 只能选组内成员；C、I 还可以选只有名字的人
-  await expect(
-    raci.getByRole('combobox', { name: '添加 R' }).getByRole('option', { name: `${id}顾问` }),
+    raci
+      .getByRole('combobox', { name: '添加执行人（R）' })
+      .getByRole('option', { name: `${id}顾问` }),
   ).toHaveCount(0);
-  await raci.getByRole('combobox', { name: '添加 C' }).selectOption({ label: `${id}顾问` });
-  await raci.getByRole('combobox', { name: '添加 I' }).selectOption({ label: `${id}组长` });
+  await raci.getByRole('combobox', { name: '添加顾问（C）' }).selectOption({ label: `${id}顾问` });
+  await raci.getByRole('combobox', { name: '添加知会（I）' }).selectOption({ label: `${id}组长` });
   await bar.locator('input[aria-label="截止日期"]').fill(localDate(-1));
   await bar.getByRole('button', { name: '创建', exact: true }).click();
   await expect(pa.getByLabel('快速添加任务')).toHaveValue('');
@@ -254,30 +278,30 @@ test('RACI：创建时设定（创建人默认是 A）；R 标记完成进入待
     { role: 'R', user_id: await userId(M), contact_id: null },
   ]);
 
-  // 组员（R）：收到"分配给你"，点查看进入组并打开这条任务的详情（只能看，不能改内容）
+  // 组员（执行人）：收到"把你设为执行人"，点查看进入组，在清单里原地展开这条任务（只能看，不能改内容）；
+  // 当前状态（未完成）看不到这条已经过了截止时间的任务，切到"已错过"
   const pm = await openAs(browser, M);
   await expect(bell(pm)).toHaveAttribute('data-unread', 'true');
   await openNotifications(pm);
-  await expect(notification(pm, '分配给你')).toHaveText(
-    new RegExp(`${id}管理 把「${title}」分配给你`),
-  );
-  await notification(pm, '分配给你').getByRole('button', { name: '查看' }).click();
-  await expect(pm).toHaveURL(new RegExp(`group=${groupId}`));
+  await expect(notificationText(pm, '设为')).toHaveText(`${id}管理把你设为${title}的执行人（R）`);
+  await notification(pm, '设为').getByRole('button', { name: '查看' }).click();
+  await expect(pm).toHaveURL(new RegExp(`group=${groupId}&status=missed$`));
+  await expect(taskItem(pm, title)).toHaveClass(/task-item-open/);
   const panel = editPanel(pm);
   await expect(titleBox(panel)).toHaveValue(title);
   await expect(titleBox(panel)).toHaveAttribute('readonly', '');
   await expect(panel.getByRole('button', { name: '删除任务' })).toHaveCount(0);
   await expect(panel.getByRole('textbox', { name: '描述' })).toBeDisabled();
   // 所有成员都能看到这条任务上的 RACI
-  await expect(
-    panel.getByRole('group', { name: 'R', exact: true }).locator('.raci-chip'),
-  ).toHaveText([`${id}组员`]);
-  await expect(
-    panel.getByRole('group', { name: 'C', exact: true }).locator('.raci-chip'),
-  ).toHaveText([`${id}顾问`]);
+  await expect(panel.getByRole('group', { name: '执行人（R）' }).locator('.raci-chip')).toHaveText([
+    `${id}组员`,
+  ]);
+  await expect(panel.getByRole('group', { name: '顾问（C）' }).locator('.raci-chip')).toHaveText([
+    `${id}顾问`,
+  ]);
   await expect(panel.getByRole('combobox')).toHaveCount(0);
-  // R 标记完成 → 待确认
-  await panel.getByRole('button', { name: '标记为完成' }).click();
+  // 执行人标记完成 → 待确认
+  await pm.getByRole('checkbox', { name: `完成：${title}` }).click();
   await expect(panel).toHaveAttribute('data-save-state', 'saved');
   await panel.getByRole('button', { name: '完成编辑' }).click();
   await selectStatus(pm, '待确认');
@@ -288,17 +312,21 @@ test('RACI：创建时设定（创建人默认是 A）；R 标记完成进入待
   await selectStatus(pm, '已完成');
   await expect(taskItem(pm, title)).toHaveCount(0);
 
-  // A 收到通知：只有"确认"和"查看"两个按钮；I（组长）收到"有变化"
+  // 负责人收到"完成"：只有"确认"和"查看"两个按钮；知会（组长）也收到，但不能确认
   await pa.reload();
   await openNotifications(pa);
   const done = notification(pa, '完成了');
-  await expect(done).toHaveText(new RegExp(`${id}组员 完成了「${title}」`));
+  await expect(done.locator('.notification-text')).toHaveText(`${id}组员完成了${title}`);
   await expect(done.getByRole('button')).toHaveText(['查看', '确认']);
   const pl = await openAs(browser, L);
   await openNotifications(pl);
-  await expect(notification(pl, '更新了')).toHaveText(new RegExp(`更新了「${title}」`));
+  await expect(notificationText(pl, '完成了')).toHaveText(`${id}组员完成了${title}`);
+  await expect(notification(pl, '完成了').getByRole('button', { name: '确认' })).toHaveCount(0);
+  await expect(notificationText(pl, '设为')).toHaveText(
+    `${id}管理把${id}组员设为${title}的执行人（R）`,
+  );
 
-  // A 点查看，在任务详情里点"不通过"：任务回到未完成，R 收到通知
+  // 负责人点查看，在任务详情里点"不通过"：任务回到未完成，执行人收到"退回了"
   await done.getByRole('button', { name: '查看' }).click();
   const aPanel = editPanel(pa);
   await aPanel
@@ -319,13 +347,11 @@ test('RACI：创建时设定（创建人默认是 A）；R 标记完成进入待
     .toEqual({ completed_at: null });
   await pm.reload();
   await openNotifications(pm);
-  await expect(notification(pm, '没有通过')).toHaveText(
-    new RegExp(`${id}管理 没有通过「${title}」`),
-  );
+  await expect(notificationText(pm, '退回了')).toHaveText(`${id}管理退回了${title}`);
 
-  // R 再次标记完成（清单里勾选），A 在通知里直接"确认"：已完成
-  await notification(pm, '没有通过').getByRole('button', { name: '关闭这条通知' }).click();
-  await expect(notification(pm, '没有通过')).toHaveCount(0);
+  // 执行人再次标记完成（清单里勾选），负责人在通知里直接"确认"：已完成
+  await notification(pm, '退回了').getByRole('button', { name: '关闭这条通知' }).click();
+  await expect(notification(pm, '退回了')).toHaveCount(0);
   await selectStatus(pm, '已错过');
   await pm.getByRole('checkbox', { name: `完成：${title}` }).click();
   await selectStatus(pm, '待确认');
@@ -457,11 +483,14 @@ test('踢出与退出：身上有 R 或 A 时失败并列出 RACI；否则确认
   await confirmDialog(pl).getByRole('button', { name: '关闭' }).click();
   expect(await rpc(L, 'leave_group', { p_group_id: groupId })).toBe('last_leader');
 
-  // 管理员（没有 R、A）可以退出
+  // 管理员（没有 R、A）可以退出：先把负责人换成组长（执行人和负责人不能删光）
   expect(
     await rpc(A, 'set_task_raci', {
       p_task_id: (await select<{ id: string }>(A, `tasks?select=id&title=eq.${t1}`))[0]!.id,
-      p_assignments: [{ role: 'R', user_id: mId }],
+      p_assignments: [
+        { role: 'R', user_id: mId },
+        { role: 'A', user_id: await userId(L) },
+      ],
     }),
   ).toBeNull();
   expect(await rpc(A, 'leave_group', { p_group_id: groupId })).toBe('left');
@@ -519,9 +548,7 @@ test('任命组长：全体组长投票，发起者算同意；一个不同意�
   const pa = await openAs(browser, A);
   await openNotifications(pa);
   const vote = notification(pa, '提议任命');
-  await expect(vote).toHaveText(
-    new RegExp(`${id}组长 提议任命 ${id}组员 为「${groupName}」的组长`),
-  );
+  await expect(vote).toHaveText(new RegExp(`${id}组长提议任命${id}组员为「${groupName}」的组长`));
   await vote.getByRole('button', { name: '不同意' }).click();
   await expect(vote).toHaveCount(0);
   await pl.reload();

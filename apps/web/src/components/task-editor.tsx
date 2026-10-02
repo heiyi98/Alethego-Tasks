@@ -31,6 +31,7 @@ import {
   XIcon,
 } from './icons';
 import { RecurrenceEditor } from './recurrence-editor';
+import { messages } from '@/i18n';
 import { IMPORTANCE_LEVELS, fromDateValue, toDateValue } from '@/lib/format';
 import { newRowKey, type FormErrors, type TaskFormValue } from '@/lib/task-form';
 
@@ -49,8 +50,10 @@ export function QuickOptionsRow({
   actions,
   inGroup = false,
   readOnly = false,
+  assignees,
 }: {
-  value: Pick<TaskFormValue, 'importanceLevel' | 'deadline' | 'deadlineTime' | 'recurrence'>;
+  value: Pick<TaskFormValue, 'importanceLevel' | 'deadline' | 'deadlineTime' | 'recurrence'> &
+    Partial<Pick<TaskFormValue, 'raci'>>;
   onChange: (patch: Partial<TaskFormValue>) => void;
   expanded: boolean;
   onToggle: () => void;
@@ -61,6 +64,8 @@ export function QuickOptionsRow({
   inGroup?: boolean;
   /** 只能看不能改（管理组里的组员）：三角照常可用 */
   readOnly?: boolean;
+  /** 管理组的快速添加：时间旁边选执行人（R）和负责人（A），各选一个（展开后在 RACI 里可以选多个） */
+  assignees?: readonly GroupMember[];
 }) {
   // 时刻输入框：已选时刻时一直显示；否则点时钟图标后显示（日期被清空 / 创建后草稿重置时收回时钟图标）
   const [timeOpen, setTimeOpen] = useState(false);
@@ -153,6 +158,46 @@ export function QuickOptionsRow({
             )}
           </div>
         )}
+        {assignees &&
+          (['R', 'A'] as const).map((role) => {
+            const raci = value.raci ?? [];
+            const current = raci.find((a) => a.role === role && a.userId)?.userId ?? '';
+            return (
+              <div
+                key={role}
+                className="option raci-quick"
+                role="group"
+                aria-label={messages.raciRoles[role]}
+              >
+                <span className="raci-quick-label" aria-hidden>
+                  {role}
+                </span>
+                <select
+                  aria-label={messages.raciRoles[role]}
+                  className={`raci-quick-select${current ? '' : ' raci-quick-empty'}`}
+                  value={current}
+                  onChange={(event) =>
+                    onChange({
+                      raci: [
+                        ...raci.filter((a) => a.role !== role),
+                        ...(event.target.value
+                          ? [{ role, userId: event.target.value, contactId: null }]
+                          : []),
+                      ],
+                    })
+                  }
+                >
+                  {/* 执行人必须选，没选时不能创建；负责人默认是自己 */}
+                  {role === 'R' && <option value="">—</option>}
+                  {assignees.map((m) => (
+                    <option key={m.userId} value={m.userId}>
+                      {m.nickname}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            );
+          })}
       </fieldset>
       {actions && <div className="quick-options-actions desktop-only">{actions}</div>}
       <IconButton
@@ -428,6 +473,9 @@ export function TaskEditor({
   );
 }
 
+/** 执行人（R）和负责人（A）至少要有一个 */
+const requiredRole = (role: RaciRole) => role === 'R' || role === 'A';
+
 /** 人：组内成员（u:id）或只有名字的人（c:id） */
 const keyOf = (a: Pick<AssignmentDraft, 'userId' | 'contactId'>) =>
   a.userId ? `u:${a.userId}` : `c:${a.contactId}`;
@@ -467,17 +515,18 @@ function RaciField({
               : []),
           ].filter((o) => !chosenKeys.has(o.key));
           return (
-            <div key={role} className="raci-row" role="group" aria-label={role}>
+            <div key={role} className="raci-row" role="group" aria-label={messages.raciRoles[role]}>
               <span className="raci-letter" aria-hidden>
-                {role}
+                {messages.raciRoles[role]}
               </span>
               <div className="chip-row">
                 {chosen.map((a) => (
                   <span key={keyOf(a)} className="chip chip-compact raci-chip">
                     {nameOf(a)}
-                    {editable && (
+                    {/* 执行人和负责人不能删到一个都不剩 */}
+                    {editable && !(requiredRole(role) && chosen.length === 1) && (
                       <IconButton
-                        label={`从 ${role} 中去掉「${nameOf(a)}」`}
+                        label={`从${messages.raciRoles[role]}中去掉「${nameOf(a)}」`}
                         className="icon-button-small"
                         onClick={() =>
                           onChange(value.filter((x) => !(x.role === role && keyOf(x) === keyOf(a))))
@@ -492,7 +541,7 @@ function RaciField({
                 {editable && options.length > 0 && (
                   <select
                     className="raci-add"
-                    aria-label={`添加 ${role}`}
+                    aria-label={`添加${messages.raciRoles[role]}`}
                     value=""
                     onChange={(event) => {
                       const key = event.target.value;

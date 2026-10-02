@@ -1,7 +1,8 @@
 'use client';
 
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { useEffect, type ReactNode } from 'react';
+import { buildTaskList } from '@alethego/core';
+import { useEffect, useMemo, useRef, type ReactNode } from 'react';
 
 import { useCurrentGroup } from './current-group';
 import { usePanels } from './panel-provider';
@@ -30,17 +31,32 @@ export function ViewFrame({ wide = false, children }: { wide?: boolean; children
     if (groupMissing) router.replace('/', { scroll: false });
   }, [groupMissing, router]);
 
-  // 从通知"查看"过来（?task=id）：打开这条任务的详情，然后把参数去掉
+  // 从通知"查看"过来（?task=id）：在清单里原地展开这条任务的详情，滚动到屏幕中间，然后把参数去掉
   const searchParams = useSearchParams();
   const pathname = usePathname();
   const taskParam = searchParams.get('task');
+  const scrollTo = useRef<string | null>(null);
   useEffect(() => {
     if (!taskParam || !data) return;
-    if (data.tasks.some((t) => t.id === taskParam)) {
-      open({ kind: 'edit', taskId: taskParam, surface: 'floating' });
-    }
     router.replace(selectionHref(selection), { scroll: false });
+    if (!data.tasks.some((t) => t.id === taskParam)) return;
+    scrollTo.current = taskParam;
+    // 等页面切换完成后再展开（切换页面时面板会被收起）
+    // （去掉地址参数会让这个 effect 重新执行，所以这里不清除定时器）
+    setTimeout(() => open({ kind: 'edit', taskId: taskParam, surface: 'inline' }));
   }, [taskParam, data, open, router, selection, pathname]);
+  useEffect(() => {
+    const id = scrollTo.current;
+    if (!id || active?.kind !== 'edit' || active.taskId !== id) return;
+    scrollTo.current = null;
+    let frames = 0;
+    const tick = () => {
+      const row = document.querySelector(`[data-task-row="${id}"]`);
+      if (row) row.scrollIntoView({ block: 'center' });
+      else if (frames++ < 30) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }, [active]);
 
   const selectedCategories = categoryIds
     .map((id) => data?.categories.find((c) => c.id === id))
@@ -73,11 +89,27 @@ export function ViewFrame({ wide = false, children }: { wide?: boolean; children
   );
 }
 
-/** 页面内的状态行（添加栏下面）：全部 / 未完成 / 已完成 / 已错过，管理组多一个待确认；单选 */
+/**
+ * 页面内的状态行（添加栏下面），单选：全部 / 未完成 / 已完成 / 已错过；
+ * 管理组是 全部 / 未完成 / 待确认 / 已完成 / 已错过，"待确认"上的角标是当前待确认的任务数（0 时不显示）。
+ */
 function StatusBar() {
   const selection = useSelection();
   const router = useRouter();
   const { features } = useCurrentGroup();
+  const { data, now, timeZone } = useTaskData();
+  const pendingCount = useMemo(() => {
+    if (!data || !features.confirmation || !selection.groupId) return 0;
+    return buildTaskList(
+      {
+        tasks: data.tasks,
+        categoryIdsByTask: data.categoryIdsByTask,
+        occurrencesByTask: data.occurrencesByTask,
+      },
+      { status: 'pending', categoryIds: [], groupId: selection.groupId },
+      { now, timeZone },
+    ).length;
+  }, [data, features.confirmation, selection.groupId, now, timeZone]);
   return (
     <div className="segmented-control status-bar" role="group" aria-label="状态">
       {statusOrderFor(features).map((status) => (
@@ -88,6 +120,11 @@ function StatusBar() {
           onClick={() => router.replace(selectionHref({ ...selection, status }), { scroll: false })}
         >
           {STATUS_LABELS[status]}
+          {status === 'pending' && pendingCount > 0 && (
+            <span className="status-badge" data-testid="pending-badge" aria-hidden>
+              {pendingCount}
+            </span>
+          )}
         </button>
       ))}
     </div>

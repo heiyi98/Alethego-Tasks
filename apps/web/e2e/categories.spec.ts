@@ -30,7 +30,7 @@ async function editCategory(page: Page, name: string) {
   return form;
 }
 
-test('新建分类可以手动选择颜色；同一用户的分类颜色不能重复', async ({ page }) => {
+test('新建分类可以手动选择颜色；颜色可以和别的分类相同', async ({ page }) => {
   const id = runId();
   await page.goto('/');
 
@@ -41,47 +41,33 @@ test('新建分类可以手动选择颜色；同一用户的分类颜色不能�
     await expect(anyEdit.first()).toHaveCSS('opacity', '1');
   }
 
-  // 手动选一个颜色（调色板中尚未被占用的最后一个；调色板用尽时改用自选颜色）
+  // 手动选一个调色板颜色
   await sidebar(page).getByRole('button', { name: '+ 新建分类' }).click();
   const form = page.getByRole('form', { name: '新建分类' });
   await form.getByLabel('分类名称', { exact: true }).fill(`${id}甲`);
-  const free = form.locator('button[role="radio"]:not([disabled])');
-  let chosen: string;
-  if ((await free.count()) > 0) {
-    chosen = (await free.last().getAttribute('aria-label'))!;
-    await free.last().click();
-    await expect(form.getByRole('radio', { name: chosen })).toHaveAttribute('aria-checked', 'true');
-  } else {
-    chosen = randomColor().toUpperCase();
-    await form.getByLabel('自选颜色').fill(chosen.toLowerCase());
-  }
+  const chosen = '#AF52DE';
+  await form.getByRole('radio', { name: chosen }).click();
+  await expect(form.getByRole('radio', { name: chosen })).toHaveAttribute('aria-checked', 'true');
   await form.getByRole('button', { name: '添加分类' }).click();
   await expect(categoryToggle(page, `${id}甲`)).toBeVisible();
 
-  // 再新建时：若选的是调色板颜色，它已不可选
+  // 再新建时：用过的颜色照样能选，没有任何提示
   await sidebar(page).getByRole('button', { name: '+ 新建分类' }).click();
   const form2 = page.getByRole('form', { name: '新建分类' });
-  const taken = form2.getByRole('radio', { name: new RegExp(`^${chosen}`) });
-  if ((await taken.count()) > 0) {
-    await expect(taken).toBeDisabled();
-    await expect(taken).toHaveAttribute('aria-label', `${chosen}（已被「${id}甲」使用）`);
-    await expect(taken).not.toHaveAttribute('title', /.*/);
-  }
-
-  // 自选颜色撞色（大小写不同也算）→ 立即提示，不能创建
+  const taken = form2.getByRole('radio', { name: chosen });
+  await expect(taken).toBeEnabled();
+  await expect(taken).not.toHaveAttribute('title', /.*/);
   await form2.getByLabel('分类名称', { exact: true }).fill(`${id}乙`);
   await form2.getByLabel('自选颜色').fill(chosen.toLowerCase());
-  await expect(form2.getByRole('alert')).toHaveText(`该颜色已被「${id}甲」使用，请换一个`);
-  await expect(form2.getByRole('button', { name: '添加分类' })).toBeDisabled();
-
-  // 自选一个未被使用的颜色 → 提示消失，创建成功
-  await form2.getByLabel('自选颜色').fill(randomColor());
   await expect(form2.getByRole('alert')).toHaveCount(0);
   await form2.getByRole('button', { name: '添加分类' }).click();
   await expect(categoryToggle(page, `${id}乙`)).toBeVisible();
 });
 
-test('编辑分类：名称、描述、颜色；撞色提示；描述只在编辑表单里显示', async ({ page, request }) => {
+test('编辑分类：名称、描述、颜色（可以和别的分类相同）；描述只在编辑表单里显示', async ({
+  page,
+  request,
+}) => {
   const id = runId();
   const first = `${id}甲`;
   const second = `${id}乙`;
@@ -95,13 +81,10 @@ test('编辑分类：名称、描述、颜色；撞色提示；描述只在编�
   );
 
   const form = await editCategory(page, second);
-  // 自己当前的颜色不算撞色
-  await expect(form.getByRole('alert')).toHaveCount(0);
-
-  // 选到「甲」的颜色：立即提示，不能保存
+  // 选到「甲」的颜色：可以，不提示
   await form.getByLabel('自选颜色').fill(firstRow!.color.toLowerCase());
-  await expect(form.getByRole('alert')).toHaveText(`该颜色已被「${first}」使用，请换一个`);
-  await expect(form.getByRole('button', { name: '保存分类' })).toBeDisabled();
+  await expect(form.getByRole('alert')).toHaveCount(0);
+  await expect(form.getByRole('button', { name: '保存分类' })).toBeEnabled();
 
   const newColor = randomColor().toUpperCase();
   await form.getByLabel('自选颜色').fill(newColor.toLowerCase());

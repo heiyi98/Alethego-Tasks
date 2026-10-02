@@ -146,6 +146,11 @@ export class SupabaseGroupRepository implements IGroupRepository {
       taskId: row.task_id,
       taskTitle: row.task_title,
       subjectName: row.subject_name,
+      subjectIsMe: row.subject_is_me ?? false,
+      action: row.action,
+      fields: (row.fields ?? []) as GroupNotification['fields'],
+      canConfirm: row.can_confirm,
+      taskDeleted: row.task_deleted,
     }));
     const seen = check(me, '查询通知')?.notifications_seen_at ?? null;
     return { items, seenAt: seen ? new Date(seen) : null };

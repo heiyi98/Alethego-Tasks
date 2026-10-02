@@ -32,7 +32,7 @@ import {
   validatePeopleDrafts,
   validateTaskPatch,
 } from '../validation';
-import type { TableUpdate } from './database.types';
+import type { TableRow, TableUpdate } from './database.types';
 import {
   categoryFromRow,
   locationFromRow,
@@ -111,13 +111,38 @@ export class SupabaseTaskRepository implements ITaskRepository {
   }
 
   async create(input: NewTask): Promise<Task> {
+    const valid = validateNewTask(input);
+    if (valid.groupId && valid.assignments && valid.assignments.length > 0) {
+      // 管理组：任务、RACI、地点、人物在同一个事务里写入（数据库要求必须有执行人和负责人）
+      const location = valid.location ? normalizeLocationDraft(valid.location) : null;
+      const row = unwrap(
+        await this.client.rpc('create_task_with_raci', {
+          p_group_id: valid.groupId,
+          p_title: valid.title,
+          p_description: valid.description ?? '',
+          p_deadline_at: valid.deadlineAt ? valid.deadlineAt.toISOString() : null,
+          p_recurrence_rule: valid.recurrenceRule ?? null,
+          p_recurrence_dtstart: valid.recurrenceDtstart
+            ? valid.recurrenceDtstart.toISOString()
+            : null,
+          p_assignments: valid.assignments.map((a) =>
+            a.userId
+              ? { role: a.role, user_id: a.userId }
+              : { role: a.role, contact_id: a.contactId },
+          ),
+          p_location: location ? { name: location.name, address: location.address } : null,
+          p_people: validatePeopleDrafts(valid.people ?? []).map((p) => ({
+            name: p.name,
+            relation: p.relation,
+          })),
+        }),
+        '创建任务',
+      ) as TableRow<'tasks'>;
+      return taskFromRow(row);
+    }
     return taskFromRow(
       unwrap(
-        await this.client
-          .from('tasks')
-          .insert(taskToInsert(validateNewTask(input), this.ownerId))
-          .select()
-          .single(),
+        await this.client.from('tasks').insert(taskToInsert(valid, this.ownerId)).select().single(),
         '创建任务',
       ),
     );
