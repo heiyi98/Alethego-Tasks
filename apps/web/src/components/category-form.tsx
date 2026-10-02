@@ -1,21 +1,24 @@
 'use client';
 
 import {
+  CATEGORY_TOOLS,
   DEFAULT_CATEGORY_PALETTE,
   defaultPaletteColor,
   isHexColor,
   normalizeColor,
   type Category,
+  type ProjectTool,
 } from '@alethego/core';
 import { useState, type FormEvent } from 'react';
 
 import { useFeedback } from './feedback-provider';
 import { CheckIcon, IconButton, TrashIcon, XIcon } from './icons';
+import { ToolboxField } from './project-form';
 import { useRepositories } from './repositories-provider';
 import { errorMessage } from '@/lib/format';
 
 /**
- * 分类表单（新建与编辑共用）：名称 + 描述 + 颜色。颜色可以从默认调色板挑，也可以自选任意颜色；
+ * 分类表单（新建与编辑共用）：名称 + 描述 + 颜色 + 工具箱（只有"任务关系"，建好后不能改）。颜色可以从默认调色板挑，也可以自选任意颜色；
  * 颜色可以和其他分类（以及组）相同；默认取调色板里还没用过的第一个，全都用过就从头轮换。
  * 编辑时可删除分类：只解除与任务的关联，任务本身保留（删除前确认一次）。
  */
@@ -39,6 +42,7 @@ export function CategoryForm({
   const [name, setName] = useState(category?.name ?? '');
   const [description, setDescription] = useState(category?.description ?? '');
   const [color, setColor] = useState(() => category?.color ?? defaultPaletteColor(used));
+  const [tools, setTools] = useState<ProjectTool[]>(() => [...(category?.tools ?? [])]);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -62,7 +66,10 @@ export function CategoryForm({
       const input = { name: trimmed, description: description.trim(), color };
       const saved = category
         ? await repositories.categories.update(category.id, input)
-        : await repositories.categories.create(input);
+        : await repositories.categories.create({
+            ...input,
+            tools: tools.filter((t): t is 'relations' => t === 'relations'),
+          });
       await onSaved(saved);
     } catch (e) {
       setError(`${category ? '保存' : '创建'}失败：${errorMessage(e)}`);
@@ -151,6 +158,12 @@ export function CategoryForm({
           />
         </label>
       </div>
+      <ToolboxField
+        tools={CATEGORY_TOOLS}
+        value={tools}
+        onChange={setTools}
+        disabled={category !== undefined}
+      />
       {error && <p className="field-error">{error}</p>}
       <div className="category-form-actions">
         {category && (

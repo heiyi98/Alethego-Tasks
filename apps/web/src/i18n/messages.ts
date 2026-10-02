@@ -19,6 +19,8 @@ export interface Messages {
     groupInvitation: (p: { actor: string; group: string }) => string;
     groupDeletionVote: (p: { actor: string; group: string }) => string;
     groupLeaderVote: (p: { actor: string; subject: string; group: string }) => string;
+    projectInvitation: (p: { actor: string; group: string; project: string }) => string;
+    projectDeletionVote: (p: { actor: string; group: string; project: string }) => string;
     assigned: (p: { actor: string; subject: string; task: string; role: string }) => string;
     completed: (p: { actor: string; task: string }) => string;
     confirmed: (p: { actor: string; task: string }) => string;

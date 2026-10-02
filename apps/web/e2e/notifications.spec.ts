@@ -10,6 +10,8 @@ import {
   groupWith,
   notificationList,
   openAs,
+  projectIn,
+  projectLink,
   rpc,
   select,
   sidebar,
@@ -98,7 +100,7 @@ test('左下角：账号名和铃铛固定不动；通知以窗口出现在铃�
   await page.context().close();
 });
 
-test('通知：结构化记录拼成一句话；收件人按动作决定；只发给组内成员，不发给自己；同一种通知合并改动的字段', async ({
+test('通知：结构化记录拼成一句话；收件人按动作决定；只发给项目成员，不发给自己；同一种通知合并改动的字段', async ({
   browser,
 }) => {
   test.setTimeout(120_000);
@@ -109,13 +111,14 @@ test('通知：结构化记录拼成一句话；收件人按动作决定；只�
   const I = await user('ni', `${id}知会`);
   const O = await user('no', `${id}旁观`);
   const groupId = await groupWith(L, [R, A, I, O], `${id}组`, 'management');
-  const contact = await rpc<{ id: string }>(L, 'add_group_contact', {
-    p_group_id: groupId,
+  const projectId = await projectIn(L, groupId, `${id}项目`, ['assignment']);
+  const contact = await rpc<{ id: string }>(L, 'add_project_contact', {
+    p_project_id: projectId,
     p_name: `${id}外人`,
   });
   const [rId, aId, iId] = await Promise.all([userId(R), userId(A), userId(I)]);
   const title = `${id}任务一`;
-  const taskId = await groupTask(L, groupId, title, [
+  const taskId = await groupTask(L, projectId, title, [
     { role: 'R', userId: rId },
     { role: 'A', userId: aId },
     { role: 'I', userId: iId },
@@ -192,15 +195,16 @@ test('通知：结构化记录拼成一句话；收件人按动作决定；只�
   await pi.context().close();
 });
 
-test('管理组：快捷添加必须选执行人；执行人和负责人不能删到一个都不剩（数据库也拦住）', async ({
+test('开了任务分配的项目：快捷添加必须选执行人；执行人和负责人不能删到一个都不剩（数据库也拦住）', async ({
   browser,
 }) => {
   const id = runId();
   const L = await user('rl', `${id}组长`);
   const M = await user('rm', `${id}组员`);
   const groupId = await groupWith(L, [M], `${id}组`, 'management');
+  const projectId = await projectIn(L, groupId, `${id}项目`, ['assignment']);
   const page = await openAs(browser, L);
-  await groupLink(page, `${id}组`).click();
+  await projectLink(page, `${id}项目`).click();
 
   const bar = page.locator('.quick-add');
   await page.getByLabel('快速添加任务').fill(`${id} 没选执行人`);
@@ -218,7 +222,7 @@ test('管理组：快捷添加必须选执行人；执行人和负责人不能�
   // 数据库：不带执行人和负责人建不了；删光也不行
   await expect(
     rpc(L, 'create_task_with_raci', {
-      p_group_id: groupId,
+      p_project_id: projectId,
       p_title: 'x',
       p_description: '',
       p_deadline_at: null,
@@ -227,7 +231,7 @@ test('管理组：快捷添加必须选执行人；执行人和负责人不能�
       p_assignments: [{ role: 'A', user_id: await userId(L) }],
     }),
   ).rejects.toThrow(/必须有执行人和负责人/);
-  const taskId = await groupTask(L, groupId, `${id} 已有`, [
+  const taskId = await groupTask(L, projectId, `${id} 已有`, [
     { role: 'R', userId: await userId(M) },
     { role: 'A', userId: await userId(L) },
   ]);
@@ -246,17 +250,24 @@ test('管理组：快捷添加必须选执行人；执行人和负责人不能�
   await page.context().close();
 });
 
-test('简介行一直存在、高度固定：个人、合作组、管理组的任务行一样高', async ({ browser }) => {
+test('简介行一直存在、高度固定：个人、没开和开了任务分配的项目的任务行一样高', async ({
+  browser,
+}) => {
   const id = runId();
   const L = await user('hl', `${id}组长`);
   const M = await user('hm', `${id}组员`);
   const coopId = await groupWith(L, [M], `${id}合作`);
   const mgmtId = await groupWith(L, [M], `${id}管理`, 'management');
-  await groupTask(L, coopId, `${id} 合作组任务`);
-  await groupTask(L, mgmtId, `${id} 管理组任务`, [
-    { role: 'R', userId: await userId(M) },
-    { role: 'A', userId: await userId(L) },
-  ]);
+  await groupTask(L, await projectIn(L, coopId, `${id}合作项目`), `${id} 合作组任务`);
+  await groupTask(
+    L,
+    await projectIn(L, mgmtId, `${id}分配项目`, ['assignment']),
+    `${id} 管理组任务`,
+    [
+      { role: 'R', userId: await userId(M) },
+      { role: 'A', userId: await userId(L) },
+    ],
+  );
   const page = await openAs(browser, L);
   await quickAdd(page, `${id} 没有简介`);
   await quickAdd(page, `${id} 有截止和重要性`, { deadline: localDate(3), importance: 4 });
@@ -266,11 +277,11 @@ test('简介行一直存在、高度固定：个人、合作组、管理组的�
   for (const title of [`${id} 没有简介`, `${id} 有截止和重要性`]) {
     heights.push((await taskItem(page, title).locator('.task-row').boundingBox())!.height);
   }
-  await groupLink(page, `${id}合作`).click();
+  await projectLink(page, `${id}合作项目`).click();
   heights.push(
     (await taskItem(page, `${id} 合作组任务`).locator('.task-row').boundingBox())!.height,
   );
-  await groupLink(page, `${id}管理`).click();
+  await projectLink(page, `${id}分配项目`).click();
   heights.push(
     (await taskItem(page, `${id} 管理组任务`).locator('.task-row').boundingBox())!.height,
   );
@@ -281,19 +292,23 @@ test('简介行一直存在、高度固定：个人、合作组、管理组的�
   await page.context().close();
 });
 
-test('待确认：在未完成和已完成之间；角标是待确认的任务数，0 时不显示', async ({ browser }) => {
+test('待确认：在未完成和已完成之间；角标是待确认的任务数，0 时不显示；只在开了任务分配的项目里有', async ({
+  browser,
+}) => {
   const id = runId();
   const L = await user('pl', `${id}组长`);
   const M = await user('pm', `${id}组员`);
   const groupId = await groupWith(L, [M], `${id}管理`, 'management');
+  const projectId = await projectIn(L, groupId, `${id}分配项目`, ['assignment']);
+  await projectIn(L, groupId, `${id}普通项目`, ['relations']);
   const raci = [
     { role: 'R' as const, userId: await userId(M) },
     { role: 'A' as const, userId: await userId(L) },
   ];
-  await groupTask(L, groupId, `${id} 一`, raci);
-  await groupTask(L, groupId, `${id} 二`, raci);
+  await groupTask(L, projectId, `${id} 一`, raci);
+  await groupTask(L, projectId, `${id} 二`, raci);
   const page = await openAs(browser, M);
-  await groupLink(page, `${id}管理`).click();
+  await projectLink(page, `${id}分配项目`).click();
   await expect(statusBar(page).getByRole('button')).toHaveText([
     '全部',
     '未完成',
@@ -310,7 +325,18 @@ test('待确认：在未完成和已完成之间；角标是待确认的任务�
   await selectStatus(page, '待确认');
   await page.getByRole('checkbox', { name: `完成：${id} 一` }).click();
   await expect(badge).toHaveText('1');
-  // 个人和合作组没有"待确认"
+  // 组页面：有一个项目开了任务分配就有"待确认"，角标数这个组里的
+  await groupLink(page, `${id}管理`).click();
+  await expect(statusBar(page).getByRole('button', { name: /待确认/ })).toBeVisible();
+  await expect(badge).toHaveText('1');
+  // 没开任务分配的项目和个人没有"待确认"
+  await projectLink(page, `${id}普通项目`).click();
+  await expect(statusBar(page).getByRole('button')).toHaveText([
+    '全部',
+    '未完成',
+    '已完成',
+    '已错过',
+  ]);
   await sidebar(page).getByRole('link', { name: /总览/ }).click();
   await expect(statusBar(page).getByRole('button')).toHaveText([
     '全部',
@@ -321,26 +347,27 @@ test('待确认：在未完成和已完成之间；角标是待确认的任务�
   await page.context().close();
 });
 
-test('通知里的"查看"：进入组，把任务滚动到屏幕中间并在清单里原地展开', async ({ browser }) => {
+test('通知里的"查看"：进入项目，把任务滚动到屏幕中间并在清单里原地展开', async ({ browser }) => {
   test.setTimeout(120_000);
   const id = runId();
   const L = await user('vl', `${id}组长`);
   const M = await user('vm', `${id}组员`);
   const groupId = await groupWith(L, [M], `${id}管理`, 'management');
+  const projectId = await projectIn(L, groupId, `${id}项目`, ['assignment']);
   const raci = [
     { role: 'R' as const, userId: await userId(L) },
     { role: 'A' as const, userId: await userId(L) },
   ];
   // 很多任务，目标任务排在中间偏后（前面 25 条、后面 12 条），一开始不在屏幕里
   for (let i = 0; i < 25; i++) {
-    await groupTask(L, groupId, `${id} 前面${String(i).padStart(2, '0')}`, raci, {
+    await groupTask(L, projectId, `${id} 前面${String(i).padStart(2, '0')}`, raci, {
       deadline_at: new Date(Date.now() + (i + 1) * 3_600_000).toISOString(),
     });
   }
   const title = `${id} 目标`;
   await groupTask(
     L,
-    groupId,
+    projectId,
     title,
     [
       { role: 'R', userId: await userId(M) },
@@ -349,7 +376,7 @@ test('通知里的"查看"：进入组，把任务滚动到屏幕中间并在清
     { deadline_at: new Date(Date.now() + 25.5 * 3_600_000).toISOString() },
   );
   for (let i = 0; i < 12; i++) {
-    await groupTask(L, groupId, `${id} 后面${String(i).padStart(2, '0')}`, raci, {
+    await groupTask(L, projectId, `${id} 后面${String(i).padStart(2, '0')}`, raci, {
       deadline_at: new Date(Date.now() + (30 + i) * 3_600_000).toISOString(),
     });
   }
@@ -362,7 +389,7 @@ test('通知里的"查看"：进入组，把任务滚动到屏幕中间并在清
     .filter({ hasText: title })
     .getByRole('button', { name: '查看' })
     .click();
-  await expect(page).toHaveURL(new RegExp(`group=${groupId}`));
+  await expect(page).toHaveURL(new RegExp(`group=${groupId}&project=${projectId}`));
   const item = taskItem(page, title);
   await expect(item).toHaveClass(/task-item-open/);
   // 不是弹出窗口

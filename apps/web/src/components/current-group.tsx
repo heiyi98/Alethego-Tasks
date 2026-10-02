@@ -1,15 +1,20 @@
 'use client';
 
 import {
-  CONTAINER_FEATURES,
-  containerKindOf,
+  GROUP_KIND_CONFIG,
+  PERSONAL_FEATURES,
+  featuresForGroupPage,
+  featuresForProject,
   groupPermissions,
+  projectPermissions,
   type ContainerFeatures,
-  type ContainerKind,
   type Group,
-  type GroupContact,
   type GroupMember,
   type GroupPermissions,
+  type Project,
+  type ProjectContact,
+  type ProjectMember,
+  type ProjectPermissions,
 } from '@alethego/core';
 import type { LeaderRequest } from '@alethego/data';
 import {
@@ -26,19 +31,36 @@ import { useRepositories } from './repositories-provider';
 import { useSelection } from './selection';
 import { useTaskData } from './task-data-provider';
 
+/** 一个项目里的情况：开了哪些功能、我的权限、项目名单（成员 + 只有名字的人） */
+export interface ProjectScope {
+  project: Project;
+  features: ContainerFeatures;
+  permissions: ProjectPermissions;
+  members: ProjectMember[];
+  contacts: ProjectContact[];
+  me: ProjectMember | undefined;
+}
+
 /**
- * 当前所在的容器（个人或某一个组）：它开了哪些功能（见 core 的 CONTAINER_FEATURES）、
- * 我在里面的权限，以及组的名单（成员 + 只有名字的人）。各看法、标题栏、任务面板都从这里取。
+ * 当前所在的容器：个人、某个组（列出我能看到的所有项目的任务）或组里的某个项目。
+ * 页面层面开了哪些功能（见 core 的 featuresForProject / featuresForGroupPage）、组名单、
+ * 每个项目的名单和权限都从这里取；一条任务按它所属的项目取 scopeOf(task.projectId)。
  */
 export interface CurrentGroupValue {
   group: Group | null;
-  kind: ContainerKind;
+  /** 选中的项目；null = 个人或整个组 */
+  project: Project | null;
+  /** 当前组里我能看到的项目 */
+  projects: Project[];
+  /** 页面层面的功能 */
   features: ContainerFeatures;
+  /** 我在组里的权限 */
   permissions: GroupPermissions | null;
+  /** 组名单（只在项目里的人看不到，为空） */
   members: GroupMember[];
-  contacts: GroupContact[];
   leaderRequests: LeaderRequest[];
-  me: GroupMember | undefined;
+  /** 某个项目的情况；个人任务（null）或还没加载时为 null */
+  scopeOf: (projectId: string | null) => ProjectScope | null;
   /** 名单是否已加载（个人容器始终为 true） */
   rosterLoaded: boolean;
   reloadRoster: () => Promise<void>;
@@ -46,58 +68,90 @@ export interface CurrentGroupValue {
 
 const CurrentGroupContext = createContext<CurrentGroupValue | null>(null);
 
-interface Roster {
+interface Rosters {
   groupId: string;
   members: GroupMember[];
-  contacts: GroupContact[];
   leaderRequests: LeaderRequest[];
+  projects: Map<string, { members: ProjectMember[]; contacts: ProjectContact[] }>;
 }
 
 export function CurrentGroupProvider({ children }: { children: ReactNode }) {
   const repositories = useRepositories();
   const { data } = useTaskData();
-  const { groupId } = useSelection();
+  const { groupId, projectId } = useSelection();
   const group = groupId ? (data?.groups.find((g) => g.id === groupId) ?? null) : null;
-  const [roster, setRoster] = useState<Roster | null>(null);
+  const projects = useMemo(
+    () => (group ? (data?.projects.filter((p) => p.groupId === group.id) ?? []) : []),
+    [data, group],
+  );
+  const project = projectId ? (projects.find((p) => p.id === projectId) ?? null) : null;
+  const [rosters, setRosters] = useState<Rosters | null>(null);
 
   const load = useCallback(async () => {
     if (!group) return;
     try {
-      const features = CONTAINER_FEATURES[group.kind];
-      const [members, contacts, leaderRequests] = await Promise.all([
-        repositories.groups.roster(group.id),
-        features.contacts ? repositories.groups.contacts(group.id) : Promise.resolve([]),
-        features.leaderVoteDays !== null
+      const config = GROUP_KIND_CONFIG[group.kind];
+      const [members, leaderRequests, projectRosters] = await Promise.all([
+        group.myRole ? repositories.groups.roster(group.id) : Promise.resolve([]),
+        group.myRole && config.leaderVoteDays !== null
           ? repositories.groups.leaderRequests(group.id)
           : Promise.resolve([]),
+        Promise.all(
+          projects.map(async (p) => {
+            const [projectMembers, contacts] = await Promise.all([
+              repositories.projects.roster(p.id),
+              featuresForProject(p).contacts
+                ? repositories.projects.contacts(p.id)
+                : Promise.resolve([]),
+            ]);
+            return [p.id, { members: projectMembers, contacts }] as const;
+          }),
+        ),
       ]);
-      setRoster({ groupId: group.id, members, contacts, leaderRequests });
+      setRosters({ groupId: group.id, members, leaderRequests, projects: new Map(projectRosters) });
     } catch {
       // 刚被移出组等情况：名单留空，页面会回到总览
     }
-  }, [repositories, group]);
+  }, [repositories, group, projects]);
 
-  // 组变了、或者数据重新加载过（身份可能变了）时刷新名单
+  // 组变了、或者数据重新加载过（身份、项目可能变了）时刷新名单
   useEffect(() => {
     void load();
   }, [load, data]);
 
   const value = useMemo<CurrentGroupValue>(() => {
-    const kind = containerKindOf(group);
-    const current = roster && group && roster.groupId === group.id ? roster : null;
+    const current = rosters && group && rosters.groupId === group.id ? rosters : null;
+    const scopeOf = (id: string | null): ProjectScope | null => {
+      if (!id || !group) return null;
+      const p = projects.find((x) => x.id === id);
+      if (!p) return null;
+      const roster = current?.projects.get(id);
+      return {
+        project: p,
+        features: featuresForProject(p),
+        permissions: projectPermissions(group.kind, p),
+        members: roster?.members ?? [],
+        contacts: roster?.contacts ?? [],
+        me: roster?.members.find((m) => m.isMe),
+      };
+    };
     return {
       group,
-      kind,
-      features: CONTAINER_FEATURES[kind],
+      project,
+      projects,
+      features: !group
+        ? PERSONAL_FEATURES
+        : project
+          ? featuresForProject(project)
+          : featuresForGroupPage(projects),
       permissions: group ? groupPermissions(group.kind, group.myRole) : null,
       members: current?.members ?? [],
-      contacts: current?.contacts ?? [],
       leaderRequests: current?.leaderRequests ?? [],
-      me: current?.members.find((m) => m.isMe),
+      scopeOf,
       rosterLoaded: !group || current !== null,
       reloadRoster: load,
     };
-  }, [group, roster, load]);
+  }, [group, project, projects, rosters, load]);
 
   return <CurrentGroupContext.Provider value={value}>{children}</CurrentGroupContext.Provider>;
 }
@@ -110,8 +164,8 @@ export function useCurrentGroup(): CurrentGroupValue {
 
 /** 名单里某人在本组显示的名字：成员用昵称，只有名字的人用名字 */
 export function personName(
-  members: readonly GroupMember[],
-  contacts: readonly GroupContact[],
+  members: readonly Pick<ProjectMember, 'userId' | 'nickname'>[],
+  contacts: readonly ProjectContact[],
   target: { userId: string | null; contactId: string | null },
 ): string {
   if (target.userId) return members.find((m) => m.userId === target.userId)?.nickname ?? '';

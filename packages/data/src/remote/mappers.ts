@@ -29,6 +29,7 @@ export function taskFromRow(row: TableRow<'tasks'>): Task {
     id: row.id,
     ownerId: row.owner_id,
     groupId: row.group_id,
+    projectId: row.project_id ?? null,
     title: row.title,
     description: row.description,
     deadlineAt: toNullableDate(row.deadline_at),
@@ -51,6 +52,7 @@ export function taskToInsert(input: NewTask, ownerId: string): TableInsert<'task
   return {
     owner_id: ownerId,
     group_id: input.groupId ?? null,
+    project_id: input.projectId ?? null,
     title: input.title,
     description: input.description ?? '',
     deadline_at: toNullableIso(input.deadlineAt),
@@ -84,6 +86,7 @@ export function categoryFromRow(row: TableRow<'categories'>): Category {
     name: row.name,
     color: row.color,
     description: row.description,
+    tools: row.tools ?? [],
     createdAt: toDate(row.created_at),
   };
 }

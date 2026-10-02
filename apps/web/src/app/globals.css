@@ -2400,3 +2400,122 @@ a {
   color: var(--secondary-label);
   box-shadow: inset 0 0 0 1px var(--system-orange);
 }
+
+/* ---------- 组里的项目 ---------- */
+/* 侧边栏：组前面的三角展开 / 收起，项目缩进在组下面 */
+.sidebar-group-row {
+  display: flex;
+  align-items: center;
+}
+
+.sidebar-group-row .sidebar-item {
+  flex: 1;
+  min-width: 0;
+}
+
+.sidebar-group-expand {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 30px;
+  margin-right: -6px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--secondary-label);
+  cursor: pointer;
+}
+
+.sidebar-group-expand svg {
+  transition: transform 0.15s;
+}
+
+.sidebar-group-expand[aria-expanded='false'] svg {
+  transform: rotate(-90deg);
+}
+
+.sidebar-section .sidebar-projects {
+  padding-left: 22px;
+}
+
+.sidebar-projects .sidebar-add {
+  margin-top: 0;
+}
+
+/* 工具箱、项目成员：多选 */
+.form-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.form-checks-column {
+  flex-direction: column;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.form-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.category-form .form-check input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--accent);
+}
+
+.form-checks:disabled .form-check {
+  color: var(--secondary-label);
+  cursor: default;
+}
+
+/* 组页面的快速添加：先选项目 */
+.project-quick {
+  gap: 6px;
+}
+
+.project-quick .raci-quick-select {
+  max-width: 160px;
+}
+
+/* 项目名单：把小组成员加进项目 */
+.roster-select {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--label);
+  font: inherit;
+  font-size: 14px;
+}
+
+/* 跨项目列出 RACI 时，任务前面是项目名 */
+.raci-roles-project {
+  flex: none;
+  color: var(--secondary-label);
+}
+
+.raci-roles-list .raci-roles-task {
+  flex: 1;
+  min-width: 0;
+}
+
+.quick-options-fields:disabled .raci-quick-empty {
+  box-shadow: none;
+}

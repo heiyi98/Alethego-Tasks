@@ -9,6 +9,8 @@ const base: GroupNotification = {
   id: 'n',
   groupId: 'g',
   groupName: '小组',
+  projectId: 'p',
+  projectName: '项目一',
   actorName: '甲',
   createdAt: new Date(),
   taskId: 't',
@@ -50,6 +52,15 @@ describe('通知拼成一句话', () => {
     expect(text({ kind: 'group_invitation', action: null })).toBe('甲邀请你加入「小组」');
     expect(text({ kind: 'group_leader_vote', action: null, subjectName: '乙' })).toBe(
       '甲提议任命乙为「小组」的组长',
+    );
+  });
+
+  it('项目的通知', () => {
+    expect(text({ kind: 'project_invitation', action: null })).toBe(
+      '甲邀请你加入「小组」的「项目一」',
+    );
+    expect(text({ kind: 'project_deletion_vote', action: null })).toBe(
+      '甲发起删除「小组」的「项目一」',
     );
   });
 });

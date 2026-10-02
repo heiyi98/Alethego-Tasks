@@ -11,6 +11,8 @@ import {
   notificationList,
   openAs,
   openRoster,
+  projectIn,
+  projectLink,
   rpc,
   sidebar,
   titleBar,
@@ -21,7 +23,7 @@ import { dbUrl, queryRest, quickAdd, runId, setDbClock, taskItem } from './helpe
 // 多个账号各用自己的浏览器上下文：从"没登录"开始
 test.use({ storageState: { cookies: [], origins: [] } });
 
-test('建组、邀请（接受 / 拒绝）、昵称；组任务所有成员可见，非成员什么都看不到', async ({
+test('建组、建项目、邀请（接受 / 拒绝）、昵称；合作组里人人在每个项目里，非成员什么都看不到', async ({
   browser,
 }) => {
   test.setTimeout(90_000);
@@ -47,7 +49,17 @@ test('建组、邀请（接受 / 拒绝）、昵称；组任务所有成员可�
   await expect(groupLink(pa, groupName)).toHaveAttribute('aria-current', 'page');
   const groupId = new URL(pa.url()).searchParams.get('group')!;
 
-  // 组里：没有清单 / 矩阵切换，快速添加没有重要性、收藏，展开后没有分类
+  // 组长在组下面建项目：名字、颜色、工具箱（都不选）、项目成员；建好后进入这个项目
+  await groupSection(pa).getByRole('button', { name: '+ 新建项目' }).click();
+  const projectForm = groupSection(pa).getByRole('form', { name: '新建项目' });
+  await projectForm.getByRole('textbox', { name: '项目名' }).fill(`${id}项目一`);
+  await projectForm.getByRole('button', { name: '创建项目' }).click();
+  await expect(pa).toHaveURL(/&project=/);
+  await expect(titleBar(pa)).toHaveText(`${id}项目一`);
+  await expect(projectLink(pa, `${id}项目一`)).toHaveAttribute('aria-current', 'page');
+  const projectId = new URL(pa.url()).searchParams.get('project')!;
+
+  // 项目里：没有清单 / 矩阵切换，快速添加没有重要性、收藏，展开后没有分类
   await expect(pa.getByRole('link', { name: '切换到矩阵' })).toHaveCount(0);
   const bar = pa.locator('.quick-add');
   await expect(bar.getByRole('group', { name: '重要性' })).toHaveCount(0);
@@ -70,11 +82,20 @@ test('建组、邀请（接受 / 拒绝）、昵称；组任务所有成员可�
   await expect(panel.getByRole('button', { name: '标星' })).toHaveCount(0);
   await panel.getByRole('button', { name: '完成编辑' }).click();
 
-  // 落库：任务记下所属的组，重要性 0、没有标星
+  // 落库：任务记下所属的项目和组，重要性 0、没有标星
   const [stored] = await queryRest<
-    { group_id: string; importance_level: number; is_starred: boolean }[]
-  >(pa.request, `tasks?select=group_id,importance_level,is_starred&title=eq.${id} 甲建的组任务`, a);
-  expect(stored).toEqual({ group_id: groupId, importance_level: 0, is_starred: false });
+    { group_id: string; project_id: string; importance_level: number; is_starred: boolean }[]
+  >(
+    pa.request,
+    `tasks?select=group_id,project_id,importance_level,is_starred&title=eq.${id} 甲建的组任务`,
+    a,
+  );
+  expect(stored).toEqual({
+    group_id: groupId,
+    project_id: projectId,
+    importance_level: 0,
+    is_starred: false,
+  });
 
   // 组任务不出现在总览里
   await sidebar(pa).getByRole('link', { name: /总览/ }).click();
@@ -119,9 +140,12 @@ test('建组、邀请（接受 / 拒绝）、昵称；组任务所有成员可�
   await expect(notificationList(pc)).toHaveText(/没有通知/);
   await expect(groupSection(pc).getByRole('link')).toHaveCount(0);
 
-  // 乙进组：看得到甲建的任务；乙建的任务甲也看得到；乙可以标记完成（合作组里人人都是 R 和 A）
+  // 乙进组：合作组里人人都是组长，自动在每个项目里；看得到甲建的任务，乙建的任务甲也看得到；
+  // 没开任务分配：项目成员都能标记完成
   await groupLink(pb, groupName).click();
+  await expect(projectLink(pb, `${id}项目一`)).toBeVisible();
   await expect(taskItem(pb, `${id} 甲建的组任务`)).toBeVisible();
+  await projectLink(pb, `${id}项目一`).click();
   await quickAdd(pb, `${id} 乙建的组任务`);
   await pb.getByRole('checkbox', { name: `完成：${id} 甲建的组任务` }).click();
   await expect(taskItem(pb, `${id} 甲建的组任务`)).toHaveCount(0);
@@ -131,7 +155,9 @@ test('建组、邀请（接受 / 拒绝）、昵称；组任务所有成员可�
   await pa.locator('.status-bar').getByRole('button', { name: '已完成' }).click();
   await expect(taskItem(pa, `${id} 甲建的组任务`)).toBeVisible();
 
-  // 名单窗口：组里所有人（合作组人人都是组长，不显示身份）
+  // 组名单窗口（组页面标题右边）：组里所有人（合作组人人都是组长，不显示身份）
+  await groupLink(pb, groupName).click();
+  await expect(titleBar(pb)).toHaveText(groupName);
   const rosterB = await openRoster(pb);
   await expect(rosterB.locator('.roster-name')).toHaveText([`${id}甲`, `${id}乙`]);
   await expect(rosterB.locator('.roster-role')).toHaveCount(0);
@@ -161,6 +187,7 @@ test('建组、邀请（接受 / 拒绝）、昵称；组任务所有成员可�
     `groups?select=id&id=eq.${groupId}`,
     `group_members?select=user_id&group_id=eq.${groupId}`,
     `tasks?select=id&group_id=eq.${groupId}`,
+    `projects?select=id&group_id=eq.${groupId}`,
   ]) {
     expect(await queryRest<unknown[]>(pc.request, path, c)).toEqual([]);
   }
@@ -199,6 +226,7 @@ test('在组里点分类：回到个人总览并选中这个分类；/matrix?gro
   const id = runId();
   const a = await user('gcat', `${id}甲`);
   const groupId = await groupWith(a, [], `${id}组`);
+  await projectIn(a, groupId, `${id}项目`);
   const page = await openAs(browser, a);
   // 建一个分类
   await sidebar(page).getByRole('button', { name: '+ 新建分类' }).click();
@@ -243,8 +271,9 @@ test('删除组：只有自己时直接删除；有其他组长时投票，一�
   // 三人组：甲发起（发起者算同意）
   const groupName = `${id}三人组`;
   const groupId = await groupWith(a, [b, c], groupName);
+  await projectIn(a, groupId, `${id}项目`);
   await pa.reload();
-  await groupLink(pa, groupName).click();
+  await projectLink(pa, `${id}项目`).click();
   await quickAdd(pa, `${id} 组里的任务`);
   let form = await editGroup(pa, groupName);
   await form.getByRole('button', { name: '删除组' }).click();
@@ -268,7 +297,7 @@ test('删除组：只有自己时直接删除；有其他组长时投票，一�
   await expect(form.getByRole('button', { name: '删除组' })).toBeVisible();
   await expect(groupLink(pb, groupName)).toBeVisible();
 
-  // 之后可以重新发起；乙、丙都同意才删除（组和组里的任务一起删掉）
+  // 之后可以重新发起；乙、丙都同意才删除（组和组里的项目、任务一起删掉）
   await form.getByRole('button', { name: '删除组' }).click();
   await confirmDialog(pa).getByRole('button', { name: '删除' }).click();
   await expect(form.getByRole('status')).toHaveText('删除投票进行中');

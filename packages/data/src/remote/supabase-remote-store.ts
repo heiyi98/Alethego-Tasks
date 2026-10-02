@@ -43,7 +43,11 @@ import {
   taskToInsert,
 } from './mappers';
 import type { TaskAppSupabaseClient } from './supabase-client';
-import { SupabaseAssignmentRepository, SupabaseGroupRepository } from './supabase-groups';
+import {
+  SupabaseAssignmentRepository,
+  SupabaseGroupRepository,
+  SupabaseProjectRepository,
+} from './supabase-groups';
 
 function errorCode(error: PostgrestError): DataErrorCode {
   switch (error.code) {
@@ -112,12 +116,12 @@ export class SupabaseTaskRepository implements ITaskRepository {
 
   async create(input: NewTask): Promise<Task> {
     const valid = validateNewTask(input);
-    if (valid.groupId && valid.assignments && valid.assignments.length > 0) {
-      // 管理组：任务、RACI、地点、人物在同一个事务里写入（数据库要求必须有执行人和负责人）
+    if (valid.projectId && valid.assignments && valid.assignments.length > 0) {
+      // 开了任务分配的项目：任务、RACI、地点、人物在同一个事务里写入（数据库要求必须有执行人和负责人）
       const location = valid.location ? normalizeLocationDraft(valid.location) : null;
       const row = unwrap(
         await this.client.rpc('create_task_with_raci', {
-          p_group_id: valid.groupId,
+          p_project_id: valid.projectId,
           p_title: valid.title,
           p_description: valid.description ?? '',
           p_deadline_at: valid.deadlineAt ? valid.deadlineAt.toISOString() : null,
@@ -201,7 +205,12 @@ export class SupabaseCategoryRepository implements ICategoryRepository {
       unwrap(
         await this.client
           .from('categories')
-          .insert({ ...input, owner_id: this.ownerId, color: normalizeColor(input.color) })
+          .insert({
+            ...input,
+            tools: [...(input.tools ?? [])],
+            owner_id: this.ownerId,
+            color: normalizeColor(input.color),
+          })
           .select()
           .single(),
         '创建分类',
@@ -449,6 +458,7 @@ export class SupabaseRemoteStore implements IRemoteStore {
   readonly locations: SupabaseTaskLocationRepository;
   readonly people: SupabaseTaskPeopleRepository;
   readonly groups: SupabaseGroupRepository;
+  readonly projects: SupabaseProjectRepository;
   readonly assignments: SupabaseAssignmentRepository;
 
   constructor(client: TaskAppSupabaseClient, options: SupabaseRemoteStoreOptions) {
@@ -459,6 +469,7 @@ export class SupabaseRemoteStore implements IRemoteStore {
     this.locations = new SupabaseTaskLocationRepository(client);
     this.people = new SupabaseTaskPeopleRepository(client);
     this.groups = new SupabaseGroupRepository(client, ownerId);
+    this.projects = new SupabaseProjectRepository(client, ownerId);
     this.assignments = new SupabaseAssignmentRepository(client);
   }
 }

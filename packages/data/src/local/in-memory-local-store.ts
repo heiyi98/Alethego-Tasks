@@ -10,6 +10,7 @@ import {
   type OccurrenceStatus,
   type ReconcileResult,
   type RecurrenceOccurrence,
+  type Project,
   type Task,
 } from '@alethego/core';
 
@@ -27,9 +28,14 @@ import type {
   TaskPatch,
   IAssignmentRepository,
   IGroupRepository,
+  IProjectRepository,
 } from '../interfaces/repositories';
 import type { ILocalStore } from '../interfaces/stores';
-import { MemoryAssignmentRepository, MemoryGroupRepository } from './in-memory-groups';
+import {
+  MemoryAssignmentRepository,
+  MemoryGroupRepository,
+  MemoryProjectRepository,
+} from './in-memory-groups';
 import {
   validateCategoryInput,
   validateNewTask,
@@ -53,6 +59,7 @@ interface MemoryState {
   occurrences: Map<string, RecurrenceOccurrence>;
   locations: Map<string, TaskLocation>;
   people: Map<string, TaskPerson>;
+  projects: Map<string, Project>;
 }
 
 const linkKey = (taskId: string, categoryId: string) => `${taskId}:${categoryId}`;
@@ -95,6 +102,7 @@ class MemoryTaskRepository implements ITaskRepository {
       id: this.state.newId(),
       ownerId: this.state.ownerId,
       groupId: valid.groupId ?? null,
+      projectId: valid.projectId ?? null,
       title: valid.title,
       description: valid.description ?? '',
       deadlineAt: valid.deadlineAt ?? null,
@@ -157,6 +165,7 @@ class MemoryCategoryRepository implements ICategoryRepository {
       name: input.name,
       color: normalizeColor(input.color),
       description: input.description ?? '',
+      tools: [...(input.tools ?? [])],
       createdAt: this.state.now(),
     };
     this.state.categories.set(category.id, category);
@@ -351,6 +360,7 @@ export class InMemoryLocalStore implements ILocalStore {
   readonly locations: ITaskLocationRepository;
   readonly people: ITaskPeopleRepository;
   readonly groups: IGroupRepository;
+  readonly projects: IProjectRepository;
   readonly assignments: IAssignmentRepository;
 
   constructor(options: InMemoryLocalStoreOptions) {
@@ -364,6 +374,7 @@ export class InMemoryLocalStore implements ILocalStore {
       occurrences: new Map(),
       locations: new Map(),
       people: new Map(),
+      projects: new Map(),
     };
     this.tasks = new MemoryTaskRepository(state);
     this.categories = new MemoryCategoryRepository(state);
@@ -371,6 +382,7 @@ export class InMemoryLocalStore implements ILocalStore {
     this.locations = new MemoryTaskLocationRepository(state);
     this.people = new MemoryTaskPeopleRepository(state);
     this.groups = new MemoryGroupRepository(state);
+    this.projects = new MemoryProjectRepository(state);
     this.assignments = new MemoryAssignmentRepository();
   }
 }

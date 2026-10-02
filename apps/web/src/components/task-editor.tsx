@@ -4,8 +4,8 @@ import {
   RACI_ROLES,
   raciAllowsContacts,
   type Category,
-  type GroupContact,
-  type GroupMember,
+  type ProjectContact,
+  type ProjectMember,
   type RaciRole,
   type RecurrenceOccurrence,
 } from '@alethego/core';
@@ -35,6 +35,9 @@ import { messages } from '@/i18n';
 import { IMPORTANCE_LEVELS, fromDateValue, toDateValue } from '@/lib/format';
 import { newRowKey, type FormErrors, type TaskFormValue } from '@/lib/task-form';
 
+/** RACI 里能选的人：项目成员 */
+type RaciPerson = Pick<ProjectMember, 'userId' | 'nickname'>;
+
 /**
  * 任务面板的表单（新建与编辑共用）。字段以图标为标签；任务内容本身是文字。
  * 本组件只负责展示与收集输入，保存逻辑由外层（新建 / 编辑）控制器负责。
@@ -50,6 +53,7 @@ export function QuickOptionsRow({
   actions,
   inGroup = false,
   readOnly = false,
+  leading,
   assignees,
 }: {
   value: Pick<TaskFormValue, 'importanceLevel' | 'deadline' | 'deadlineTime' | 'recurrence'> &
@@ -64,8 +68,10 @@ export function QuickOptionsRow({
   inGroup?: boolean;
   /** 只能看不能改（管理组里的组员）：三角照常可用 */
   readOnly?: boolean;
-  /** 管理组的快速添加：时间旁边选执行人（R）和负责人（A），各选一个（展开后在 RACI 里可以选多个） */
-  assignees?: readonly GroupMember[];
+  /** 放在这一行最前面的选项（组页面的快速添加：选项目） */
+  leading?: ReactNode;
+  /** 开了任务分配的项目的快速添加：时间旁边选执行人（R）和负责人（A），各选一个（展开后在 RACI 里可以选多个） */
+  assignees?: readonly RaciPerson[];
 }) {
   // 时刻输入框：已选时刻时一直显示；否则点时钟图标后显示（日期被清空 / 创建后草稿重置时收回时钟图标）
   const [timeOpen, setTimeOpen] = useState(false);
@@ -73,6 +79,7 @@ export function QuickOptionsRow({
   return (
     <div className="quick-options">
       <fieldset className="editor-fieldset quick-options-fields" disabled={readOnly}>
+        {leading}
         {!inGroup && (
           <div className="option" role="group" aria-label="重要性">
             <FieldIcon label="重要性">
@@ -275,6 +282,7 @@ export function TaskEditor({
   onRemovePerson,
   titleRow,
   optionsActions,
+  optionsLeading,
 }: {
   value: TaskFormValue;
   onChange: (patch: Partial<TaskFormValue>) => void;
@@ -282,9 +290,9 @@ export function TaskEditor({
   categories: readonly Category[];
   /** 组任务：不显示重要性和分类（收藏由外层决定是否显示） */
   inGroup?: boolean;
-  /** 用 RACI 的组（管理组）：可选的成员与只有名字的人；editable = 能不能改 */
-  raci?: { members: readonly GroupMember[]; contacts: readonly GroupContact[]; editable: boolean };
-  /** 只能看不能改（管理组里的组员） */
+  /** 开了任务分配的项目：可选的项目成员与只有名字的人；editable = 能不能改 */
+  raci?: { members: readonly RaciPerson[]; contacts: readonly ProjectContact[]; editable: boolean };
+  /** 只能看不能改（不是项目管理员） */
   readOnly?: boolean;
   records: readonly RecurrenceOccurrence[];
   /** 切换历史中某次实例的完成状态（编辑已有循环任务时） */
@@ -302,6 +310,8 @@ export function TaskEditor({
   onToggle: () => void;
   /** 常用选项一行里、三角左边的操作图标 */
   optionsActions?: ReactNode;
+  /** 常用选项一行最前面的选项（组页面新建：选项目） */
+  optionsLeading?: ReactNode;
   /** 删除第 index 个人物（由控制器负责撤销提示） */
   onRemovePerson: (index: number) => void;
 }) {
@@ -329,6 +339,7 @@ export function TaskEditor({
         actions={optionsActions}
         inGroup={inGroup}
         readOnly={readOnly}
+        leading={optionsLeading}
       />
 
       {raci && (
@@ -482,7 +493,7 @@ const keyOf = (a: Pick<AssignmentDraft, 'userId' | 'contactId'>) =>
 
 /**
  * RACI：每个字母一行，列出已选的人；能改时每个人后面有 ✕，最后是添加的下拉框。
- * R、A 只能选组内成员；C、I 还可以选只有名字的人。每个字母不限人数。
+ * R、A 只能选项目成员；C、I 还可以选只有名字的人。每个字母不限人数。
  */
 function RaciField({
   value,
@@ -493,8 +504,8 @@ function RaciField({
 }: {
   value: readonly AssignmentDraft[];
   onChange: (next: AssignmentDraft[]) => void;
-  members: readonly GroupMember[];
-  contacts: readonly GroupContact[];
+  members: readonly RaciPerson[];
+  contacts: readonly ProjectContact[];
   editable: boolean;
 }) {
   const nameOf = (a: AssignmentDraft) =>

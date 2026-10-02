@@ -1,9 +1,10 @@
 'use client';
 
 import {
-  CONTAINER_FEATURES,
+  featuresForProject,
   type Category,
   type Group,
+  type Project,
   type RecurrenceOccurrence,
   type Task,
   type TaskAssignment,
@@ -20,9 +21,11 @@ export interface TaskListData {
   categoryIdsByTask: Map<string, string[]>;
   /** 循环任务的实例记录（用于确定代表实例）；普通任务不在其中 */
   occurrencesByTask: Map<string, RecurrenceOccurrence[]>;
-  /** 我所在的所有组 */
+  /** 我能看到的所有组 */
   groups: Group[];
-  /** 任务上的 RACI（只有用 RACI 的组的任务） */
+  /** 我能看到的所有项目 */
+  projects: Project[];
+  /** 任务上的 RACI（只有开了任务分配的项目的任务） */
   assignmentsByTask: Map<string, TaskAssignment[]>;
   /** 应用内通知与上次打开通知的时间 */
   notifications: GroupNotification[];
@@ -30,8 +33,8 @@ export interface TaskListData {
 }
 
 /**
- * 所有看法（清单、时间管理矩阵、责任分配矩阵……）共用的数据：任务（个人与我所在组的）+ 分类 +
- * 分类关联 + 循环实例记录 + RACI + 组 + 通知。各看法只负责怎么画；筛选在客户端完成，切换无需重新请求。
+ * 所有看法（清单、时间管理矩阵、责任分配矩阵……）共用的数据：任务（个人与我所在项目的）+ 分类 +
+ * 分类关联 + 循环实例记录 + RACI + 组 + 项目 + 通知。各看法只负责怎么画；筛选在客户端完成，切换无需重新请求。
  */
 export function useTaskListData() {
   const repositories = useRepositories();
@@ -40,20 +43,21 @@ export function useTaskListData() {
 
   const reload = useCallback(async () => {
     try {
-      // 没有后台定时任务：打开 TaskApp 时检查投票是否超时（删除组一周、任命组长三天，未操作算作同意）
+      // 没有后台定时任务：打开 TaskApp 时检查投票是否超时（删除组和项目一周、任命组长三天，未操作算作同意）
       await repositories.groups.processTimeouts();
-      const [tasks, categories, groups, notifications] = await Promise.all([
+      const [tasks, categories, groups, projects, notifications] = await Promise.all([
         repositories.tasks.list(),
         repositories.categories.list(),
         repositories.groups.list(),
+        repositories.projects.list(),
         repositories.groups.notifications(),
       ]);
       const recurring = tasks.filter((task) => task.recurrenceRule);
-      const raciGroups = new Set(
-        groups.filter((g) => CONTAINER_FEATURES[g.kind].raci).map((g) => g.id),
+      const raciProjects = new Set(
+        projects.filter((p) => featuresForProject(p).raci).map((p) => p.id),
       );
       const raciTaskIds = tasks
-        .filter((task) => task.groupId && raciGroups.has(task.groupId))
+        .filter((task) => task.projectId && raciProjects.has(task.projectId))
         .map((task) => task.id);
       const [categoryIdsByTask, occurrences, assignments] = await Promise.all([
         repositories.categories.listCategoryIdsByTask(tasks.map((task) => task.id)),
@@ -82,6 +86,7 @@ export function useTaskListData() {
         occurrencesByTask,
         assignmentsByTask,
         groups,
+        projects,
         notifications: notifications.items,
         notificationsSeenAt: notifications.seenAt,
       });

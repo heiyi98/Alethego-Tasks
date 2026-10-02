@@ -11,7 +11,7 @@ import { useVisibleTasks } from '@/hooks/use-visible-tasks';
 import { STATUS_LABELS } from '@/lib/format';
 
 /**
- * 责任分配矩阵（管理组）：每一行是一条任务，每一列是名单里的一个人（成员在前，只有名字的人在后），
+ * 责任分配矩阵（开了任务分配的项目）：每一行是一条任务，每一列是项目名单里的一个人（成员在前，只有名字的人在后），
  * 格子里写这个人在这条任务上的 R、A、C、I，没有就空着。和清单共用同一个状态行；
  * 这一轮只能看，不能在表格里改（点任务名打开任务详情）。人多时左右滑动。
  */
@@ -27,7 +27,10 @@ export function RaciMatrixView() {
 function RaciTable() {
   const { data } = useTaskData();
   const { status } = useSelection();
-  const { members, contacts } = useCurrentGroup();
+  const { project, scopeOf } = useCurrentGroup();
+  const scope = scopeOf(project?.id ?? null);
+  const members = scope?.members ?? [];
+  const contacts = scope?.contacts ?? [];
   const { open } = usePanels();
   const tasks = useVisibleTasks();
 

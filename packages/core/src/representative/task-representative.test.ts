@@ -12,6 +12,7 @@ const baseTask: Task = {
   id: 'task-1',
   ownerId: 'user-1',
   groupId: null,
+  projectId: null,
   title: '任务',
   description: '',
   deadlineAt: null,

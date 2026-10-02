@@ -1,7 +1,14 @@
 'use client';
 
-import { normalizeTaskTitle, type Category } from '@alethego/core';
-import { useEffect, useState, type KeyboardEvent } from 'react';
+import {
+  PERSONAL_FEATURES,
+  featuresForTools,
+  normalizeTaskTitle,
+  type Category,
+} from '@alethego/core';
+import { useEffect, useMemo, useState, type KeyboardEvent } from 'react';
+
+import { CategoryDot } from './category-dot';
 
 import { useCurrentGroup } from './current-group';
 import { useFeedback } from './feedback-provider';
@@ -22,32 +29,50 @@ import {
  * 快速添加（每个清单页面都有）：输入栏本身就是标题，下方一行常用选项（重要性、截止日期 / 时刻），
  * 点输入栏右端的 ➕ 创建（回车是额外的快捷方式）；三角展开完整的新建面板，面板从输入栏下方延展出来。收起面板时草稿保留。
  * 新任务自动带上当前选中的全部分类（没选分类就不带）；在"收藏"里新建的任务自动标星。
- * 在组里：新任务属于这个组，没有重要性、分类和收藏。管理组：只有组长和管理员能建任务（组员看到的
- * 添加栏是禁用的，位置不变）；可以设定 RACI，创建的人默认是 A。
+ * 在组里：新任务属于一个项目，没有重要性、分类和收藏。在项目页面默认是这个项目；在组页面先选项目
+ * （只列出我能建任务的项目）。只有项目管理员能建任务（不能建时添加栏是禁用的，位置不变）；
+ * 选中的项目开了任务分配时可以设定 RACI，创建的人默认是 A。
  */
 export function QuickAdd({
   categories,
   starred,
   groupId = null,
+  projectId = null,
 }: {
   categories: readonly Category[];
   /** 在"收藏"里：新任务默认标星 */
   starred: boolean;
   /** 当前所在的组；null = 个人 */
   groupId?: string | null;
+  /** 当前所在的项目；在组页面为 null（先选项目） */
+  projectId?: string | null;
 }) {
   const { draft, setDraft, resetDraft, open, close, isOpen } = usePanels();
   const { data, now, timeZone } = useTaskData();
   const { notify, confirm, showUndo } = useFeedback();
-  const createTask = useCreateTask(groupId);
   const inGroup = groupId !== null;
-  const { features, permissions, me, members, contacts } = useCurrentGroup();
-  const disabled = inGroup && !permissions?.manageTasks;
+  const { projects, scopeOf } = useCurrentGroup();
+  // 组页面：能建任务的项目里选一个
+  const manageable = projects.filter((p) => scopeOf(p.id)?.permissions.manageTasks);
+  const [chosen, setChosen] = useState('');
+  const targetProjectId = projectId ?? (chosen || null);
+  const scope = scopeOf(targetProjectId);
+  const features = scope?.features ?? (inGroup ? featuresForTools([]) : PERSONAL_FEATURES);
+  const members = scope?.members ?? [];
+  const contacts = scope?.contacts ?? [];
+  const me = scope?.me;
+  const disabled =
+    inGroup && (projectId ? !scope?.permissions.manageTasks : manageable.length === 0);
+  const container = useMemo(
+    () => (groupId && targetProjectId ? { groupId, projectId: targetProjectId } : null),
+    [groupId, targetProjectId],
+  );
+  const createTask = useCreateTask(container);
 
-  // 换了组：草稿里的 RACI 回到默认（别的组的成员不在这个组里）
+  // 换了项目：草稿里的 RACI 回到默认（别的项目的成员不在这个项目里）
   useEffect(() => {
     setDraft((d) => (d.raci === null ? d : { ...d, raci: null }));
-  }, [groupId, setDraft]);
+  }, [groupId, targetProjectId, setDraft]);
   const [errors, setErrors] = useState<FormErrors>({});
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -72,10 +97,31 @@ export function QuickAdd({
     setDraft((d) => ({ ...d, ...patch }));
   };
 
-  // 管理组：必须有执行人和负责人才能创建
+  // 组页面：必须先选项目；开了任务分配的项目：必须有执行人和负责人才能创建
   const missingAssignees =
-    features.raci &&
-    !(form.raci.some((a) => a.role === 'R') && form.raci.some((a) => a.role === 'A'));
+    (inGroup && !targetProjectId) ||
+    (features.raci &&
+      !(form.raci.some((a) => a.role === 'R') && form.raci.some((a) => a.role === 'A')));
+
+  // 组页面的项目选择（放在常用选项一行的最前面）
+  const projectPicker = inGroup && !projectId && (
+    <div className="option project-quick" role="group" aria-label="项目">
+      {scope && <CategoryDot color={scope.project.color} />}
+      <select
+        aria-label="项目"
+        className={`raci-quick-select${chosen ? '' : ' raci-quick-empty'}`}
+        value={chosen}
+        onChange={(event) => setChosen(event.target.value)}
+      >
+        <option value="">项目</option>
+        {manageable.map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.name}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
 
   async function submit() {
     if (disabled || missingAssignees) return;
@@ -191,6 +237,7 @@ export function QuickAdd({
               errors={errors}
               categories={data?.categories ?? []}
               inGroup={inGroup}
+              optionsLeading={projectPicker}
               raci={features.raci ? { members, contacts, editable: true } : undefined}
               records={[]}
               now={now}
@@ -227,6 +274,7 @@ export function QuickAdd({
             toggleLabel="展开完整选项"
             inGroup={inGroup}
             readOnly={disabled}
+            leading={projectPicker}
             assignees={features.raci ? members : undefined}
           />
           {message && <p className="field-error">{message}</p>}
@@ -267,7 +315,7 @@ function QuickAddInputRow({
   onKeyDown: (event: KeyboardEvent<HTMLInputElement>) => void;
   onSubmit: () => void;
   disabled?: boolean;
-  /** 输入栏能用、但还不能创建（管理组还没选执行人） */
+  /** 输入栏能用、但还不能创建（还没选项目，或者还没选执行人） */
   submitDisabled?: boolean;
 }) {
   return (

@@ -20,6 +20,7 @@ describe('选择：范围 + 分类 + 状态', () => {
     expect(parse('/')).toEqual({
       mode: 'list',
       groupId: null,
+      projectId: null,
       scope: 'all',
       status: 'todo',
       categoryIds: [],
@@ -32,6 +33,7 @@ describe('选择：范围 + 分类 + 状态', () => {
     expect(selection).toEqual({
       mode: 'matrix',
       groupId: null,
+      projectId: null,
       scope: 'starred',
       status: 'completed',
       categoryIds: ['a', 'b'],
@@ -46,6 +48,7 @@ describe('选择：范围 + 分类 + 状态', () => {
       selectionHref({
         mode: 'matrix',
         groupId: null,
+        projectId: null,
         scope: 'all',
         status: 'completed',
         categoryIds: [],
@@ -55,7 +58,14 @@ describe('选择：范围 + 分类 + 状态', () => {
 
   it('状态"全部"要写进地址（默认是未完成）', () => {
     expect(
-      selectionHref({ mode: 'list', groupId: null, scope: 'all', status: 'all', categoryIds: [] }),
+      selectionHref({
+        mode: 'list',
+        groupId: null,
+        projectId: null,
+        scope: 'all',
+        status: 'all',
+        categoryIds: [],
+      }),
     ).toBe('/?status=all');
   });
 
@@ -63,6 +73,7 @@ describe('选择：范围 + 分类 + 状态', () => {
     expect(parse('/?status=starred')).toEqual({
       mode: 'list',
       groupId: null,
+      projectId: null,
       scope: 'starred',
       status: 'todo',
       categoryIds: [],
@@ -98,16 +109,26 @@ describe('选择：范围 + 分类 + 状态', () => {
   });
 });
 
-describe('责任分配矩阵与待确认', () => {
-  it('管理组：?view=raci 切到责任分配矩阵，状态行多一个待确认', () => {
-    const raci = parse('/?group=g1&view=raci&status=pending');
-    expect(raci).toMatchObject({ mode: 'raci', groupId: 'g1', status: 'pending' });
-    expect(selectionHref(raci)).toBe('/?group=g1&view=raci&status=pending');
-    expect(selectionHref({ ...raci, mode: 'list' })).toBe('/?group=g1&status=pending');
+describe('项目、责任分配矩阵与待确认', () => {
+  it('项目：?group=id&project=id；进组时回到整个组', () => {
+    const inProject = parse('/?group=g1&project=p1');
+    expect(inProject).toMatchObject({ groupId: 'g1', projectId: 'p1', mode: 'list' });
+    expect(selectionHref(inProject)).toBe('/?group=g1&project=p1');
+    expect(groupHref(inProject, 'g1')).toBe('/?group=g1');
+    expect(groupHref(inProject, 'g1', 'p2')).toBe('/?group=g1&project=p2');
+    expect(parse('/?project=p1')).toMatchObject({ groupId: null, projectId: null });
   });
 
-  it('回到个人：不带责任分配矩阵和待确认', () => {
-    const raci = parse('/?group=g1&view=raci&status=pending');
+  it('项目里：?view=raci 切到责任分配矩阵，状态行多一个待确认；整个组没有责任分配矩阵', () => {
+    const raci = parse('/?group=g1&project=p1&view=raci&status=pending');
+    expect(raci).toMatchObject({ mode: 'raci', projectId: 'p1', status: 'pending' });
+    expect(selectionHref(raci)).toBe('/?group=g1&project=p1&view=raci&status=pending');
+    expect(selectionHref({ ...raci, mode: 'list' })).toBe('/?group=g1&project=p1&status=pending');
+    expect(parse('/?group=g1&view=raci')).toMatchObject({ mode: 'list' });
+  });
+
+  it('回到个人：不带项目、责任分配矩阵和待确认', () => {
+    const raci = parse('/?group=g1&project=p1&view=raci&status=pending');
     expect(selectionHref(personal(raci))).toBe('/');
   });
 });

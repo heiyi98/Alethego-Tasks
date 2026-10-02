@@ -12,7 +12,7 @@ import { useTaskData } from './task-data-provider';
 import { EditPanel } from './task-panels';
 import { TitleBar } from './title-bar';
 import { STATUS_LABELS, statusOrderFor } from '@/lib/format';
-import { selectionHref } from '@/lib/selection';
+import { groupHref, selectionHref } from '@/lib/selection';
 
 /**
  * 清单类看法（清单、责任分配矩阵）共用的页面框架：标题行、添加栏、状态行，以及弹出的任务面板。
@@ -21,15 +21,20 @@ import { selectionHref } from '@/lib/selection';
 export function ViewFrame({ wide = false, children }: { wide?: boolean; children: ReactNode }) {
   const { data, error, actionError } = useTaskData();
   const selection = useSelection();
-  const { groupId, scope, categoryIds } = selection;
+  const { groupId, projectId, scope, categoryIds } = selection;
   const router = useRouter();
   const { active, open } = usePanels();
 
-  // 组不存在了（被删除）或者我不在这个组里：回到个人总览
+  // 组不存在了（被删除）或者我不在这个组里：回到个人总览；项目没了（被删除、我被移出）：回到组页面
   const groupMissing = Boolean(groupId && data && !data.groups.some((g) => g.id === groupId));
+  const projectMissing = Boolean(
+    projectId && data && !groupMissing && !data.projects.some((p) => p.id === projectId),
+  );
   useEffect(() => {
     if (groupMissing) router.replace('/', { scroll: false });
-  }, [groupMissing, router]);
+    else if (projectMissing && groupId)
+      router.replace(groupHref(selection, groupId), { scroll: false });
+  }, [groupMissing, projectMissing, groupId, selection, router]);
 
   // 从通知"查看"过来（?task=id）：在清单里原地展开这条任务的详情，滚动到屏幕中间，然后把参数去掉
   const searchParams = useSearchParams();
@@ -67,7 +72,13 @@ export function ViewFrame({ wide = false, children }: { wide?: boolean; children
       <div className="page-top">
         <TitleBar />
         {groupId ? (
-          <QuickAdd key={groupId} categories={[]} starred={false} groupId={groupId} />
+          <QuickAdd
+            key={`${groupId}:${projectId ?? ''}`}
+            categories={[]}
+            starred={false}
+            groupId={groupId}
+            projectId={projectId}
+          />
         ) : (
           <QuickAdd categories={selectedCategories} starred={scope === 'starred'} />
         )}
@@ -91,7 +102,8 @@ export function ViewFrame({ wide = false, children }: { wide?: boolean; children
 
 /**
  * 页面内的状态行（添加栏下面），单选：全部 / 未完成 / 已完成 / 已错过；
- * 管理组是 全部 / 未完成 / 待确认 / 已完成 / 已错过，"待确认"上的角标是当前待确认的任务数（0 时不显示）。
+ * 开了任务分配的项目（组页面：有一个项目开了）是 全部 / 未完成 / 待确认 / 已完成 / 已错过，
+ * "待确认"上的角标是当前待确认的任务数（0 时不显示）。
  */
 function StatusBar() {
   const selection = useSelection();
@@ -106,10 +118,15 @@ function StatusBar() {
         categoryIdsByTask: data.categoryIdsByTask,
         occurrencesByTask: data.occurrencesByTask,
       },
-      { status: 'pending', categoryIds: [], groupId: selection.groupId },
+      {
+        status: 'pending',
+        categoryIds: [],
+        groupId: selection.groupId,
+        projectId: selection.projectId,
+      },
       { now, timeZone },
     ).length;
-  }, [data, features.confirmation, selection.groupId, now, timeZone]);
+  }, [data, features.confirmation, selection.groupId, selection.projectId, now, timeZone]);
   return (
     <div className="segmented-control status-bar" role="group" aria-label="状态">
       {statusOrderFor(features).map((status) => (

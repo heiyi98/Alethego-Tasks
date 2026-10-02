@@ -25,7 +25,8 @@ const SCOPE_ICONS: Record<ListScope, string> = {
 /**
  * 左侧菜单：
  * - 上区：总览 / 收藏，单选。总览 = 没有选任何分类，点它会清空分类选择
- * - 中区「组」：可以折叠；我所在的每个组 + 新建组。点组进入这个组的任务清单
+ * - 中区「组」：可以折叠；我能看到的每个组（下面缩进列出项目）+ 新建组。
+ *   点组进入这个组的任务清单（所有我能看到的项目），点项目只看这个项目
  * - 下区「分类」：每个分类是一个开关，可多选累加；一个都不选 = 所有分类。
  *   分类只属于个人：在组里点分类会回到个人总览并选中这个分类
  * - 最下面：账号 + 通知
@@ -62,17 +63,15 @@ export function Sidebar() {
       starred: count('starred', selection.categoryIds),
     };
     const byCategory = new Map(data.categories.map((c) => [c.id, count(selection.scope, [c.id])]));
-    const byGroup = new Map(
-      data.groups.map((g) => [
-        g.id,
-        buildTaskList(
-          sources,
-          { scope: 'all', status: countStatus, categoryIds: [], groupId: g.id },
-          context,
-        ).length,
-      ]),
-    );
-    return { byScope, byCategory, byGroup };
+    const countIn = (groupId: string, projectId: string | null = null) =>
+      buildTaskList(
+        sources,
+        { scope: 'all', status: countStatus, categoryIds: [], groupId, projectId },
+        context,
+      ).length;
+    const byGroup = new Map(data.groups.map((g) => [g.id, countIn(g.id)]));
+    const byProject = new Map(data.projects.map((p) => [p.id, countIn(p.groupId, p.id)]));
+    return { byScope, byCategory, byGroup, byProject };
   }, [data, now, timeZone, countStatus, selection.scope, selection.categoryIds]);
 
   const go = (href: string) => router.replace(href, { scroll: false });
@@ -117,7 +116,7 @@ export function Sidebar() {
           </ul>
         </section>
 
-        <GroupSection counts={counts?.byGroup ?? null} />
+        <GroupSection counts={counts} />
 
         <section className="sidebar-section" aria-label="分类">
           <h2 className="sidebar-heading">分类</h2>

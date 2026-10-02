@@ -11,6 +11,8 @@ import {
   notificationList,
   openAs,
   openRoster,
+  projectIn,
+  projectLink,
   rosterAction,
   rosterDialog,
   rosterRow,
@@ -38,7 +40,10 @@ test.use({ storageState: { cookies: [], origins: [] } });
 
 const roleOf = (page: Page, name: string) => rosterRow(page, name).locator('.roster-role');
 
-/** 准备一个管理组：组长 L、管理员 A、组员 M（以及更多组员） */
+/**
+ * 准备一个管理组：组长 L、组员 A、M（以及更多组员）；组里一个开了任务分配的项目（所有人都在），
+ * A 是这个项目的管理员
+ */
 async function managementGroup(id: string, extra: string[] = []) {
   const L = await user('ml', `${id}组长`);
   const A = await user('ma', `${id}管理`);
@@ -47,12 +52,14 @@ async function managementGroup(id: string, extra: string[] = []) {
   for (const [i, name] of extra.entries()) others.push(await user(`mx${i}`, name));
   const groupName = `${id}管理组`;
   const groupId = await groupWith(L, [A, M, ...others], groupName, 'management');
-  await rpc(L, 'set_group_member_role', {
-    p_group_id: groupId,
+  const projectName = `${id}项目`;
+  const projectId = await projectIn(L, groupId, projectName, ['assignment']);
+  await rpc(L, 'set_project_member_role', {
+    p_project_id: projectId,
     p_user_id: await userId(A),
     p_role: 'admin',
   });
-  return { L, A, M, others, groupId, groupName };
+  return { L, A, M, others, groupId, groupName, projectId, projectName };
 }
 
 async function openNotifications(page: Page): Promise<Locator> {
@@ -67,15 +74,16 @@ const notificationText = (page: Page, text: string | RegExp) =>
 const notification = (page: Page, text: string | RegExp) =>
   notificationList(page).getByRole('listitem').filter({ hasText: text });
 
-test('建管理组；三种身份：被邀请的人是组员，组长任命 / 撤销管理员（先确认），按身份显示可用的操作', async ({
+test('建管理组；组长 / 组员；建项目（工具箱多选、成员默认全选）；项目管理员只在被任命的项目里；按身份显示可用的操作', async ({
   browser,
 }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(150_000);
   const id = runId();
   const L = await user('nl', `${id}组长`);
   const A = await user('na', `${id}管理`);
   const M = await user('nm', `${id}组员`);
   const groupName = `${id}管理组`;
+  const projectName = `${id}项目`;
 
   // 组长：建组时选管理组，选颜色
   const pl = await openAs(browser, L);
@@ -100,7 +108,7 @@ test('建管理组；三种身份：被邀请的人是组员，组长任命 / �
     await select<{ kind: string; color: string }>(L, `groups?select=kind,color&id=eq.${groupId}`),
   ).toEqual([{ kind: 'management', color: '#FF9500' }]);
 
-  // 名单窗口：邀请两个人；他们同意后是组员
+  // 组名单窗口：邀请两个人；他们同意后是组员
   let roster = await openRoster(pl);
   for (const u of [A, M]) {
     await roster.getByRole('textbox', { name: '邀请的邮箱' }).fill(u.email);
@@ -125,8 +133,46 @@ test('建管理组；三种身份：被邀请的人是组员，组长任命 / �
   await expect(roster.locator('.roster-role')).toHaveText(['组长', '组员', '组员']);
   // 名单里有邮箱（参照 Google 的共享窗口）
   await expect(rosterRow(pl, `${id}管理`)).toContainText(A.email);
+  // 组名单里组长对组员：任命组长、踢出（管理员是项目上的身份，不在组名单里）
+  await rosterRow(pl, `${id}组员`)
+    .getByRole('button', { name: `「${id}组员」的操作` })
+    .click();
+  await expect(rosterRow(pl, `${id}组员`).locator('.roster-actions button')).toHaveText([
+    '任命为组长',
+    '踢出',
+  ]);
+  await roster.getByRole('button', { name: '关闭' }).click();
 
-  // 组长任命管理员：先弹确认窗口，确认后才执行
+  // 组员看不到"新建项目"；组长建项目：工具箱多选，项目成员从组里所有人里选、默认全选，组长不能去掉
+  await pm.reload();
+  await expect(groupSection(pm).getByRole('button', { name: '+ 新建项目' })).toHaveCount(0);
+  await groupSection(pl).getByRole('button', { name: '+ 新建项目' }).click();
+  const projectForm = groupSection(pl).getByRole('form', { name: '新建项目' });
+  await projectForm.getByRole('textbox', { name: '项目名' }).fill(projectName);
+  const toolbox = projectForm.getByRole('group', { name: '工具箱' });
+  await expect(toolbox.getByRole('checkbox')).toHaveCount(2);
+  await toolbox.getByRole('checkbox', { name: '任务分配' }).check();
+  await toolbox.getByRole('checkbox', { name: '任务关系' }).check();
+  const members = projectForm.getByRole('group', { name: '项目成员' });
+  await expect(members.locator('.form-check')).toHaveText([`${id}组长`, `${id}管理`, `${id}组员`]);
+  for (const name of [`${id}组长`, `${id}管理`, `${id}组员`]) {
+    await expect(members.getByRole('checkbox', { name })).toBeChecked();
+  }
+  await expect(members.getByRole('checkbox', { name: `${id}组长` })).toBeDisabled();
+  await projectForm.getByRole('button', { name: '创建项目' }).click();
+  await expect(titleBar(pl)).toHaveText(projectName);
+  const projectId = new URL(pl.url()).searchParams.get('project')!;
+  expect(await select<{ tools: string[] }>(L, `projects?select=tools&id=eq.${projectId}`)).toEqual([
+    { tools: ['assignment', 'relations'] },
+  ]);
+
+  // 项目名单：组长自动在项目里，不能被移出，也没有"退出项目"；组长任命管理员（先确认）
+  roster = await openRoster(pl);
+  await expect(roster.locator('.roster-name')).toHaveText([`${id}组长`, `${id}管理`, `${id}组员`]);
+  await expect(roster.locator('.roster-role')).toHaveText(['组长', '组员', '组员']);
+  await expect(
+    rosterRow(pl, `${id}组长`).getByRole('button', { name: `「${id}组长」的操作` }),
+  ).toHaveCount(0);
   await rosterAction(pl, `${id}管理`, '任命为管理员');
   await expect(confirmDialog(pl)).toHaveAccessibleName(`任命「${id}管理」为管理员？`);
   await confirmDialog(pl).getByRole('button', { name: '取消' }).click();
@@ -141,20 +187,19 @@ test('建管理组；三种身份：被邀请的人是组员，组长任命 / �
   await rosterAction(pl, `${id}管理`, '任命为管理员');
   await confirmDialog(pl).getByRole('button', { name: '任命' }).click();
   await expect(roleOf(pl, `${id}管理`)).toHaveText('管理员');
-  // 组长看自己那一行：只有"退出组"；组长对组员：任命管理员、任命组长、踢出
+  // 组长对组员：任命管理员、移出项目
   await rosterRow(pl, `${id}组员`)
     .getByRole('button', { name: `「${id}组员」的操作` })
     .click();
   await expect(rosterRow(pl, `${id}组员`).locator('.roster-actions button')).toHaveText([
     '任命为管理员',
-    '任命为组长',
-    '踢出',
+    '移出项目',
   ]);
   await roster.getByRole('button', { name: '关闭' }).click();
 
-  // 管理员：能邀请、添加只有名字的人；对组员只有"踢出"，对组长没有操作；能建任务
+  // 管理员（这个项目）：能往项目里加人、添加只有名字的人；对组员只有"移出项目"，对组长没有操作；能建任务
   await pa.reload();
-  await groupLink(pa, groupName).click();
+  await projectLink(pa, projectName).click();
   roster = await openRoster(pa);
   await expect(roster.getByRole('form', { name: '邀请' })).toBeVisible();
   await roster.getByRole('textbox', { name: '名字' }).fill(`${id}顾问`);
@@ -166,12 +211,21 @@ test('建管理组；三种身份：被邀请的人是组员，组长任命 / �
   await rosterRow(pa, `${id}组员`)
     .getByRole('button', { name: `「${id}组员」的操作` })
     .click();
-  await expect(rosterRow(pa, `${id}组员`).locator('.roster-actions button')).toHaveText(['踢出']);
+  await expect(rosterRow(pa, `${id}组员`).locator('.roster-actions button')).toHaveText([
+    '移出项目',
+  ]);
   await roster.getByRole('button', { name: '关闭' }).click();
   await expect(pa.getByLabel('快速添加任务')).toBeEnabled();
+  // 管理员在组里只是组员：组名单里没有邀请，看不到"新建项目"
+  await groupLink(pa, groupName).click();
+  roster = await openRoster(pa);
+  await expect(roster.getByRole('form', { name: '邀请' })).toHaveCount(0);
+  await roster.getByRole('button', { name: '关闭' }).click();
+  await expect(groupSection(pa).getByRole('button', { name: '+ 新建项目' })).toHaveCount(0);
 
-  // 组员：没有邀请、没有添加；只能对自己"退出组"；添加栏在原位但不能用
-  await groupLink(pm, groupName).click();
+  // 组员：项目名单里没有加人、没有添加；只能对自己"退出项目"；添加栏在原位但不能用
+  await pm.reload();
+  await projectLink(pm, projectName).click();
   roster = await openRoster(pm);
   await expect(roster.getByRole('form', { name: '邀请' })).toHaveCount(0);
   await expect(roster.getByRole('form', { name: '添加只有名字的人' })).toHaveCount(0);
@@ -179,6 +233,8 @@ test('建管理组；三种身份：被邀请的人是组员，组长任命 / �
   await expect(rosterDialog(pm).getByRole('button', { name: /删除「/ })).toHaveCount(0);
   await roster.getByRole('button', { name: '关闭' }).click();
   await expect(pm.getByLabel('快速添加任务')).toBeDisabled();
+  // 组员没有编辑项目的铅笔
+  await expect(groupSection(pm).getByRole('button', { name: /^编辑项目/ })).toHaveCount(0);
 
   // 侧边栏的编辑表单：组长能改组名和颜色、能删除组；其他人只能改自己的昵称
   const formM = await editGroup(pm, groupName);
@@ -188,6 +244,7 @@ test('建管理组；三种身份：被邀请的人是组员，组长任命 / �
   await formM.getByLabel('我在本组的昵称').fill(`${id}小组员`);
   await formM.getByRole('button', { name: '保存' }).click();
   await expect(formM).toHaveCount(0);
+  await groupLink(pl, groupName).click();
   const formL = await editGroup(pl, groupName);
   await expect(formL.getByRole('button', { name: '删除组' })).toBeVisible();
   await formL.getByRole('textbox', { name: '组名' }).fill(`${groupName}改`);
@@ -200,12 +257,43 @@ test('建管理组；三种身份：被邀请的人是组员，组长任命 / �
   );
   roster = await openRoster(pl);
   await expect(rosterRow(pl, `${id}小组员`)).toBeVisible();
+  await roster.getByRole('button', { name: '关闭' }).click();
 
-  // 数据库同样拦住：组员不能建任务、不能邀请
-  await expect(groupTask(M, groupId, 'x')).rejects.toThrow(/403/);
+  // 编辑项目（组长）：改名字和颜色；工具箱只显示，不能改
+  await groupSection(pl)
+    .getByRole('button', { name: `编辑项目「${projectName}」` })
+    .click();
+  const editForm = groupSection(pl).getByRole('form', { name: `编辑项目「${projectName}」` });
+  const editTools = editForm.getByRole('group', { name: '工具箱' });
+  await expect(editTools.getByRole('checkbox', { name: '任务分配' })).toBeChecked();
+  await expect(editTools.getByRole('checkbox', { name: '任务分配' })).toBeDisabled();
+  await editForm.getByRole('textbox', { name: '项目名' }).fill(`${projectName}改`);
+  await editForm.getByRole('radio', { name: '#AF52DE' }).click();
+  await editForm.getByRole('button', { name: '保存' }).click();
+  await expect(projectLink(pl, `${projectName}改`).locator('.category-dot')).toHaveCSS(
+    'background-color',
+    'rgb(175, 82, 222)',
+  );
   await expect(
-    rpc(M, 'invite_to_group', { p_group_id: groupId, p_email: 'x@example.com' }),
-  ).rejects.toThrow(/没有邀请的权限/);
+    rpc(A, 'update_project', { p_project_id: projectId, p_name: 'y', p_color: null }),
+  ).rejects.toThrow(/只有组长可以修改项目/);
+
+  // 数据库同样拦住：组员不能建任务；只有组长能邀请人进组、建项目
+  await expect(groupTask(M, projectId, 'x')).rejects.toThrow(/403/);
+  for (const u of [A, M]) {
+    await expect(
+      rpc(u, 'invite_to_group', { p_group_id: groupId, p_email: 'x@example.com' }),
+    ).rejects.toThrow(/只有组长可以邀请人进小组/);
+    await expect(
+      rpc(u, 'create_project', {
+        p_group_id: groupId,
+        p_name: 'x',
+        p_color: null,
+        p_tools: [],
+        p_member_ids: [],
+      }),
+    ).rejects.toThrow(/只有组长可以建项目/);
+  }
 
   await Promise.all([pl, pa, pm].map((p) => p.context().close()));
 });
@@ -215,16 +303,16 @@ test('RACI：创建时设定（创建人默认是 A）；R 标记完成进入待
 }) => {
   test.setTimeout(150_000);
   const id = runId();
-  const { L, A, M, groupId, groupName } = await managementGroup(id);
-  const contact = await rpc<{ id: string }>(A, 'add_group_contact', {
-    p_group_id: groupId,
+  const { L, A, M, groupId, projectId, projectName } = await managementGroup(id);
+  const contact = await rpc<{ id: string }>(A, 'add_project_contact', {
+    p_project_id: projectId,
     p_name: `${id}顾问`,
   });
   const title = `${id} 写发布说明`;
 
   // 管理员建任务：快速添加栏在时间旁边选执行人和负责人；负责人默认是自己，执行人没选时不能创建
   const pa = await openAs(browser, A);
-  await groupLink(pa, groupName).click();
+  await projectLink(pa, projectName).click();
   const bar = pa.locator('.quick-add');
   await pa.getByLabel('快速添加任务').fill(title);
   const quickR = bar.getByRole('combobox', { name: '执行人（R）' });
@@ -236,7 +324,7 @@ test('RACI：创建时设定（创建人默认是 A）；R 标记完成进入待
   await expect(pa.getByLabel('快速添加任务')).toHaveValue(title);
   await quickR.selectOption({ label: `${id}组员` });
   await expect(bar.getByRole('button', { name: '创建', exact: true })).toBeEnabled();
-  // 展开后四个角色写全称；R、A 只能选组内成员，C、I 还可以选只有名字的人
+  // 展开后四个角色写全称；R、A 只能选项目成员，C、I 还可以选只有名字的人
   await bar.getByRole('button', { name: '展开完整选项' }).click();
   const raci = bar.getByRole('group', { name: 'RACI' });
   await expect(raci.locator('.raci-letter')).toHaveText([
@@ -278,14 +366,14 @@ test('RACI：创建时设定（创建人默认是 A）；R 标记完成进入待
     { role: 'R', user_id: await userId(M), contact_id: null },
   ]);
 
-  // 组员（执行人）：收到"把你设为执行人"，点查看进入组，在清单里原地展开这条任务（只能看，不能改内容）；
+  // 组员（执行人）：收到"把你设为执行人"，点查看进入项目，在清单里原地展开这条任务（只能看，不能改内容）；
   // 当前状态（未完成）看不到这条已经过了截止时间的任务，切到"已错过"
   const pm = await openAs(browser, M);
   await expect(bell(pm)).toHaveAttribute('data-unread', 'true');
   await openNotifications(pm);
   await expect(notificationText(pm, '设为')).toHaveText(`${id}管理把你设为${title}的执行人（R）`);
   await notification(pm, '设为').getByRole('button', { name: '查看' }).click();
-  await expect(pm).toHaveURL(new RegExp(`group=${groupId}&status=missed$`));
+  await expect(pm).toHaveURL(new RegExp(`group=${groupId}&project=${projectId}&status=missed$`));
   await expect(taskItem(pm, title)).toHaveClass(/task-item-open/);
   const panel = editPanel(pm);
   await expect(titleBox(panel)).toHaveValue(title);
@@ -364,16 +452,16 @@ test('RACI：创建时设定（创建人默认是 A）；R 标记完成进入待
   await expect(taskItem(pa, title)).toBeVisible();
 
   // 不是 R 的人不能勾选完成（组长是 I）
-  await groupTask(A, groupId, `${id} 别人的任务`, [
+  await groupTask(A, projectId, `${id} 别人的任务`, [
     { role: 'R', userId: await userId(M) },
     { role: 'A', userId: await userId(A) },
   ]);
   await pl.reload();
-  await groupLink(pl, groupName).click();
+  await projectLink(pl, projectName).click();
   await expect(pl.getByRole('checkbox', { name: `完成：${id} 别人的任务` })).toBeDisabled();
 
   // R 和 A 是同一个人：标记完成直接算已完成
-  await groupTask(A, groupId, `${id} 自己负责自己确认`, [
+  await groupTask(A, projectId, `${id} 自己负责自己确认`, [
     { role: 'R', userId: await userId(A) },
     { role: 'A', userId: await userId(A) },
   ]);
@@ -407,19 +495,19 @@ test('RACI：创建时设定（创建人默认是 A）；R 标记完成进入待
   await Promise.all([pl, pa, pm].map((p) => p.context().close()));
 });
 
-test('踢出与退出：身上有 R 或 A 时失败并列出 RACI；否则确认窗口列出 C、I，确认后一并去掉；最后一位组长不能退出；合作组直接退出', async ({
+test('踢出组与退出组：在任何项目上有 R 或 A 时失败并列出 RACI；否则确认窗口列出 C、I，确认后一并去掉；最后一位组长不能退出；合作组直接退出', async ({
   browser,
 }) => {
   test.setTimeout(150_000);
   const id = runId();
-  const { L, A, M, others, groupId, groupName } = await managementGroup(id, [
-    `${id}被踢`,
-    `${id}要走`,
-  ]);
+  const { L, A, M, others, groupId, groupName, projectId, projectName } = await managementGroup(
+    id,
+    [`${id}被踢`, `${id}要走`],
+  );
   const [kicked, leaver] = others as [GroupUser, GroupUser];
   const mId = await userId(M);
   const t1 = `${id} 有R的任务`;
-  await groupTask(A, groupId, t1, [
+  await groupTask(A, projectId, t1, [
     { role: 'R', userId: mId },
     { role: 'A', userId: await userId(A) },
     { role: 'I', userId: await userId(kicked) },
@@ -430,10 +518,12 @@ test('踢出与退出：身上有 R 或 A 时失败并列出 RACI；否则确认
   await groupLink(pl, groupName).click();
   await openRoster(pl);
 
-  // 踢出身上有 R 的人：失败，列出他在本组所有任务上的 R、A、C、I
+  // 踢出身上有 R 的人：失败，列出他在本组所有项目的任务上的 R、A、C、I（带项目名）
   await rosterAction(pl, `${id}组员`, '踢出');
   await expect(confirmDialog(pl)).toHaveAccessibleName(`不能踢出「${id}组员」`);
-  await expect(confirmDialog(pl).locator('.raci-roles-list li')).toHaveText([`${t1}R`]);
+  await expect(confirmDialog(pl).locator('.raci-roles-list li')).toHaveText([
+    `${projectName}${t1}R`,
+  ]);
   await expect(confirmDialog(pl).getByRole('button', { name: '踢出' })).toHaveCount(0);
   await confirmDialog(pl).getByRole('button', { name: '关闭' }).click();
   await expect(rosterRow(pl, `${id}组员`)).toBeVisible();
@@ -441,17 +531,21 @@ test('踢出与退出：身上有 R 或 A 时失败并列出 RACI；否则确认
   // 踢出只有 I 的人：确认窗口列出他的 C、I；确认后踢出，I 一并去掉
   await rosterAction(pl, `${id}被踢`, '踢出');
   await expect(confirmDialog(pl)).toHaveAccessibleName(`踢出「${id}被踢」？`);
-  await expect(confirmDialog(pl).locator('.raci-roles-list li')).toHaveText([`${t1}I`]);
+  await expect(confirmDialog(pl).locator('.raci-roles-list li')).toHaveText([
+    `${projectName}${t1}I`,
+  ]);
   await confirmDialog(pl).getByRole('button', { name: '踢出' }).click();
   await expect(rosterRow(pl, `${id}被踢`)).toHaveCount(0);
   expect(
     await select(A, `task_assignments?select=role&user_id=eq.${await userId(kicked)}`),
   ).toEqual([]);
+  // 踢出组 = 同时移出他所在的所有项目
   expect(await select(kicked, `groups?select=id&id=eq.${groupId}`)).toEqual([]);
+  expect(await select(kicked, `projects?select=id&id=eq.${projectId}`)).toEqual([]);
 
-  // 管理员不能踢管理员：数据库也拦住
+  // 只有组长能踢人（项目管理员也不行）：数据库也拦住
   await expect(
-    rpc(A, 'remove_group_member', { p_group_id: groupId, p_user_id: await userId(L) }),
+    rpc(A, 'remove_group_member', { p_group_id: groupId, p_user_id: mId }),
   ).rejects.toThrow(/没有踢出这个人的权限/);
 
   // 组员退出：身上有 R 时失败，列出 RACI
@@ -460,7 +554,9 @@ test('踢出与退出：身上有 R 或 A 时失败并列出 RACI；否则确认
   await openRoster(pm);
   await rosterAction(pm, `${id}组员`, '退出组');
   await expect(confirmDialog(pm)).toHaveAccessibleName('不能退出');
-  await expect(confirmDialog(pm).locator('.raci-roles-list li')).toHaveText([`${t1}R`]);
+  await expect(confirmDialog(pm).locator('.raci-roles-list li')).toHaveText([
+    `${projectName}${t1}R`,
+  ]);
   await confirmDialog(pm).getByRole('button', { name: '关闭' }).click();
 
   // 只有 C 的人退出：确认窗口列出 C；退出后 C 一并去掉，回到总览
@@ -469,7 +565,9 @@ test('踢出与退出：身上有 R 或 A 时失败并列出 RACI；否则确认
   await openRoster(pv);
   await rosterAction(pv, `${id}要走`, '退出组');
   await expect(confirmDialog(pv)).toHaveAccessibleName(`退出「${groupName}」？`);
-  await expect(confirmDialog(pv).locator('.raci-roles-list li')).toHaveText([`${t1}C`]);
+  await expect(confirmDialog(pv).locator('.raci-roles-list li')).toHaveText([
+    `${projectName}${t1}C`,
+  ]);
   await confirmDialog(pv).getByRole('button', { name: '退出' }).click();
   await expect(titleBar(pv)).toHaveText('总览');
   await expect(groupLink(pv, groupName)).toHaveCount(0);
@@ -483,7 +581,7 @@ test('踢出与退出：身上有 R 或 A 时失败并列出 RACI；否则确认
   await confirmDialog(pl).getByRole('button', { name: '关闭' }).click();
   expect(await rpc(L, 'leave_group', { p_group_id: groupId })).toBe('last_leader');
 
-  // 管理员（没有 R、A）可以退出：先把负责人换成组长（执行人和负责人不能删光）
+  // 项目管理员（没有 R、A）可以退出组：先把负责人换成组长（执行人和负责人不能删光）
   expect(
     await rpc(A, 'set_task_raci', {
       p_task_id: (await select<{ id: string }>(A, `tasks?select=id&title=eq.${t1}`))[0]!.id,
@@ -495,10 +593,10 @@ test('踢出与退出：身上有 R 或 A 时失败并列出 RACI；否则确认
   ).toBeNull();
   expect(await rpc(A, 'leave_group', { p_group_id: groupId })).toBe('left');
 
-  // 合作组：R、A 是默认的，不阻止退出；最后一个成员退出时组和任务一起删除
+  // 合作组（项目没开任务分配）：直接退出；最后一个成员退出时组和项目、任务一起删除
   const coop = `${id}合作组`;
   const coopId = await groupWith(L, [M], coop);
-  await groupTask(L, coopId, `${id} 合作组任务`);
+  await groupTask(L, await projectIn(L, coopId, `${id}合作项目`), `${id} 合作组任务`);
   await pm.reload();
   await groupLink(pm, coop).click();
   await openRoster(pm);
@@ -599,13 +697,15 @@ test('任命组长：全体组长投票，发起者算同意；一个不同意�
   await Promise.all([pl, pa].map((p) => p.context().close()));
 });
 
-test('标题行和添加栏在每个页面都在同一个位置：总览、收藏、合作组、管理组（清单与责任分配矩阵）', async ({
+test('标题行和添加栏在每个页面都在同一个位置：总览、收藏、组、项目（清单与责任分配矩阵）', async ({
   browser,
 }) => {
   const id = runId();
   const L = await user('pl', `${id}组长`);
-  await groupWith(L, [], `${id}合作组`);
-  await groupWith(L, [], `${id}管理组`, 'management');
+  const coopId = await groupWith(L, [], `${id}合作组`);
+  await projectIn(L, coopId, `${id}合作项目`);
+  const mgmtId = await groupWith(L, [], `${id}管理组`, 'management');
+  await projectIn(L, mgmtId, `${id}分配项目`, ['assignment']);
   const page = await openAs(browser, L);
 
   const boxes = async () => {
@@ -623,8 +723,16 @@ test('标题行和添加栏在每个页面都在同一个位置：总览、收�
   await groupLink(page, `${id}合作组`).click();
   await expect(titleBar(page)).toHaveText(`${id}合作组`);
   await check();
+  await projectLink(page, `${id}合作项目`).click();
+  await expect(titleBar(page)).toHaveText(`${id}合作项目`);
+  await check();
   await groupLink(page, `${id}管理组`).click();
   await expect(titleBar(page)).toHaveText(`${id}管理组`);
+  // 组页面没有责任分配矩阵
+  await expect(page.getByRole('link', { name: '切换到责任分配矩阵' })).toHaveCount(0);
+  await check();
+  await projectLink(page, `${id}分配项目`).click();
+  await expect(titleBar(page)).toHaveText(`${id}分配项目`);
   await check();
   await page.getByRole('link', { name: '切换到责任分配矩阵' }).click();
   await expect(page).toHaveURL(/view=raci/);

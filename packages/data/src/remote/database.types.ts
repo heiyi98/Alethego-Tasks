@@ -12,12 +12,21 @@ export type OccurrenceStatusEnum = 'pending' | 'completed' | 'missed';
 
 export type GroupKindEnum = 'cooperative' | 'management' | 'education';
 
-export type GroupRoleEnum = 'leader' | 'admin' | 'member';
+export type GroupRoleEnum = 'leader' | 'member';
+
+export type ProjectRoleEnum = 'leader' | 'admin' | 'member';
+
+export type ProjectToolEnum = 'assignment' | 'relations';
 
 export type RaciRoleEnum = 'R' | 'A' | 'C' | 'I';
 
 export type NotificationKindEnum =
-  'group_invitation' | 'group_deletion_vote' | 'group_leader_vote' | 'task';
+  | 'group_invitation'
+  | 'group_deletion_vote'
+  | 'group_leader_vote'
+  | 'project_invitation'
+  | 'project_deletion_vote'
+  | 'task';
 
 export type TaskNotificationActionEnum =
   'assigned' | 'completed' | 'confirmed' | 'rejected' | 'modified';
@@ -77,8 +86,59 @@ export interface Database {
         Update: { [_ in never]: never };
         Relationships: [];
       };
-      group_contacts: {
-        Row: { id: string; group_id: string; name: string; created_by: string; created_at: string };
+      projects: {
+        Row: {
+          id: string;
+          group_id: string;
+          name: string;
+          color: string | null;
+          tools: ProjectToolEnum[];
+          created_by: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: NoWrite;
+        Update: NoWrite;
+        Relationships: [];
+      };
+      project_members: {
+        Row: { project_id: string; user_id: string; role: 'admin' | 'member'; joined_at: string };
+        Insert: NoWrite;
+        Update: NoWrite;
+        Relationships: [];
+      };
+      project_invitations: {
+        Row: {
+          id: string;
+          project_id: string;
+          email: string;
+          invited_by: string;
+          created_at: string;
+        };
+        Insert: NoWrite;
+        Update: NoWrite;
+        Relationships: [];
+      };
+      project_deletion_requests: {
+        Row: { project_id: string; initiated_by: string; started_at: string };
+        Insert: NoWrite;
+        Update: NoWrite;
+        Relationships: [];
+      };
+      project_deletion_votes: {
+        Row: { project_id: string; user_id: string; voted_at: string };
+        Insert: NoWrite;
+        Update: NoWrite;
+        Relationships: [];
+      };
+      project_contacts: {
+        Row: {
+          id: string;
+          project_id: string;
+          name: string;
+          created_by: string;
+          created_at: string;
+        };
         Insert: NoWrite;
         Update: NoWrite;
         Relationships: [];
@@ -146,6 +206,7 @@ export interface Database {
           id: string;
           owner_id: string;
           group_id: string | null;
+          project_id: string | null;
           title: string;
           description: string;
           deadline_at: string | null;
@@ -163,6 +224,7 @@ export interface Database {
           id?: string;
           owner_id?: string;
           group_id?: string | null;
+          project_id?: string | null;
           title: string;
           description?: string;
           deadline_at?: string | null;
@@ -180,6 +242,7 @@ export interface Database {
           id?: string;
           owner_id?: string;
           group_id?: string | null;
+          project_id?: string | null;
           title?: string;
           description?: string;
           deadline_at?: string | null;
@@ -202,6 +265,7 @@ export interface Database {
           name: string;
           color: string;
           description: string;
+          tools: 'relations'[];
           created_at: string;
         };
         Insert: {
@@ -210,6 +274,7 @@ export interface Database {
           name: string;
           color: string;
           description?: string;
+          tools?: 'relations'[];
           created_at?: string;
         };
         Update: {
@@ -369,10 +434,6 @@ export interface Database {
     };
     Views: { [_ in never]: never };
     Functions: {
-      create_group: {
-        Args: { p_name: string };
-        Returns: Database['taskapp']['Tables']['groups']['Row'];
-      };
       group_roster: {
         Args: { p_group_id: string };
         Returns: {
@@ -393,15 +454,74 @@ export interface Database {
         Args: { p_group_id: string; p_name: string; p_color: string | null };
         Returns: Database['taskapp']['Tables']['groups']['Row'];
       };
-      add_group_contact: {
-        Args: { p_group_id: string; p_name: string };
-        Returns: Database['taskapp']['Tables']['group_contacts']['Row'];
-      };
-      remove_group_contact: { Args: { p_contact_id: string }; Returns: undefined };
       set_task_raci: { Args: { p_task_id: string; p_assignments: Json }; Returns: undefined };
-      set_group_member_role: {
-        Args: { p_group_id: string; p_user_id: string; p_role: 'admin' | 'member' };
+      create_project: {
+        Args: {
+          p_group_id: string;
+          p_name: string;
+          p_color: string;
+          p_tools: ProjectToolEnum[];
+          p_member_ids: string[];
+        };
+        Returns: Database['taskapp']['Tables']['projects']['Row'];
+      };
+      update_project: {
+        Args: { p_project_id: string; p_name: string; p_color: string };
+        Returns: Database['taskapp']['Tables']['projects']['Row'];
+      };
+      project_roster: {
+        Args: { p_project_id: string };
+        Returns: {
+          user_id: string;
+          nickname: string;
+          is_me: boolean;
+          role: ProjectRoleEnum;
+          email: string;
+          in_group: boolean;
+          joined_at: string;
+        }[];
+      };
+      add_project_member: {
+        Args: { p_project_id: string; p_user_id: string };
+        Returns: 'added' | 'already_member';
+      };
+      invite_to_project: {
+        Args: { p_project_id: string; p_email: string };
+        Returns: 'added' | 'invited' | 'already_invited' | 'already_member' | 'self';
+      };
+      accept_project_invitation: { Args: { p_invitation_id: string }; Returns: string };
+      decline_project_invitation: { Args: { p_invitation_id: string }; Returns: undefined };
+      set_project_member_role: {
+        Args: { p_project_id: string; p_user_id: string; p_role: 'admin' | 'member' };
         Returns: undefined;
+      };
+      remove_project_member: {
+        Args: { p_project_id: string; p_user_id: string };
+        Returns: 'removed' | 'blocked';
+      };
+      leave_project: { Args: { p_project_id: string }; Returns: 'left' | 'blocked' };
+      add_project_contact: {
+        Args: { p_project_id: string; p_name: string };
+        Returns: Database['taskapp']['Tables']['project_contacts']['Row'];
+      };
+      remove_project_contact: { Args: { p_contact_id: string }; Returns: undefined };
+      project_member_task_roles: {
+        Args: { p_project_id: string; p_user_id: string };
+        Returns: {
+          task_id: string;
+          task_title: string;
+          role: RaciRoleEnum;
+          project_id: string;
+          project_name: string;
+        }[];
+      };
+      request_project_deletion: {
+        Args: { p_project_id: string };
+        Returns: 'deleted' | 'requested' | 'already_requested';
+      };
+      vote_project_deletion: {
+        Args: { p_project_id: string; p_agree: boolean };
+        Returns: 'deleted' | 'agreed' | 'cancelled' | 'no_request';
       };
       request_leader_appointment: {
         Args: { p_group_id: string; p_user_id: string };
@@ -413,7 +533,13 @@ export interface Database {
       };
       member_task_roles: {
         Args: { p_group_id: string; p_user_id: string };
-        Returns: { task_id: string; task_title: string; role: RaciRoleEnum }[];
+        Returns: {
+          task_id: string;
+          task_title: string;
+          role: RaciRoleEnum;
+          project_id: string;
+          project_name: string;
+        }[];
       };
       remove_group_member: {
         Args: { p_group_id: string; p_user_id: string };
@@ -457,11 +583,13 @@ export interface Database {
           subject_is_me: boolean | null;
           can_confirm: boolean;
           task_deleted: boolean;
+          project_id: string | null;
+          project_name: string | null;
         }[];
       };
       create_task_with_raci: {
         Args: {
-          p_group_id: string;
+          p_project_id: string;
           p_title: string;
           p_description: string;
           p_deadline_at: string | null;

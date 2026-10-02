@@ -15,6 +15,8 @@ export interface Task {
    * 组任务不使用重要性、分类、收藏，不进总览和矩阵。
    */
   groupId: string | null;
+  /** 组任务所属的项目（组任务必须属于一个项目）；个人任务为 null */
+  projectId: string | null;
   title: string;
   description: string;
   /** 截止时间（UTC），null 表示无截止时间 */
@@ -25,8 +27,8 @@ export interface Task {
   recurrenceDtstart: Date | null;
   completedAt: Date | null;
   /**
-   * 已确认的时间。个人任务、合作组任务完成即确认（与 completedAt 相同）；
-   * 管理组任务由 A 确认：completedAt 有值而它为 null = 待确认。
+   * 已确认的时间。个人任务、没开任务分配的项目里的任务完成即确认（与 completedAt 相同）；
+   * 开了任务分配的项目里由 A 确认：completedAt 有值而它为 null = 待确认。
    */
   confirmedAt: Date | null;
   /** 标星：只是书签，不影响矩阵位置、排序或任何其他规则 */

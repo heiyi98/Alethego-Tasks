@@ -31,6 +31,10 @@ export const zh: Messages = {
     groupDeletionVote: ({ actor, group }) => `${actor}发起删除「${group}」`,
     groupLeaderVote: ({ actor, subject, group }) =>
       `${actor}提议任命${subject}为「${group}」的组长`,
+    projectInvitation: ({ actor, group, project }) =>
+      `${actor}邀请你加入「${group}」的「${project}」`,
+    projectDeletionVote: ({ actor, group, project }) =>
+      `${actor}发起删除「${group}」的「${project}」`,
     assigned: ({ actor, subject, task, role }) => `${actor}把${subject}设为${task}的${role}`,
     completed: ({ actor, task }) => `${actor}完成了${task}`,
     confirmed: ({ actor, task }) => `${actor}确认了${task}`,

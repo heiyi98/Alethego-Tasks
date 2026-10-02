@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  featuresForProject,
   normalizeLocationDraft,
   normalizePeopleDrafts,
   taskPermissions,
@@ -40,17 +41,17 @@ import {
 /* 新建                                                                 */
 /* ------------------------------------------------------------------ */
 
-/** 新建：把草稿写入数据库（任务 + 分类 + 地点 / 人物）；groupId 不为空时是这个组的任务（不带分类） */
-export function useCreateTask(groupId: string | null = null) {
+/** 新建：把草稿写入数据库（任务 + 分类 + 地点 / 人物）；container 不为空时是这个项目的任务（不带分类） */
+export function useCreateTask(container: { groupId: string; projectId: string } | null = null) {
   const repositories = useRepositories();
   const { reload, timeZone } = useTaskData();
   return useCallback(
     async (form: TaskFormValue): Promise<{ created: boolean; message?: string }> => {
       try {
-        // 管理组：任务、RACI、地点、人物一起写入（数据库要求必须有执行人和负责人）
-        const withRaci = groupId !== null && form.raci.length > 0;
+        // 开了任务分配的项目：任务、RACI、地点、人物一起写入（数据库要求必须有执行人和负责人）
+        const withRaci = container !== null && form.raci.length > 0;
         const people = normalizePeopleDrafts(form.people);
-        const input = newTaskFromForm(form, timeZone, groupId);
+        const input = newTaskFromForm(form, timeZone, container);
         const task = await repositories.tasks.create(
           withRaci
             ? {
@@ -63,7 +64,7 @@ export function useCreateTask(groupId: string | null = null) {
         );
         if (withRaci) return { created: true };
         try {
-          if (!groupId && form.categoryIds.length > 0) {
+          if (!container && form.categoryIds.length > 0) {
             await repositories.categories.setTaskCategories(task.id, form.categoryIds);
           }
           const location = normalizeLocationDraft(form.location);
@@ -84,7 +85,7 @@ export function useCreateTask(groupId: string | null = null) {
         await reload();
       }
     },
-    [repositories, reload, timeZone, groupId],
+    [repositories, reload, timeZone, container],
   );
 }
 
@@ -132,7 +133,7 @@ export function EditPanel({
   const { data, now, timeZone, reload } = useTaskData();
   const { close } = usePanels();
   const { showUndo } = useFeedback();
-  const { group, kind, features, members, contacts } = useCurrentGroup();
+  const { scopeOf } = useCurrentGroup();
   const dataRef = useRef(data);
   dataRef.current = data;
 
@@ -375,7 +376,14 @@ export function EditPanel({
   }
 
   const errors: FormErrors = validateTaskForm(form);
-  const myId = members.find((m) => m.isMe)?.userId;
+  // 按任务所属的项目取功能、名单和权限
+  const scope = scopeOf(loaded.task.projectId);
+  const project =
+    scope?.project ?? data?.projects.find((p) => p.id === loaded.task.projectId) ?? null;
+  const features = featuresForProject(project);
+  const members = scope?.members ?? [];
+  const contacts = scope?.contacts ?? [];
+  const myId = scope?.me?.userId;
   const me = (raci: TaskFormValue['raci']) =>
     raci.filter((a) => a.userId !== null && a.userId === myId).map((a) => a.role);
   const categories: Category[] = data?.categories ?? [];
@@ -400,9 +408,9 @@ export function EditPanel({
 
   // 组任务不使用重要性、分类和收藏
   const inGroup = loaded.task.groupId !== null;
-  // 管理组：内容由组长、管理员编辑；R 标记完成，A 确认或不通过
+  // 内容由项目管理员编辑；开了任务分配时 R 标记完成，A 确认或不通过
   const myRaci = me(form.raci);
-  const perms = taskPermissions(kind, group?.myRole ?? null, myRaci);
+  const perms = taskPermissions(project, myRaci);
   const pending = loaded.task.completedAt !== null && loaded.task.confirmedAt === null;
 
   /** A 确认完成 / 不通过（回到未完成） */

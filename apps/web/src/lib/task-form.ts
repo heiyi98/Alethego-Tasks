@@ -167,8 +167,9 @@ export function validateTaskForm(form: TaskFormValue): FormErrors {
 export function newTaskFromForm(
   form: TaskFormValue,
   timeZone: string,
-  groupId: string | null = null,
+  container: { groupId: string; projectId: string } | null = null,
 ): NewTask {
+  const groupId = container?.groupId ?? null;
   const recurrence = recurrencePatch(form.recurrence);
   const recurring = recurrence.ok && recurrence.recurrenceRule !== null;
   return {
@@ -179,7 +180,7 @@ export function newTaskFromForm(
     isStarred: groupId ? false : form.isStarred,
     recurrenceRule: recurrence.ok ? recurrence.recurrenceRule : null,
     recurrenceDtstart: recurrence.ok ? (recurrence.recurrenceDtstart ?? null) : null,
-    ...(groupId ? { groupId } : {}),
+    ...(container ? { groupId: container.groupId, projectId: container.projectId } : {}),
   };
 }
 

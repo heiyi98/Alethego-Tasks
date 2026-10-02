@@ -197,21 +197,50 @@ describe('分类编辑', () => {
 });
 
 describe('组（本地只有自己一人）', () => {
-  it('建组、组任务只属于这个组；组任务不能用重要性和收藏；删除组连同组任务一起删除', async () => {
+  it('建组、建项目；组任务必须属于项目；组任务不能用重要性和收藏；删除组连同项目和任务一起删除', async () => {
     const store = new InMemoryLocalStore({ ownerId: OWNER });
     const group = await store.groups.create({ name: '  小组  ', kind: 'cooperative', color: null });
     expect(group).toMatchObject({ name: '小组', kind: 'cooperative', createdBy: OWNER });
-    const task = await store.tasks.create({ title: '组任务', groupId: group.id });
-    expect(task.groupId).toBe(group.id);
+    const project = await store.projects.create({
+      groupId: group.id,
+      name: ' 项目一 ',
+      color: '#007AFF',
+      tools: ['relations', 'assignment'],
+      memberIds: [],
+    });
+    expect(project).toMatchObject({ name: '项目一', tools: ['assignment', 'relations'] });
+    await expect(store.tasks.create({ title: 'x', groupId: group.id })).rejects.toMatchObject({
+      code: 'invalid',
+    });
+    const fields = { groupId: group.id, projectId: project.id };
+    const task = await store.tasks.create({ title: '组任务', ...fields });
+    expect(task).toMatchObject({ groupId: group.id, projectId: project.id });
     await expect(
-      store.tasks.create({ title: 'x', groupId: group.id, importanceLevel: 3 }),
+      store.tasks.create({ title: 'x', ...fields, importanceLevel: 3 }),
     ).rejects.toMatchObject({ code: 'invalid' });
     await expect(
-      store.tasks.create({ title: 'x', groupId: group.id, isStarred: true }),
+      store.tasks.create({ title: 'x', ...fields, isStarred: true }),
     ).rejects.toMatchObject({ code: 'invalid' });
     expect((await store.groups.roster(group.id)).map((m) => m.isMe)).toEqual([true]);
     expect(await store.groups.requestDeletion(group.id)).toBe('deleted');
     expect(await store.groups.list()).toEqual([]);
+    expect(await store.projects.list()).toEqual([]);
     expect(await store.tasks.getById(task.id)).toBeNull();
+  });
+
+  it('删除项目连同项目里的任务一起删除', async () => {
+    const store = new InMemoryLocalStore({ ownerId: OWNER });
+    const group = await store.groups.create({ name: '组', kind: 'management', color: null });
+    const project = await store.projects.create({
+      groupId: group.id,
+      name: 'p',
+      color: '#007AFF',
+      tools: [],
+      memberIds: [],
+    });
+    const task = await store.tasks.create({ title: 't', groupId: group.id, projectId: project.id });
+    expect(await store.projects.requestDeletion(project.id)).toBe('deleted');
+    expect(await store.tasks.getById(task.id)).toBeNull();
+    expect(await store.groups.list()).toHaveLength(1);
   });
 });

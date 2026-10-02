@@ -1,9 +1,12 @@
 import type {
   Category,
   Group,
-  GroupContact,
   GroupKind,
   GroupMember,
+  Project,
+  ProjectContact,
+  ProjectMember,
+  ProjectTool,
   RaciRole,
   TaskAssignment,
   ImportanceLevel,
@@ -38,10 +41,12 @@ export interface NewTask {
   recurrenceDtstart?: Date | null;
   /** 标星（书签），默认 false；组任务不能标星 */
   isStarred?: boolean;
-  /** 所属的组；不传 / null = 个人任务。创建后不能移动到别的容器 */
+  /** 所属的项目；不传 / null = 个人任务。创建后不能移动到别的容器 */
+  projectId?: string | null;
+  /** 项目所属的组（组任务必须同时给出项目和组） */
   groupId?: string | null;
   /**
-   * 管理组的任务：RACI（至少一个执行人和一个负责人）以及地点、人物，和任务在同一个事务里一起写入。
+   * 开了任务分配的项目：RACI（至少一个执行人和一个负责人）以及地点、人物，和任务在同一个事务里一起写入。
    * 传了 assignments 时走这条路；不传就是普通的建任务。
    */
   assignments?: readonly AssignmentDraft[];
@@ -88,9 +93,11 @@ export interface NewCategory {
   /** #RRGGBB；不同分类可以用同一个颜色 */
   color: string;
   description?: string;
+  /** 工具箱（只有"任务关系"），建好后不能改 */
+  tools?: readonly 'relations'[];
 }
 
-export type CategoryPatch = Partial<NewCategory>;
+export type CategoryPatch = Partial<Omit<NewCategory, 'tools'>>;
 
 export interface ICategoryRepository {
   list(): Promise<Category[]>;
@@ -152,6 +159,10 @@ export type NotificationKind =
   | 'group_deletion_vote'
   /** 任命组长的投票：同意 / 不同意 */
   | 'group_leader_vote'
+  /** 邀请加入项目（不在小组里的人）：同意 / 拒绝 */
+  | 'project_invitation'
+  /** 删除项目的投票：同意 / 不同意 */
+  | 'project_deletion_vote'
   /** 任务通知（动作见 action） */
   | 'task';
 
@@ -181,12 +192,15 @@ export type TaskNotificationField =
 export interface GroupNotification {
   kind: NotificationKind;
   /**
-   * 入组邀请：邀请的 id；删除组的投票：组的 id；任命组长的投票：投票的 id；
-   * 任务通知：这条通知的 id
+   * 入组邀请、项目邀请：邀请的 id；删除组的投票：组的 id；删除项目的投票：项目的 id；
+   * 任命组长的投票：投票的 id；任务通知：这条通知的 id
    */
   id: string;
   groupId: string;
   groupName: string;
+  /** 项目邀请、删除项目的投票、任务通知：哪个项目 */
+  projectId: string | null;
+  projectName: string | null;
   /** 操作者：邀请人 / 发起投票的人 / 改动任务的人（在那个组里的名字） */
   actorName: string;
   createdAt: Date;
@@ -210,17 +224,20 @@ export interface GroupNotification {
 /** 任务上的 RACI（整组替换时传入，不含 taskId） */
 export type AssignmentDraft = Pick<TaskAssignment, 'role' | 'userId' | 'contactId'>;
 
-/** 某人在本组任务上的 R、A、C、I（踢出 / 退出前列出） */
+/** 某人在任务上的 R、A、C、I（移出 / 踢出 / 退出前列出） */
 export interface MemberTaskRole {
   taskId: string;
   taskTitle: string;
   role: RaciRole;
+  projectId: string;
+  projectName: string;
 }
 
 export type LeaderRequestResult = 'appointed' | 'requested' | 'already_requested';
 export type LeaderVoteResult = 'appointed' | 'agreed' | 'cancelled' | 'no_request';
 export type RemoveMemberResult = 'removed' | 'blocked';
 export type LeaveResult = 'left' | 'deleted' | 'blocked' | 'last_leader';
+export type LeaveProjectResult = 'left' | 'blocked';
 
 /** 正在进行的任命组长投票 */
 export interface LeaderRequest {
@@ -232,8 +249,18 @@ export interface LeaderRequest {
 }
 
 export type InviteResult = 'invited' | 'already_invited' | 'already_member' | 'self';
+/** 用邮箱往项目里加人：小组成员直接加入（added），不在小组里的人收到邀请（invited） */
+export type ProjectInviteResult = InviteResult | 'added';
 export type DeletionRequestResult = 'deleted' | 'requested' | 'already_requested';
 export type DeletionVoteResult = 'deleted' | 'agreed' | 'cancelled' | 'no_request';
+
+/** 正在进行的删除项目投票 */
+export interface ProjectDeletionRequest {
+  projectId: string;
+  initiatedBy: string;
+  startedAt: Date;
+  agreedUserIds: string[];
+}
 
 /** 正在进行的删除组投票 */
 export interface GroupDeletionRequest {
@@ -249,7 +276,7 @@ export interface GroupDeletionRequest {
  * 权限按组的类型在后台生效（见数据库函数），这里只是调用。
  */
 export interface IGroupRepository {
-  /** 我所在的所有组 */
+  /** 我能看到的所有组（小组成员，或者只加入了组里某些项目） */
   list(): Promise<Group[]>;
   /** 建组，创建者是组长 */
   create(input: { name: string; kind: GroupKind; color: string | null }): Promise<Group>;
@@ -266,29 +293,66 @@ export interface IGroupRepository {
   deletionRequest(groupId: string): Promise<GroupDeletionRequest | null>;
   requestDeletion(groupId: string): Promise<DeletionRequestResult>;
   voteDeletion(groupId: string, agree: boolean): Promise<DeletionVoteResult>;
-  /** 投票超时（删除组一周、任命组长三天，不操作算同意）：打开 TaskApp 时检查并执行 */
+  /** 投票超时（删除组、删除项目一周，任命组长三天，不操作算同意）：打开 TaskApp 时检查并执行 */
   processTimeouts(): Promise<number>;
-  /** 只有名字的人（管理组） */
-  contacts(groupId: string): Promise<GroupContact[]>;
-  addContact(groupId: string, name: string): Promise<GroupContact>;
-  /** 删除只有名字的人：他在任务上的 C、I 一并去掉 */
-  removeContact(contactId: string): Promise<void>;
-  /** 任命（admin）或撤销（member）管理员 */
-  setRole(groupId: string, userId: string, role: 'admin' | 'member'): Promise<void>;
   leaderRequests(groupId: string): Promise<LeaderRequest[]>;
   requestLeader(groupId: string, userId: string): Promise<LeaderRequestResult>;
   voteLeader(requestId: string, agree: boolean): Promise<LeaderVoteResult>;
+  /** 某人在本组所有项目上的 R、A、C、I */
   memberTaskRoles(groupId: string, userId: string): Promise<MemberTaskRole[]>;
-  /** 踢出：身上有 R 或 A 时不执行（blocked），否则连同他身上的 C、I 一起去掉 */
+  /** 踢出组（连同他所在的所有项目）：任何项目上有 R 或 A 时不执行（blocked），否则连同 C、I 一起去掉 */
   removeMember(groupId: string, userId: string): Promise<RemoveMemberResult>;
   leave(groupId: string): Promise<LeaveResult>;
   /** 任务通知看过 / 处理过之后不再显示 */
   dismissNotification(id: string): Promise<void>;
 }
 
-/** 任务上的 RACI（管理组） */
+export interface NewProject {
+  groupId: string;
+  name: string;
+  color: string;
+  tools: readonly ProjectTool[];
+  /** 项目成员（小组成员里的非组长；组长自动在每个项目里） */
+  memberIds: readonly string[];
+}
+
+/**
+ * 组里的项目：建项目、名单、加人、邀请、管理员、移出、退出、只有名字的人、删除项目的投票。
+ * 权限在后台生效（见数据库函数），这里只是调用。
+ */
+export interface IProjectRepository {
+  /** 我能看到的所有项目（组长：组里的全部项目） */
+  list(): Promise<Project[]>;
+  /** 建项目（只有组长） */
+  create(input: NewProject): Promise<Project>;
+  /** 改项目名和颜色（只有组长）；工具箱不能改 */
+  update(projectId: string, input: { name: string; color: string }): Promise<Project>;
+  roster(projectId: string): Promise<ProjectMember[]>;
+  /** 把小组成员加进项目（直接加入） */
+  addMember(projectId: string, userId: string): Promise<void>;
+  /** 用邮箱加人：小组成员直接加入，不在小组里的人收到邀请 */
+  invite(projectId: string, email: string): Promise<ProjectInviteResult>;
+  acceptInvitation(invitationId: string): Promise<string>;
+  declineInvitation(invitationId: string): Promise<void>;
+  /** 任命（admin）或撤销（member）项目管理员（组长） */
+  setRole(projectId: string, userId: string, role: 'admin' | 'member'): Promise<void>;
+  memberTaskRoles(projectId: string, userId: string): Promise<MemberTaskRole[]>;
+  /** 移出项目：开了任务分配、他身上有 R 或 A 时不执行（blocked），否则连同 C、I 一起去掉 */
+  removeMember(projectId: string, userId: string): Promise<RemoveMemberResult>;
+  leave(projectId: string): Promise<LeaveProjectResult>;
+  /** 只有名字的人（开了任务分配的项目） */
+  contacts(projectId: string): Promise<ProjectContact[]>;
+  addContact(projectId: string, name: string): Promise<ProjectContact>;
+  /** 删除只有名字的人：他在任务上的 C、I 一并去掉 */
+  removeContact(contactId: string): Promise<void>;
+  deletionRequest(projectId: string): Promise<ProjectDeletionRequest | null>;
+  requestDeletion(projectId: string): Promise<DeletionRequestResult>;
+  voteDeletion(projectId: string, agree: boolean): Promise<DeletionVoteResult>;
+}
+
+/** 任务上的 RACI（开了任务分配的项目） */
 export interface IAssignmentRepository {
   listForTasks(taskIds: readonly string[]): Promise<TaskAssignment[]>;
-  /** 整组替换（只有组长、管理员）；新标成 R 的人会收到通知 */
+  /** 整组替换（只有项目管理员）；新标成 R 的人会收到通知 */
   set(taskId: string, assignments: readonly AssignmentDraft[]): Promise<void>;
 }

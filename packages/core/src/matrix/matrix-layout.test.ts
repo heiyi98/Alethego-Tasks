@@ -18,6 +18,7 @@ const task = (id: string, fields: Partial<Task> = {}): Task => ({
   id,
   ownerId: 'u',
   groupId: null,
+  projectId: null,
   title: id,
   description: '',
   deadlineAt: null,

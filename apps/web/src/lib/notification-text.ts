@@ -12,6 +12,7 @@ export function notificationText(item: GroupNotification, m: Messages): string {
   const group = item.groupName;
   const task = item.taskTitle ?? '';
   const subject = item.subjectIsMe ? m.you : (item.subjectName ?? '');
+  const project = item.projectName ?? '';
   switch (item.kind) {
     case 'group_invitation':
       return m.notification.groupInvitation({ actor, group });
@@ -19,6 +20,10 @@ export function notificationText(item: GroupNotification, m: Messages): string {
       return m.notification.groupDeletionVote({ actor, group });
     case 'group_leader_vote':
       return m.notification.groupLeaderVote({ actor, subject, group });
+    case 'project_invitation':
+      return m.notification.projectInvitation({ actor, group, project });
+    case 'project_deletion_vote':
+      return m.notification.projectDeletionVote({ actor, group, project });
     case 'task':
       break;
   }

@@ -38,6 +38,8 @@ export const DEFAULT_STATUS_FILTER: StatusFilter = 'todo';
 export interface TaskListFilter {
   /** 容器：null / 不传 = 个人（总览）；组 id = 这个组的任务 */
   groupId?: string | null;
+  /** 组里的某一个项目：只显示这个项目的任务；不传 = 组里所有项目 */
+  projectId?: string | null;
   /** 默认"全部" */
   scope?: ListScope;
   status: StatusFilter;
@@ -104,6 +106,7 @@ export function buildTaskList(
   const rows = sources.tasks
     .filter((task) => !task.deletedAt)
     .filter((task) => task.groupId === groupId)
+    .filter((task) => !filter.projectId || task.projectId === filter.projectId)
     .filter((task) => groupId !== null || matchesScope(task, scope))
     .filter(
       (task) =>

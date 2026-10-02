@@ -7,6 +7,7 @@ const row = {
   id: 't1',
   owner_id: 'u1',
   group_id: null,
+  project_id: null,
   title: '写周报',
   description: '',
   deadline_at: '2026-09-26T10:00:00+00:00',
@@ -54,6 +55,7 @@ describe('task mappers', () => {
     expect(taskToInsert({ title: 'x' }, 'owner-1')).toEqual({
       owner_id: 'owner-1',
       group_id: null,
+      project_id: null,
       title: 'x',
       description: '',
       deadline_at: null,

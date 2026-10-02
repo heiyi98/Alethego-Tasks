@@ -3,6 +3,7 @@ import type {
   ICategoryRepository,
   IGroupRepository,
   IOccurrenceRepository,
+  IProjectRepository,
   ITaskLocationRepository,
   ITaskPeopleRepository,
   ITaskRepository,
@@ -18,7 +19,9 @@ export interface DataStore {
   people: ITaskPeopleRepository;
   /** 组：名单、邀请、删除组的投票、通知 */
   groups: IGroupRepository;
-  /** 任务上的 RACI（管理组） */
+  /** 组里的项目 */
+  projects: IProjectRepository;
+  /** 任务上的 RACI（开了任务分配的项目） */
   assignments: IAssignmentRepository;
 }
 

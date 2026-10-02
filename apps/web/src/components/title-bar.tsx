@@ -1,6 +1,5 @@
 'use client';
 
-import { CONTAINER_FEATURES } from '@alethego/core';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
@@ -8,7 +7,7 @@ import { useState } from 'react';
 import { CategoryDot } from './category-dot';
 import { useCurrentGroup } from './current-group';
 import { GroupIcon, IconButton, ListIcon, RaciIcon, XIcon } from './icons';
-import { RosterDialog } from './roster-dialog';
+import { GroupRosterDialog, ProjectRosterDialog } from './roster-dialog';
 import { useSelection } from './selection';
 import { useTaskData } from './task-data-provider';
 import { selectionHref, toggleCategory } from '@/lib/selection';
@@ -17,27 +16,28 @@ import { selectionHref, toggleCategory } from '@/lib/selection';
  * 页面标题行（所有看法共用），高度固定：不管显示哪些按钮，标题和下面的快速添加栏都不上下移动。
  * - 收藏：只显示"收藏"；没选分类：显示"总览"
  * - 选了分类：每个分类一个胶囊（名字 + ✕）。名字不能点，只有 ✕ 取消选择；放不下时左右滑动
- * - 在组里：组名（不能点）+ 右边的名单按钮（打开名单窗口）；有多种看法的组在最右边放切换按钮
+ * - 在组里：组名（不能点）+ 右边的组名单按钮（只在项目里的人没有）
+ * - 在项目里：项目名 + 右边的项目名单按钮；开了任务分配的项目在最右边放切换责任分配矩阵的按钮
  */
 export function TitleBar() {
   const { data } = useTaskData();
   const selection = useSelection();
   const router = useRouter();
-  const { group } = useCurrentGroup();
+  const { group, project, features, permissions } = useCurrentGroup();
   const [rosterOpen, setRosterOpen] = useState(false);
 
   const go = (href: string) => router.replace(href, { scroll: false });
 
   if (selection.groupId) {
-    const views = group ? CONTAINER_FEATURES[group.kind].views : [];
     const nextView = selection.mode === 'raci' ? 'list' : 'raci';
+    const showRoster = Boolean(group && (project || permissions?.viewRoster));
     return (
       <header className="page-header">
         <div className="title-row">
           <h1 className="title-bar">
-            {group && <span className="title-bar-text">{group.name}</span>}
+            {group && <span className="title-bar-text">{project ? project.name : group.name}</span>}
           </h1>
-          {group && (
+          {showRoster && (
             <IconButton
               label="名单"
               className="title-roster"
@@ -48,7 +48,7 @@ export function TitleBar() {
             </IconButton>
           )}
           <span className="spacer" />
-          {group && views.includes('raci') && (
+          {project && features.views.includes('raci') && (
             <Link
               href={selectionHref({ ...selection, mode: nextView })}
               replace
@@ -60,7 +60,17 @@ export function TitleBar() {
             </Link>
           )}
         </div>
-        {group && rosterOpen && <RosterDialog group={group} onClose={() => setRosterOpen(false)} />}
+        {group &&
+          rosterOpen &&
+          (project ? (
+            <ProjectRosterDialog
+              group={group}
+              project={project}
+              onClose={() => setRosterOpen(false)}
+            />
+          ) : (
+            <GroupRosterDialog group={group} onClose={() => setRosterOpen(false)} />
+          ))}
       </header>
     );
   }

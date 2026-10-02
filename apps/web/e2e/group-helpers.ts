@@ -10,6 +10,9 @@ export const sidebar = (page: Page) => page.getByRole('navigation', { name: '主
 export const groupSection = (page: Page) => sidebar(page).getByRole('region', { name: '组' });
 export const groupLink = (page: Page, name: string) =>
   groupSection(page).getByRole('link', { name, exact: false });
+/** 侧边栏里组下面的项目 */
+export const projectLink = (page: Page, name: string) =>
+  groupSection(page).locator('.sidebar-projects').getByRole('link', { name, exact: false });
 export const bell = (page: Page) => sidebar(page).getByRole('button', { name: '通知' });
 export const notificationList = (page: Page) =>
   sidebar(page).getByRole('dialog', { name: '通知列表' });
@@ -94,7 +97,33 @@ export async function groupWith(
   return group.id;
 }
 
-/** 打开名单窗口（标题行组名右边的按钮） */
+/**
+ * 准备：组长在组里建项目。members 不传 = 组里所有人（组长自动在每个项目里）；tools 是工具箱。
+ * 返回项目 id
+ */
+export async function projectIn(
+  leader: GroupUser,
+  groupId: string,
+  name: string,
+  tools: ('assignment' | 'relations')[] = [],
+  members?: GroupUser[],
+): Promise<string> {
+  const memberIds = members
+    ? await Promise.all(members.map((m) => userId(m)))
+    : (await rpc<{ user_id: string }[]>(leader, 'group_roster', { p_group_id: groupId })).map(
+        (m) => m.user_id,
+      );
+  const project = await rpc<{ id: string }>(leader, 'create_project', {
+    p_group_id: groupId,
+    p_name: name,
+    p_color: '#007AFF',
+    p_tools: tools,
+    p_member_ids: memberIds,
+  });
+  return project.id;
+}
+
+/** 打开名单窗口（标题行组名 / 项目名右边的按钮） */
 export async function openRoster(page: Page) {
   await page.locator('.title-row').getByRole('button', { name: '名单' }).click();
   await expect(rosterDialog(page)).toBeVisible();
@@ -124,18 +153,18 @@ export async function editGroup(page: Page, name: string) {
   return form;
 }
 
-/** 准备：在组里建一条任务（按这个账号的身份），可同时设定 RACI；返回任务 id */
+/** 准备：在项目里建一条任务（按这个账号的身份），可同时设定 RACI；返回任务 id */
 export async function groupTask(
   creator: Credentials,
-  groupId: string,
+  projectId: string,
   title: string,
   raci: { role: 'R' | 'A' | 'C' | 'I'; userId?: string; contactId?: string }[] = [],
   fields: Record<string, unknown> = {},
 ): Promise<string> {
-  // 管理组：任务和 RACI 必须一起写入（至少一个执行人和一个负责人）
+  // 开了任务分配的项目：任务和 RACI 必须一起写入（至少一个执行人和一个负责人）
   if (raci.length > 0) {
     const task = await rpc<{ id: string }>(creator, 'create_task_with_raci', {
-      p_group_id: groupId,
+      p_project_id: projectId,
       p_title: title,
       p_description: (fields.description as string | undefined) ?? '',
       p_deadline_at: (fields.deadline_at as string | undefined) ?? null,
@@ -156,7 +185,12 @@ export async function groupTask(
       'Content-Type': 'application/json',
       Prefer: 'return=representation',
     },
-    body: JSON.stringify({ title, group_id: groupId, owner_id: await userId(creator), ...fields }),
+    body: JSON.stringify({
+      title,
+      project_id: projectId,
+      owner_id: await userId(creator),
+      ...fields,
+    }),
   });
   if (!response.ok) throw new Error(`tasks: ${response.status} ${await response.text()}`);
   const [task] = (await response.json()) as { id: string }[];

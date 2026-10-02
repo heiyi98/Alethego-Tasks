@@ -41,19 +41,17 @@ export function TaskRow({
 }) {
   const { active, open } = usePanels();
   const { data, toggleStar } = useTaskData();
-  const { group, kind, me, features, members } = useCurrentGroup();
-  // 管理组：只有 R 能标记完成，R 或 A 能取消完成（含待确认）
-  const inThisGroup = task.groupId !== null && task.groupId === group?.id;
-  const myRaci = inThisGroup
+  const { scopeOf } = useCurrentGroup();
+  // 按任务所属的项目：开了任务分配时只有 R 能标记完成，R 或 A 能取消完成（含待确认）；
+  // 没开时项目成员都能标记完成
+  const scope = scopeOf(task.projectId);
+  const project = scope?.project ?? data?.projects.find((p) => p.id === task.projectId) ?? null;
+  const myRaci = scope
     ? (data?.assignmentsByTask.get(task.id) ?? [])
-        .filter((a) => a.userId !== null && a.userId === me?.userId)
+        .filter((a) => a.userId !== null && a.userId === scope.me?.userId)
         .map((a) => a.role)
     : [];
-  const perms = taskPermissions(
-    task.groupId === null ? 'personal' : kind,
-    group?.myRole ?? null,
-    myRaci,
-  );
+  const perms = taskPermissions(project, myRaci);
   const done = status === 'completed' || status === 'pending';
   const canToggle = done ? perms.uncomplete : perms.complete;
   // 列表中点击任务：标题所在的这一行留在原位并变为可编辑，面板从它下方展开；再次点击收起
@@ -63,13 +61,13 @@ export function TaskRow({
   const checkboxLabel = (completed: boolean) =>
     recurring ? `完成本次：${task.title}` : `${completed ? '取消完成' : '完成'}：${task.title}`;
 
-  // 管理组的简介行：时间、执行人、负责人
-  const showRaci = inThisGroup && features.raci;
+  // 开了任务分配的项目里的简介行：时间、执行人、负责人
+  const showRaci = Boolean(scope?.features.raci);
   const assignments = showRaci ? (data?.assignmentsByTask.get(task.id) ?? []) : [];
   const namesOf = (role: 'R' | 'A') =>
     assignments
       .filter((a) => a.role === role && a.userId)
-      .map((a) => members.find((m) => m.userId === a.userId)?.nickname ?? '')
+      .map((a) => scope?.members.find((m) => m.userId === a.userId)?.nickname ?? '')
       .filter(Boolean)
       .join('、');
 

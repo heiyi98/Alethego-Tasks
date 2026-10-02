@@ -1,8 +1,10 @@
 import type {
   Group,
-  GroupContact,
   GroupKind,
   GroupMember,
+  Project,
+  ProjectContact,
+  ProjectMember,
   Task,
   TaskAssignment,
 } from '@alethego/core';
@@ -16,7 +18,11 @@ import type {
   GroupNotification,
   IAssignmentRepository,
   IGroupRepository,
+  IProjectRepository,
   InviteResult,
+  NewProject,
+  ProjectDeletionRequest,
+  ProjectInviteResult,
   LeaderRequest,
   LeaveResult,
   MemberTaskRole,
@@ -27,6 +33,7 @@ interface MemoryGroupState {
   now: () => Date;
   newId: () => string;
   tasks: Map<string, Task>;
+  projects: Map<string, Project>;
 }
 
 /**
@@ -129,6 +136,9 @@ export class MemoryGroupRepository implements IGroupRepository {
     this.group(groupId);
     // 组里只有自己一人：直接删除，连同组里的全部任务
     this.groups.delete(groupId);
+    for (const [id, project] of this.state.projects) {
+      if (project.groupId === groupId) this.state.projects.delete(id);
+    }
     for (const [id, task] of this.state.tasks) {
       if (task.groupId === groupId) this.state.tasks.delete(id);
     }
@@ -143,27 +153,7 @@ export class MemoryGroupRepository implements IGroupRepository {
     return 0;
   }
 
-  async contacts(groupId: string): Promise<GroupContact[]> {
-    this.group(groupId);
-    return [...this.contactList.values()].filter((c) => c.groupId === groupId);
-  }
-
-  async addContact(groupId: string, name: string): Promise<GroupContact> {
-    this.group(groupId);
-    const contact = { id: this.state.newId(), groupId, name: name.trim() };
-    this.contactList.set(contact.id, contact);
-    return contact;
-  }
-
-  async removeContact(contactId: string) {
-    this.contactList.delete(contactId);
-  }
-
   // 只有自己一个人：没有别的成员可以任命、踢出
-  async setRole(): Promise<void> {
-    throw new DataError('invalid', '组里没有别的成员');
-  }
-
   async leaderRequests(): Promise<LeaderRequest[]> {
     return [];
   }
@@ -193,8 +183,128 @@ export class MemoryGroupRepository implements IGroupRepository {
   }
 
   async dismissNotification() {}
+}
 
-  private readonly contactList = new Map<string, GroupContact>();
+/** 本地存储里的项目：只有本机这一个用户（组长），名单只有自己 */
+export class MemoryProjectRepository implements IProjectRepository {
+  private readonly contactList = new Map<string, ProjectContact>();
+
+  constructor(private readonly state: MemoryGroupState) {}
+
+  async list() {
+    return [...this.state.projects.values()];
+  }
+
+  async create(input: NewProject) {
+    const trimmed = input.name.trim();
+    if (!trimmed) throw new DataError('invalid', '项目名不能为空');
+    const project: Project = {
+      id: this.state.newId(),
+      groupId: input.groupId,
+      name: trimmed,
+      color: input.color,
+      tools: [...new Set(input.tools)].sort(),
+      createdBy: this.state.ownerId,
+      createdAt: this.state.now(),
+      myRole: 'leader',
+    };
+    this.state.projects.set(project.id, project);
+    return project;
+  }
+
+  private project(projectId: string): Project {
+    const project = this.state.projects.get(projectId);
+    if (!project) throw new DataError('not_found', `项目 ${projectId} 不存在`);
+    return project;
+  }
+
+  async update(projectId: string, input: { name: string; color: string }) {
+    const trimmed = input.name.trim();
+    if (!trimmed) throw new DataError('invalid', '项目名不能为空');
+    const project = { ...this.project(projectId), name: trimmed, color: input.color };
+    this.state.projects.set(projectId, project);
+    return project;
+  }
+
+  async roster(projectId: string): Promise<ProjectMember[]> {
+    const project = this.project(projectId);
+    return [
+      {
+        userId: this.state.ownerId,
+        nickname: '我',
+        isMe: true,
+        role: 'leader',
+        email: '',
+        inGroup: true,
+        joinedAt: project.createdAt,
+      },
+    ];
+  }
+
+  async addMember(): Promise<void> {
+    throw new DataError('invalid', '组里没有别的成员');
+  }
+
+  async invite(projectId: string): Promise<ProjectInviteResult> {
+    this.project(projectId);
+    return 'invited';
+  }
+
+  async acceptInvitation(invitationId: string): Promise<string> {
+    throw new DataError('not_found', `邀请 ${invitationId} 不存在`);
+  }
+
+  async declineInvitation() {}
+
+  async setRole(): Promise<void> {
+    throw new DataError('invalid', '项目里没有别的成员');
+  }
+
+  async memberTaskRoles(): Promise<MemberTaskRole[]> {
+    return [];
+  }
+
+  async removeMember(): Promise<'removed'> {
+    throw new DataError('invalid', '项目里没有别的成员');
+  }
+
+  async leave(): Promise<'left'> {
+    throw new DataError('invalid', '组长不能退出项目');
+  }
+
+  async contacts(projectId: string): Promise<ProjectContact[]> {
+    this.project(projectId);
+    return [...this.contactList.values()].filter((c) => c.projectId === projectId);
+  }
+
+  async addContact(projectId: string, name: string): Promise<ProjectContact> {
+    this.project(projectId);
+    const contact = { id: this.state.newId(), projectId, name: name.trim() };
+    this.contactList.set(contact.id, contact);
+    return contact;
+  }
+
+  async removeContact(contactId: string) {
+    this.contactList.delete(contactId);
+  }
+
+  async deletionRequest(): Promise<ProjectDeletionRequest | null> {
+    return null;
+  }
+
+  async requestDeletion(projectId: string): Promise<DeletionRequestResult> {
+    this.project(projectId);
+    // 组里只有自己一位组长：直接删除，连同项目里的全部任务
+    this.state.projects.delete(projectId);
+    for (const [id, task] of this.state.tasks) {
+      if (task.projectId === projectId) this.state.tasks.delete(id);
+    }
+    return 'deleted';
+  }
+
+  async voteDeletion(): Promise<DeletionVoteResult> {
+    return 'no_request';
+  }
 }
 
 /** 本地存储里的 RACI */

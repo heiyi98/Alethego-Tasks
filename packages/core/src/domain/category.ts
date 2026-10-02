@@ -1,4 +1,6 @@
-/** 分类：与任务多对多（通过 task_categories 关联），颜色在同一用户的分类集合内排他。 */
+import type { ProjectTool } from './group';
+
+/** 分类：与任务多对多（通过 task_categories 关联）。不同分类可以用同一个颜色。 */
 export interface Category {
   id: string;
   ownerId: string;
@@ -7,6 +9,8 @@ export interface Category {
   color: string;
   /** 分类描述，可为空字符串 */
   description: string;
+  /** 工具箱：建分类时选（只有"任务关系"），之后不能改 */
+  tools: ProjectTool[];
   createdAt: Date;
 }
 

@@ -17,12 +17,20 @@ import { useRepositories } from './repositories-provider';
 import { errorMessage } from '@/lib/format';
 
 /** 颜色：和分类一样的调色板，也可以自选 */
-function ColorSwatches({ value, onChange }: { value: string; onChange: (color: string) => void }) {
+export function ColorSwatches({
+  value,
+  onChange,
+  label = '组的颜色',
+}: {
+  value: string;
+  onChange: (color: string) => void;
+  label?: string;
+}) {
   const isPalette = DEFAULT_CATEGORY_PALETTE.some(
     (c) => normalizeColor(c) === normalizeColor(value),
   );
   return (
-    <div className="swatches" role="radiogroup" aria-label="组的颜色">
+    <div className="swatches" role="radiogroup" aria-label={label}>
       {DEFAULT_CATEGORY_PALETTE.map((swatch) => (
         <button
           key={swatch}
@@ -209,7 +217,7 @@ export function EditGroupForm({
   async function requestDeletion() {
     const ok = await confirm({
       message: `删除「${group.name}」？`,
-      detail: '组和组里的全部任务都会被删除',
+      detail: '组和组里的全部项目、任务都会被删除',
       confirmLabel: '删除',
       cancelLabel: '取消',
       destructive: true,
