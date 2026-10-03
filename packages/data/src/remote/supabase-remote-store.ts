@@ -9,6 +9,7 @@ import {
   type RecurrenceOccurrence,
   type ReconcileResult,
   type Task,
+  type TaskRelation,
 } from '@alethego/core';
 import type { PostgrestError } from '@supabase/supabase-js';
 
@@ -20,6 +21,8 @@ import type {
   ITaskLocationRepository,
   ITaskPeopleRepository,
   ITaskRepository,
+  IRelationRepository,
+  ScheduleInput,
   NewCategory,
   NewTask,
   TaskListQuery,
@@ -445,6 +448,56 @@ export class SupabaseTaskPeopleRepository implements ITaskPeopleRepository {
   }
 }
 
+/** 任务关系：读表；写入走数据库函数（检查权限、循环、范围，算出日期并级联） */
+export class SupabaseRelationRepository implements IRelationRepository {
+  constructor(private readonly client: TaskAppSupabaseClient) {}
+
+  async listForTasks(taskIds: readonly string[]): Promise<TaskRelation[]> {
+    const rows: TableRow<'task_relations'>[] = [];
+    for (let i = 0; i < taskIds.length; i += 100) {
+      rows.push(
+        ...unwrap(
+          await this.client
+            .from('task_relations')
+            .select('*')
+            .in('task_id', taskIds.slice(i, i + 100))
+            .order('created_at', { ascending: true }),
+          '查询任务关系',
+        ),
+      );
+    }
+    return rows.map((row) => ({
+      taskId: row.task_id,
+      side: row.side,
+      predecessorId: row.predecessor_id,
+      anchor: row.anchor,
+      offsetDays: row.offset_days,
+    }));
+  }
+
+  async setSchedule(taskId: string, input: ScheduleInput): Promise<Task> {
+    const refs = (list: ScheduleInput['startRelations']) =>
+      list.map((r) => ({
+        predecessor_id: r.predecessorId,
+        anchor: r.anchor,
+        offset_days: r.offsetDays,
+      }));
+    return taskFromRow(
+      unwrap(
+        await this.client.rpc('set_task_schedule', {
+          p_task_id: taskId,
+          p_start_on: input.startOn,
+          p_start_relations: refs(input.startRelations),
+          p_end_after_days: input.endAfterDays,
+          p_end_relations: refs(input.endRelations),
+          p_date_zone: input.dateZone,
+        }),
+        '设定开始和结束',
+      ) as TableRow<'tasks'>,
+    );
+  }
+}
+
 export interface SupabaseRemoteStoreOptions {
   /** 数据所有者：当前登录用户的 id（= auth.uid()，即 Alethego 用户编号） */
   ownerId: string;
@@ -460,6 +513,7 @@ export class SupabaseRemoteStore implements IRemoteStore {
   readonly groups: SupabaseGroupRepository;
   readonly projects: SupabaseProjectRepository;
   readonly assignments: SupabaseAssignmentRepository;
+  readonly relations: SupabaseRelationRepository;
 
   constructor(client: TaskAppSupabaseClient, options: SupabaseRemoteStoreOptions) {
     const { ownerId } = options;
@@ -471,5 +525,6 @@ export class SupabaseRemoteStore implements IRemoteStore {
     this.groups = new SupabaseGroupRepository(client, ownerId);
     this.projects = new SupabaseProjectRepository(client, ownerId);
     this.assignments = new SupabaseAssignmentRepository(client);
+    this.relations = new SupabaseRelationRepository(client);
   }
 }

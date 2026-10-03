@@ -4,6 +4,7 @@ import type {
   IGroupRepository,
   IOccurrenceRepository,
   IProjectRepository,
+  IRelationRepository,
   ITaskLocationRepository,
   ITaskPeopleRepository,
   ITaskRepository,
@@ -21,6 +22,8 @@ export interface DataStore {
   groups: IGroupRepository;
   /** 组里的项目 */
   projects: IProjectRepository;
+  /** 任务关系 */
+  relations: IRelationRepository;
   /** 任务上的 RACI（开了任务分配的项目） */
   assignments: IAssignmentRepository;
 }

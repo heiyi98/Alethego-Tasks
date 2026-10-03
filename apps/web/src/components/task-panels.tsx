@@ -18,9 +18,11 @@ import { CheckCircleIcon, CheckIcon, IconButton, TrashIcon } from './icons';
 import { PanelSurface } from './panel-surface';
 import { usePanels } from './panel-provider';
 import { useRepositories } from './repositories-provider';
+import { useSelection } from './selection';
 import { EditorTitleRow, StarButton, TaskEditor } from './task-editor';
 import { useTaskData } from './task-data-provider';
-import { errorMessage } from '@/lib/format';
+import { errorMessage, toDateValue } from '@/lib/format';
+import { previewDates, relationScopes, scheduleEligible, scopeIdOf } from '@/lib/schedule';
 import {
   locationDraft,
   newTaskFromForm,
@@ -29,6 +31,9 @@ import {
   sameLocation,
   samePeople,
   sameRaci,
+  sameSchedule,
+  scheduleFormFrom,
+  scheduleInputFrom,
   taskFormFromDetail,
   taskPatchFromForms,
   validateTaskForm,
@@ -134,6 +139,7 @@ export function EditPanel({
   const { close } = usePanels();
   const { showUndo } = useFeedback();
   const { scopeOf } = useCurrentGroup();
+  const selection = useSelection();
   const dataRef = useRef(data);
   dataRef.current = data;
 
@@ -170,7 +176,13 @@ export function EditPanel({
           userId: a.userId,
           contactId: a.contactId,
         }));
-        const initial = taskFormFromDetail(detail, timeZone, raci);
+        const current = dataRef.current;
+        const schedule = scheduleFormFrom(
+          detail.task,
+          current?.relationsByTask.get(taskId) ?? [],
+          (predecessorId) => (current ? scopeIdOf(predecessorId, current) : ''),
+        );
+        const initial = taskFormFromDetail(detail, timeZone, raci, schedule);
         formRef.current = initial;
         savedRef.current = initial;
         taskRef.current = detail.task;
@@ -205,10 +217,23 @@ export function EditPanel({
         !sameLocation(current.location, saved.location) ||
         !samePeople(current.people, saved.people);
       const raciChanged = !sameRaci(current.raci, saved.raci);
+      // 两行逻辑：只在有"任务关系"、不是循环任务时保存；刚改成循环任务时先去掉它自己的关系
+      const eligible = scheduleEligible(task, current, dataRef.current);
+      const scheduleChanged =
+        eligible &&
+        !current.recurrence.enabled &&
+        !sameSchedule(current.schedule, saved.schedule, timeZone);
+      const clearSchedule =
+        current.recurrence.enabled &&
+        !saved.recurrence.enabled &&
+        saved.schedule !== null &&
+        (saved.schedule.startRelations.length > 0 || saved.schedule.endRelations.length > 0);
       if (
         Object.keys(patch).length === 0 &&
         !categoriesChanged &&
         !raciChanged &&
+        !scheduleChanged &&
+        !clearSchedule &&
         !(extensionsChanged && people.ok)
       ) {
         setSaveState(Object.keys(validateTaskForm(current)).length > 0 ? 'invalid' : 'saved');
@@ -218,11 +243,33 @@ export function EditPanel({
       setSaveState('saving');
       try {
         let nextTask = task;
-        if (Object.keys(patch).length > 0)
-          nextTask = await repositories.tasks.update(task.id, patch);
+        // 先存分类（决定个人任务有没有"任务关系"），再存两行逻辑，最后存内容
+        // （结束改回固定日期时，要先去掉结束的关系，截止时间才不会被算出来的值覆盖）
         if (categoriesChanged) {
           await repositories.categories.setTaskCategories(task.id, current.categoryIds);
         }
+        let deadlineFromServer: Pick<TaskFormValue, 'deadline' | 'deadlineTime'> | null = null;
+        if ((scheduleChanged || clearSchedule) && current.schedule) {
+          const input = clearSchedule
+            ? {
+                startOn: null,
+                startRelations: [],
+                endAfterDays: null,
+                endRelations: [],
+                dateZone: timeZone,
+              }
+            : scheduleInputFrom(current.schedule, timeZone);
+          nextTask = await repositories.relations.setSchedule(task.id, input);
+          if (!clearSchedule && current.schedule.endMode !== 'date') {
+            // 结束是算出来的：表单里的截止日期跟着服务器的值走
+            deadlineFromServer = {
+              deadline: nextTask.deadlineAt ? toDateValue(nextTask.deadlineAt) : '',
+              deadlineTime: '',
+            };
+          }
+        }
+        if (Object.keys(patch).length > 0)
+          nextTask = await repositories.tasks.update(task.id, patch);
         if (raciChanged) await repositories.assignments.set(task.id, current.raci);
         let savedPeople: PersonRow[] = saved.people;
         let savedLocation = saved.location;
@@ -244,13 +291,23 @@ export function EditPanel({
           setForm((f) => (f ? { ...f, people: withIds(f.people) } : f));
         }
 
+        if (deadlineFromServer) {
+          const synced = deadlineFromServer;
+          formRef.current = { ...formRef.current!, ...synced };
+          setForm((f) => (f ? { ...f, ...synced } : f));
+        }
         // 已保存的快照：本次实际写入的字段取当前值，其余沿用上次
         savedRef.current = {
           ...saved,
+          schedule: scheduleChanged || clearSchedule ? current.schedule : saved.schedule,
           title: patch.title !== undefined ? current.title : saved.title,
           description: current.description,
-          deadline: current.recurrence.enabled ? saved.deadline : current.deadline,
-          deadlineTime: current.recurrence.enabled ? saved.deadlineTime : current.deadlineTime,
+          deadline:
+            deadlineFromServer?.deadline ??
+            (current.recurrence.enabled ? saved.deadline : current.deadline),
+          deadlineTime:
+            deadlineFromServer?.deadlineTime ??
+            (current.recurrence.enabled ? saved.deadlineTime : current.deadlineTime),
           isStarred: current.isStarred,
           importanceLevel: current.importanceLevel,
           completed: current.recurrence.enabled ? saved.completed : current.completed,
@@ -384,6 +441,29 @@ export function EditPanel({
   const members = scope?.members ?? [];
   const contacts = scope?.contacts ?? [];
   const myId = scope?.me?.userId;
+
+  // 任务关系：开始 / 结束两行（关系对象的候选、默认范围、算出的日期）
+  const scheduleProps =
+    data && form.schedule && scheduleEligible(loaded.task, form, data)
+      ? (() => {
+          const scopes = relationScopes(loaded.task, data);
+          const selectedCategory =
+            selection.categoryIds.length === 1 ? selection.categoryIds[0] : null;
+          const relationCategories = form.categoryIds.filter((id) =>
+            data.categories.find((c) => c.id === id)?.tools.includes('relations'),
+          );
+          const defaultScopeId =
+            loaded.task.projectId ??
+            (selectedCategory && relationCategories.includes(selectedCategory)
+              ? selectedCategory
+              : (relationCategories[0] ?? scopes[0]?.id ?? ''));
+          return {
+            scopes,
+            defaultScopeId,
+            computed: previewDates(form.schedule, form.deadline, data, timeZone),
+          };
+        })()
+      : undefined;
   const me = (raci: TaskFormValue['raci']) =>
     raci.filter((a) => a.userId !== null && a.userId === myId).map((a) => a.role);
   const categories: Category[] = data?.categories ?? [];
@@ -538,6 +618,7 @@ export function EditPanel({
         inGroup={inGroup}
         readOnly={!perms.edit}
         raci={features.raci ? { members, contacts, editable: perms.edit } : undefined}
+        schedule={scheduleProps}
         records={loaded.records}
         onToggleRecord={toggleRecord}
         now={now}

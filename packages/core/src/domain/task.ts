@@ -1,4 +1,5 @@
 import type { ImportanceLevel } from './importance';
+import type { CalendarDate } from '../schedule/calendar-date';
 
 /**
  * 任务实体，与 tasks 表一一对应（字段名转为 camelCase）。
@@ -17,6 +18,12 @@ export interface Task {
   groupId: string | null;
   /** 组任务所属的项目（组任务必须属于一个项目）；个人任务为 null */
   projectId: string | null;
+  /**
+   * 开始日期（有"任务关系"的任务）：固定日期，或者由关系算出（数据库写入）。没有开始时为 null
+   */
+  startOn: CalendarDate | null;
+  /** 结束是"开始后 N 天"时的 N；其他情况为 null */
+  endAfterDays: number | null;
   title: string;
   description: string;
   /** 截止时间（UTC），null 表示无截止时间 */

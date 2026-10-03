@@ -8,7 +8,10 @@ import type {
   ProjectMember,
   ProjectTool,
   RaciRole,
+  RelationRef,
   TaskAssignment,
+  TaskRelation,
+  CalendarDate,
   ImportanceLevel,
   OccurrenceStatus,
   ReconcileResult,
@@ -348,6 +351,25 @@ export interface IProjectRepository {
   deletionRequest(projectId: string): Promise<ProjectDeletionRequest | null>;
   requestDeletion(projectId: string): Promise<DeletionRequestResult>;
   voteDeletion(projectId: string, agree: boolean): Promise<DeletionVoteResult>;
+}
+
+/** 一次设定一条任务的开始和结束（整组替换关系）；结束是固定日期时，截止时间照常在任务上改 */
+export interface ScheduleInput {
+  /** 开始是固定日期时的日期（有开始关系时忽略） */
+  startOn: CalendarDate | null;
+  startRelations: readonly RelationRef[];
+  /** 结束是"开始后 N 天"时的 N */
+  endAfterDays: number | null;
+  endRelations: readonly RelationRef[];
+  /** 用户的时区：算出的结束日期按它写成截止时间（当天最后一刻） */
+  dateZone: string;
+}
+
+/** 任务关系（开了"任务关系"的项目、个人分类）；日期由数据库按关系算出，前置变了自动重算 */
+export interface IRelationRepository {
+  listForTasks(taskIds: readonly string[]): Promise<TaskRelation[]>;
+  /** 不能形成循环、不能跨组、不能在个人和组之间关联、循环任务不参与（数据库拒绝） */
+  setSchedule(taskId: string, input: ScheduleInput): Promise<Task>;
 }
 
 /** 任务上的 RACI（开了任务分配的项目） */

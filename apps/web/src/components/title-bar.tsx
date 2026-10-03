@@ -1,12 +1,13 @@
 'use client';
 
+import type { TaskView } from '@alethego/core';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 
 import { CategoryDot } from './category-dot';
 import { useCurrentGroup } from './current-group';
-import { GroupIcon, IconButton, ListIcon, RaciIcon, XIcon } from './icons';
+import { GanttIcon, GroupIcon, IconButton, ListIcon, RaciIcon, XIcon } from './icons';
 import { GroupRosterDialog, ProjectRosterDialog } from './roster-dialog';
 import { useSelection } from './selection';
 import { useTaskData } from './task-data-provider';
@@ -17,7 +18,8 @@ import { selectionHref, toggleCategory } from '@/lib/selection';
  * - 收藏：只显示"收藏"；没选分类：显示"总览"
  * - 选了分类：每个分类一个胶囊（名字 + ✕）。名字不能点，只有 ✕ 取消选择；放不下时左右滑动
  * - 在组里：组名（不能点）+ 右边的组名单按钮（只在项目里的人没有）
- * - 在项目里：项目名 + 右边的项目名单按钮；开了任务分配的项目在最右边放切换责任分配矩阵的按钮
+ * - 在项目里：项目名 + 右边的项目名单按钮；最右边是看法的切换（清单、责任分配矩阵、甘特图，按工具箱）
+ * - 个人只选中一个开了任务关系的分类时：最右边是清单 / 甘特图的切换
  */
 export function TitleBar() {
   const { data } = useTaskData();
@@ -29,7 +31,6 @@ export function TitleBar() {
   const go = (href: string) => router.replace(href, { scroll: false });
 
   if (selection.groupId) {
-    const nextView = selection.mode === 'raci' ? 'list' : 'raci';
     const showRoster = Boolean(group && (project || permissions?.viewRoster));
     return (
       <header className="page-header">
@@ -48,17 +49,7 @@ export function TitleBar() {
             </IconButton>
           )}
           <span className="spacer" />
-          {project && features.views.includes('raci') && (
-            <Link
-              href={selectionHref({ ...selection, mode: nextView })}
-              replace
-              scroll={false}
-              className="icon-button view-toggle"
-              aria-label={nextView === 'raci' ? '切换到责任分配矩阵' : '切换到清单'}
-            >
-              {nextView === 'raci' ? <RaciIcon /> : <ListIcon />}
-            </Link>
-          )}
+          {project && <ViewSwitch views={features.views} />}
         </div>
         {group &&
           rosterOpen &&
@@ -116,7 +107,40 @@ export function TitleBar() {
             </span>
           ))}
         </h1>
+        <ViewSwitch views={features.views} />
       </div>
     </header>
+  );
+}
+
+const VIEW_SWITCH: Partial<Record<TaskView, { label: string; icon: ReactNode }>> = {
+  list: { label: '切换到清单', icon: <ListIcon /> },
+  raci: { label: '切换到责任分配矩阵', icon: <RaciIcon /> },
+  gantt: { label: '切换到甘特图', icon: <GanttIcon /> },
+};
+
+/** 标题行最右边的看法切换：当前容器有两种以上的看法时出现（时间管理矩阵在侧边栏切换，不在这里） */
+function ViewSwitch({ views }: { views: readonly TaskView[] }) {
+  const selection = useSelection();
+  const shown = views.filter((v) => VIEW_SWITCH[v]);
+  if (shown.length < 2 || (selection.mode !== 'list' && !shown.includes(selection.mode))) {
+    return null;
+  }
+  return (
+    <div className="view-switch" role="group" aria-label="看法">
+      {shown.map((view) => (
+        <Link
+          key={view}
+          href={selectionHref({ ...selection, mode: view })}
+          replace
+          scroll={false}
+          className="icon-button view-toggle"
+          aria-label={VIEW_SWITCH[view]!.label}
+          aria-current={selection.mode === view ? 'page' : undefined}
+        >
+          {VIEW_SWITCH[view]!.icon}
+        </Link>
+      ))}
+    </div>
   );
 }

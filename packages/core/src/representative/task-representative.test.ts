@@ -13,6 +13,8 @@ const baseTask: Task = {
   ownerId: 'user-1',
   groupId: null,
   projectId: null,
+  startOn: null,
+  endAfterDays: null,
   title: '任务',
   description: '',
   deadlineAt: null,

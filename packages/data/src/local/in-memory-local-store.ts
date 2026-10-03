@@ -1,5 +1,10 @@
 import {
   compareByDeadline,
+  computeScheduleDates,
+  dateOfInstant,
+  endOfDate,
+  wouldCreateCycle,
+  type TaskRelation,
   normalizeColor,
   normalizeLocationDraft,
   type TaskLocation,
@@ -27,6 +32,8 @@ import type {
   TaskListQuery,
   TaskPatch,
   IAssignmentRepository,
+  IRelationRepository,
+  ScheduleInput,
   IGroupRepository,
   IProjectRepository,
 } from '../interfaces/repositories';
@@ -103,6 +110,8 @@ class MemoryTaskRepository implements ITaskRepository {
       ownerId: this.state.ownerId,
       groupId: valid.groupId ?? null,
       projectId: valid.projectId ?? null,
+      startOn: null,
+      endAfterDays: null,
       title: valid.title,
       description: valid.description ?? '',
       deadlineAt: valid.deadlineAt ?? null,
@@ -352,6 +361,71 @@ export interface InMemoryLocalStoreOptions {
   newId?: () => string;
 }
 
+/** 本地存储里的任务关系：算出这条任务自己的日期（只有一个人，不做级联） */
+class MemoryRelationRepository implements IRelationRepository {
+  private relations: TaskRelation[] = [];
+
+  constructor(private readonly state: MemoryState) {}
+
+  async listForTasks(taskIds: readonly string[]) {
+    return this.relations.filter((r) => taskIds.includes(r.taskId));
+  }
+
+  async setSchedule(taskId: string, input: ScheduleInput) {
+    const task = this.state.tasks.get(taskId) ?? notFound('任务', taskId);
+    const others = this.relations.filter((r) => r.taskId !== taskId);
+    const next: TaskRelation[] = [];
+    for (const [side, list] of [
+      ['start', input.startRelations],
+      ['end', input.endRelations],
+    ] as const) {
+      for (const ref of list) {
+        if (wouldCreateCycle([...others, ...next], taskId, ref.predecessorId)) {
+          throw new DataError('invalid', '任务关系不能形成循环');
+        }
+        next.push({ ...ref, taskId, side });
+      }
+    }
+    this.relations = [...others, ...next];
+    const zone = input.dateZone;
+    const datesOf = (id: string) => {
+      const t = this.state.tasks.get(id);
+      if (!t) return undefined;
+      return { start: t.startOn, end: t.deadlineAt ? dateOfInstant(t.deadlineAt, zone) : null };
+    };
+    const dates = computeScheduleDates(
+      {
+        startOn: input.startOn,
+        startRelations: input.startRelations,
+        endMode:
+          input.endAfterDays !== null
+            ? 'after_start'
+            : input.endRelations.length > 0
+              ? 'relations'
+              : 'date',
+        endOn: task.deadlineAt ? dateOfInstant(task.deadlineAt, zone) : null,
+        endAfterDays: input.endAfterDays,
+        endRelations: input.endRelations,
+      },
+      datesOf,
+    );
+    const updated: Task = {
+      ...task,
+      startOn: dates.start,
+      endAfterDays: input.endAfterDays,
+      deadlineAt:
+        input.endAfterDays === null && input.endRelations.length === 0
+          ? task.deadlineAt
+          : dates.end
+            ? endOfDate(dates.end, zone)
+            : null,
+      updatedAt: this.state.now(),
+    };
+    this.state.tasks.set(taskId, updated);
+    return updated;
+  }
+}
+
 export class InMemoryLocalStore implements ILocalStore {
   readonly kind = 'local' as const;
   readonly tasks: ITaskRepository;
@@ -362,6 +436,7 @@ export class InMemoryLocalStore implements ILocalStore {
   readonly groups: IGroupRepository;
   readonly projects: IProjectRepository;
   readonly assignments: IAssignmentRepository;
+  readonly relations: IRelationRepository;
 
   constructor(options: InMemoryLocalStoreOptions) {
     const state: MemoryState = {
@@ -384,5 +459,6 @@ export class InMemoryLocalStore implements ILocalStore {
     this.groups = new MemoryGroupRepository(state);
     this.projects = new MemoryProjectRepository(state);
     this.assignments = new MemoryAssignmentRepository();
+    this.relations = new MemoryRelationRepository(state);
   }
 }

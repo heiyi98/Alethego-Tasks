@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  dateOfInstant,
   deriveTaskStatus,
   taskPermissions,
   type Category,
@@ -15,6 +16,7 @@ import { StarButton } from './task-editor';
 import { useTaskData } from './task-data-provider';
 import { EditPanel } from './task-panels';
 import { formatDeadline, importanceLabel, recurrenceLabel } from '@/lib/format';
+import { waitingOf } from '@/lib/schedule';
 
 export function TaskRow({
   task,
@@ -71,9 +73,21 @@ export function TaskRow({
       .filter(Boolean)
       .join('、');
 
+  // 任务关系：还在等前置时，简介行最前面写"等待 某任务 开始 / 结束"，等多个时后面加剩余数量
+  const waiting = data && !done ? waitingOf(task, data, dateOfInstant(now, timeZone)) : [];
+  const firstWait = waiting[0];
+  const waitingText = firstWait && (
+    <span className="task-waiting">
+      等待 {data?.tasks.find((t) => t.id === firstWait.predecessorId)?.title ?? ''}{' '}
+      {firstWait.anchor === 'start' ? '开始' : '结束'}
+      {waiting.length > 1 && ` +${waiting.length - 1}`}
+    </span>
+  );
+
   // 简介行一直存在、高度固定；没有内容时留空，每个任务行一样高
   const meta = showRaci ? (
     <span className="task-meta">
+      {waitingText}
       {deadline && (
         <span className="task-deadline">
           {recurring && '本次 '}
@@ -91,6 +105,7 @@ export function TaskRow({
     </span>
   ) : (
     <span className="task-meta">
+      {waitingText}
       {deadline && (
         <span className="task-deadline">
           {recurring && '本次 '}

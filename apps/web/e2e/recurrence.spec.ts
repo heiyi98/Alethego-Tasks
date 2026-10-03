@@ -342,3 +342,108 @@ test('改循环规则：已发生的记录保持不变，之后新规则下到�
   expect(after[5]!.status).toBe('missed');
   expect(new Date(after[5]!.occurrence_date)).toEqual(new Date('2026-10-07T09:00:00+08:00'));
 });
+
+test('回归：勾选"完成本次"时，切换页面引起的重新加载晚到，也不会把代表实例退回前一天', async ({
+  page,
+  request,
+}) => {
+  await page.clock.setFixedTime(MONDAY_1554);
+  const title = `${runId()} 每天喝水`;
+  await page.goto('/');
+  await quickAdd(page, title);
+  const taskId = (
+    await queryRest<{ id: string }[]>(request, `tasks?select=id&title=eq.${title}`)
+  )[0]!.id;
+  await patchTask(request, taskId, {
+    recurrence_rule: 'FREQ=DAILY',
+    recurrence_dtstart: '2026-10-02T09:00:00+08:00',
+  });
+  await page.reload();
+  await switchMode(page, 'matrix');
+  // 回到清单时的重新加载：读循环记录的那个请求晚 1.5 秒才回来（模拟慢网络），
+  // 它读到的是勾选之前的数据
+  let slow = true;
+  await page.route('**/rest/v1/recurrence_occurrences?**', async (route) => {
+    if (slow && route.request().method() === 'GET') {
+      slow = false;
+      const response = await route.fetch();
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      await route.fulfill({ response });
+      return;
+    }
+    await route.continue();
+  });
+  const started = page.waitForRequest(
+    (r) => r.url().includes('recurrence_occurrences') && r.method() === 'GET',
+  );
+  await switchMode(page, 'list');
+  await started;
+  const row = taskItem(page, title);
+  await page.getByRole('checkbox', { name: `完成本次：${title}` }).click();
+  await expect(row.locator('.task-deadline')).toHaveText('本次 10月7日 周三 09:00 · 还剩2天');
+  // 晚到的旧数据回来之后，仍然是 10/7
+  await page.waitForTimeout(2000);
+  await expect(row.locator('.task-deadline')).toHaveText('本次 10月7日 周三 09:00 · 还剩2天');
+});
+
+for (const timezoneId of ['America/Los_Angeles', 'Pacific/Kiritimati', 'Asia/Kolkata']) {
+  test(`回归：接近午夜、跨日时循环任务的日期正确（${timezoneId}）`, async ({
+    browser,
+    request,
+  }) => {
+    const context = await browser.newContext({
+      timezoneId,
+      locale: 'zh-CN',
+      storageState: './e2e/.auth/state.json',
+    });
+    const page = await context.newPage();
+    // 本地时间 2026-10-05 23:50（周一）
+    const local = (wall: string) => {
+      const guess = new Date(`${wall}Z`);
+      const shown = new Intl.DateTimeFormat('sv-SE', {
+        timeZone: timezoneId,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hourCycle: 'h23',
+      })
+        .format(guess)
+        .replace(' ', 'T');
+      return new Date(guess.getTime() - (new Date(`${shown}Z`).getTime() - guess.getTime()));
+    };
+    await page.clock.setFixedTime(local('2026-10-05T23:50:00'));
+    const title = `${runId()} 睡前`;
+    await page.goto('/');
+    await quickAdd(page, title);
+    const taskId = (
+      await queryRest<{ id: string }[]>(request, `tasks?select=id&title=eq.${title}`)
+    )[0]!.id;
+    await patchTask(request, taskId, {
+      recurrence_rule: 'FREQ=DAILY',
+      recurrence_dtstart: local('2026-10-01T23:30:00').toISOString(),
+    });
+    await page.reload();
+    const row = taskItem(page, title);
+    // 今天 23:30 已过 → 明天
+    await expect(row.locator('.task-deadline')).toHaveText('本次 10月6日 周二 23:30 · 还剩1天');
+    // 过了午夜：代表还是 10/6 23:30，现在是"今天"
+    await page.clock.setFixedTime(local('2026-10-06T00:05:00'));
+    await page.reload();
+    await expect(row.locator('.task-deadline')).toHaveText('本次 今天 23:30');
+    // 完成本次：顺延到 10/7
+    await page.getByRole('checkbox', { name: `完成本次：${title}` }).click();
+    await expect(row.locator('.task-deadline')).toHaveText('本次 10月7日 周三 23:30 · 还剩1天');
+    // 记录的是 10/6 23:30 那一次（按用户时区）
+    const records = await queryRest<{ occurrence_date: string; status: string }[]>(
+      request,
+      `recurrence_occurrences?task_id=eq.${taskId}&status=eq.completed`,
+    );
+    expect(records.map((r) => new Date(r.occurrence_date).toISOString())).toEqual([
+      local('2026-10-06T23:30:00').toISOString(),
+    ]);
+    await context.close();
+  });
+}

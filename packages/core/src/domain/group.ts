@@ -128,8 +128,8 @@ export function raciAllowsContacts(role: RaciRole): boolean {
 /* 哪种组、哪些工具开哪些功能（集中配置在这一处）                         */
 /* ------------------------------------------------------------------ */
 
-/** 任务的看法：清单、时间管理矩阵、责任分配矩阵。以后加甘特图就是再加一种 */
-export type TaskView = 'list' | 'matrix' | 'raci';
+/** 任务的看法：清单、时间管理矩阵、责任分配矩阵、甘特图 */
+export type TaskView = 'list' | 'matrix' | 'raci' | 'gantt';
 
 /** 一个容器（个人，或某个项目）里的任务开哪些功能 */
 export interface ContainerFeatures {
@@ -147,6 +147,8 @@ export interface ContainerFeatures {
   contacts: boolean;
   /** 任务通知 */
   notifications: boolean;
+  /** 任务关系：开始 / 结束两行逻辑、等待、甘特图 */
+  relations: boolean;
 }
 
 export const PERSONAL_FEATURES: ContainerFeatures = {
@@ -158,6 +160,7 @@ export const PERSONAL_FEATURES: ContainerFeatures = {
   confirmation: false,
   contacts: false,
   notifications: false,
+  relations: false,
 };
 
 /** 没开任何工具的项目：只有清单，项目成员都能标记完成，完成即确认 */
@@ -170,9 +173,10 @@ const BASE_PROJECT_FEATURES: ContainerFeatures = {
   confirmation: false,
   contacts: false,
   notifications: false,
+  relations: false,
 };
 
-/** 每个工具打开的功能。"任务关系"这一轮只记录选择（下一轮随甘特图生效） */
+/** 每个工具打开的功能 */
 export const TOOL_FEATURES: Record<ProjectTool, Partial<ContainerFeatures>> = {
   assignment: {
     views: ['raci'],
@@ -181,7 +185,10 @@ export const TOOL_FEATURES: Record<ProjectTool, Partial<ContainerFeatures>> = {
     contacts: true,
     notifications: true,
   },
-  relations: {},
+  relations: {
+    views: ['gantt'],
+    relations: true,
+  },
 };
 
 /** 组的类型决定的身份结构 */
@@ -256,12 +263,39 @@ export function featuresForProject(
 }
 
 /**
+ * 个人页面：只选中一个分类、且这个分类开了"任务关系"时，多一个甘特图（和清单切换）
+ */
+export function featuresForCategoryPage(
+  categories: readonly { tools: readonly ProjectTool[] }[],
+): ContainerFeatures {
+  if (categories.length === 1 && categories[0]!.tools.includes('relations')) {
+    return { ...PERSONAL_FEATURES, views: [...PERSONAL_FEATURES.views, 'gantt'], relations: true };
+  }
+  return PERSONAL_FEATURES;
+}
+
+/**
+ * 一条任务有没有"任务关系"（开始 / 结束两行逻辑、等待）：
+ * 组任务看它的项目开没开；个人任务只要挂了至少一个开了"任务关系"的分类。循环任务没有
+ */
+export function taskHasRelations(
+  task: { recurrenceRule: string | null; projectId: string | null },
+  project: Pick<Project, 'tools'> | null | undefined,
+  categories: readonly { tools: readonly ProjectTool[] }[],
+): boolean {
+  if (task.recurrenceRule) return false;
+  if (task.projectId) return Boolean(project?.tools.includes('relations'));
+  return categories.some((c) => c.tools.includes('relations'));
+}
+
+/**
  * 点组时的页面：列出我能看到的所有项目的任务，只有清单；
  * 只要有一个项目开了任务分配，状态行就有"待确认"。
  */
 export function featuresForGroupPage(
   projects: readonly Pick<Project, 'tools'>[],
 ): ContainerFeatures {
+  // 组页面只有清单（甘特图、责任分配矩阵在项目页面）
   const merged = featuresForTools([...new Set(projects.flatMap((p) => p.tools))]);
   return { ...merged, views: ['list'] };
 }

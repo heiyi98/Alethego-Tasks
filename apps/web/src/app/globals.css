@@ -2519,3 +2519,313 @@ a {
 .quick-options-fields:disabled .raci-quick-empty {
   box-shadow: none;
 }
+
+/* ---------- 看法切换（标题行最右边） ---------- */
+.view-switch {
+  display: flex;
+  flex: none;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 10px;
+  background: var(--tertiary-fill);
+}
+
+.view-switch .view-toggle {
+  color: var(--secondary-label);
+}
+
+.view-switch .view-toggle[aria-current='page'] {
+  background: var(--surface);
+  color: var(--accent);
+}
+
+/* 任务关系：简介行里的"等待 某任务 开始 / 结束" */
+.task-waiting {
+  color: var(--system-orange);
+  white-space: nowrap;
+}
+
+/* ---------- 任务关系：开始 / 结束两行 ---------- */
+.schedule-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.schedule-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+}
+
+.schedule-label {
+  flex: none;
+  width: 32px;
+  font-size: 14px;
+  color: var(--secondary-label);
+}
+
+.schedule-mode button {
+  padding: 0 10px;
+}
+
+.schedule-computed {
+  font-size: 14px;
+  color: var(--label);
+  font-variant-numeric: tabular-nums;
+}
+
+.schedule-days,
+.relation-stepper input {
+  width: 56px;
+  height: 30px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  font: inherit;
+  font-size: 14px;
+}
+
+.schedule-unit,
+.relation-word {
+  font-size: 14px;
+  color: var(--secondary-label);
+}
+
+.relation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0 0 0 40px;
+  list-style: none;
+}
+
+.relation-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.relation-select {
+  max-width: 180px;
+  height: 30px;
+  padding: 0 6px;
+  border: none;
+  border-radius: 8px;
+  background: var(--tertiary-fill);
+  color: var(--label);
+  font: inherit;
+  font-size: 13px;
+}
+
+.relation-offset {
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--label);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.relation-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* ---------- 甘特图 ---------- */
+.gantt {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.gantt-scale {
+  align-self: flex-start;
+}
+
+.gantt-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  -webkit-overflow-scrolling: touch;
+}
+
+.gantt-canvas {
+  position: relative;
+}
+
+.gantt-header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 44px;
+  border-bottom: 1px solid var(--quaternary-fill);
+}
+
+.gantt-tick-major,
+.gantt-tick-minor {
+  position: absolute;
+  padding-left: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+  color: var(--secondary-label);
+}
+
+.gantt-tick-major {
+  top: 4px;
+  font-weight: 600;
+  color: var(--label);
+}
+
+.gantt-tick-minor {
+  top: 24px;
+  font-variant-numeric: tabular-nums;
+}
+
+.gantt-body {
+  position: absolute;
+  left: 0;
+}
+
+.gantt-grid {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--quaternary-fill);
+}
+
+.gantt-today {
+  position: absolute;
+  top: -44px;
+  bottom: 0;
+  width: 2px;
+  background: var(--system-red);
+  z-index: 3;
+}
+
+.gantt-links {
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.gantt-link {
+  fill: none;
+  stroke: var(--secondary-label);
+  stroke-width: 1.2;
+}
+
+.gantt-link-critical {
+  stroke: var(--system-red);
+  stroke-width: 2;
+}
+
+.gantt-arrow-head {
+  fill: var(--secondary-label);
+}
+
+.gantt-arrow-head-critical {
+  fill: var(--system-red);
+}
+
+.gantt-bar {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  padding: 0 6px;
+  overflow: hidden;
+  border: none;
+  border-radius: 5px;
+  font: inherit;
+  cursor: pointer;
+  z-index: 1;
+}
+
+.gantt-todo {
+  background: var(--accent);
+  color: #fff;
+}
+
+.gantt-pending {
+  background: var(--system-orange);
+  color: #fff;
+}
+
+.gantt-completed {
+  background: var(--system-gray4);
+  color: var(--label);
+}
+
+.gantt-critical {
+  box-shadow: 0 0 0 2px var(--system-red);
+}
+
+.gantt-milestone {
+  padding: 0;
+  border-radius: 2px;
+  transform: rotate(45deg) scale(0.8);
+}
+
+.gantt-float {
+  position: absolute;
+  border-radius: 0 5px 5px 0;
+  background: var(--accent-soft);
+}
+
+.gantt-label {
+  font-size: 13px;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+.gantt-label-outside {
+  position: absolute;
+  color: var(--label);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.gantt-assignees {
+  opacity: 0.75;
+}
+
+.gantt-unscheduled h2 {
+  margin: 0 0 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--secondary-label);
+}
+
+.gantt-unscheduled ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.gantt-unscheduled button {
+  padding: 4px 10px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--label);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}

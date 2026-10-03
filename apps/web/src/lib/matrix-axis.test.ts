@@ -13,6 +13,8 @@ const task = (id: string, deadlineAt: Date | null): Task => ({
   ownerId: 'u',
   groupId: null,
   projectId: null,
+  startOn: null,
+  endAfterDays: null,
   title: id,
   description: '',
   deadlineAt,

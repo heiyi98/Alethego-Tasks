@@ -3,6 +3,7 @@
 import {
   RACI_ROLES,
   raciAllowsContacts,
+  type CalendarDate,
   type Category,
   type ProjectContact,
   type ProjectMember,
@@ -31,8 +32,10 @@ import {
   XIcon,
 } from './icons';
 import { RecurrenceEditor } from './recurrence-editor';
+import { ScheduleField } from './schedule-field';
 import { messages } from '@/i18n';
 import { IMPORTANCE_LEVELS, fromDateValue, toDateValue } from '@/lib/format';
+import type { RelationScope } from '@/lib/schedule';
 import { newRowKey, type FormErrors, type TaskFormValue } from '@/lib/task-form';
 
 /** RACI 里能选的人：项目成员 */
@@ -55,6 +58,7 @@ export function QuickOptionsRow({
   readOnly = false,
   leading,
   assignees,
+  hideDeadline = false,
 }: {
   value: Pick<TaskFormValue, 'importanceLevel' | 'deadline' | 'deadlineTime' | 'recurrence'> &
     Partial<Pick<TaskFormValue, 'raci'>>;
@@ -68,6 +72,8 @@ export function QuickOptionsRow({
   inGroup?: boolean;
   /** 只能看不能改（管理组里的组员）：三角照常可用 */
   readOnly?: boolean;
+  /** 有"任务关系"的任务：截止日期挪到下面"结束"那一行 */
+  hideDeadline?: boolean;
   /** 放在这一行最前面的选项（组页面的快速添加：选项目） */
   leading?: ReactNode;
   /** 开了任务分配的项目的快速添加：时间旁边选执行人（R）和负责人（A），各选一个（展开后在 RACI 里可以选多个） */
@@ -101,7 +107,7 @@ export function QuickOptionsRow({
           </div>
         )}
 
-        {!value.recurrence.enabled && (
+        {!value.recurrence.enabled && !hideDeadline && (
           <div className="option">
             <FieldIcon label="截止日期">
               <CalendarIcon size={16} />
@@ -283,6 +289,7 @@ export function TaskEditor({
   titleRow,
   optionsActions,
   optionsLeading,
+  schedule,
 }: {
   value: TaskFormValue;
   onChange: (patch: Partial<TaskFormValue>) => void;
@@ -312,6 +319,12 @@ export function TaskEditor({
   optionsActions?: ReactNode;
   /** 常用选项一行最前面的选项（组页面新建：选项目） */
   optionsLeading?: ReactNode;
+  /** 有"任务关系"的任务：开始 / 结束两行（关系对象的候选和算出的日期） */
+  schedule?: {
+    scopes: readonly RelationScope[];
+    defaultScopeId: string;
+    computed: { start: CalendarDate | null; end: CalendarDate | null };
+  };
   /** 删除第 index 个人物（由控制器负责撤销提示） */
   onRemovePerson: (index: number) => void;
 }) {
@@ -321,6 +334,9 @@ export function TaskEditor({
         ? value.categoryIds.filter((c) => c !== id)
         : [...value.categoryIds, id],
     });
+
+  // 循环任务没有两行逻辑
+  const showSchedule = Boolean(value.schedule && schedule && !value.recurrence.enabled);
 
   const setPerson = (key: string, patch: { name?: string; relation?: string }) =>
     onChange({ people: value.people.map((p) => (p.key === key ? { ...p, ...patch } : p)) });
@@ -340,7 +356,21 @@ export function TaskEditor({
         inGroup={inGroup}
         readOnly={readOnly}
         leading={optionsLeading}
+        hideDeadline={showSchedule}
       />
+
+      {showSchedule && value.schedule && schedule && (
+        <ScheduleField
+          value={value.schedule}
+          deadline={value.deadline}
+          deadlineTime={value.deadlineTime}
+          onChange={onChange}
+          scopes={schedule.scopes}
+          defaultScopeId={schedule.defaultScopeId}
+          computed={schedule.computed}
+          readOnly={readOnly}
+        />
+      )}
 
       {raci && (
         <RaciField

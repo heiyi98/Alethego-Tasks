@@ -244,3 +244,34 @@ describe('组（本地只有自己一人）', () => {
     expect(await store.groups.list()).toHaveLength(1);
   });
 });
+
+describe('任务关系（本地）', () => {
+  it('开始于前置的结束 +1，结束是开始后 2 天；不能形成循环', async () => {
+    const store = new InMemoryLocalStore({ ownerId: OWNER });
+    const zone = 'Asia/Shanghai';
+    const a = await store.tasks.create({
+      title: 'A',
+      deadlineAt: new Date('2026-10-05T15:59:59.999Z'),
+    });
+    const b = await store.tasks.create({ title: 'B' });
+    const updated = await store.relations.setSchedule(b.id, {
+      startOn: null,
+      startRelations: [{ predecessorId: a.id, anchor: 'end', offsetDays: 1 }],
+      endAfterDays: 2,
+      endRelations: [],
+      dateZone: zone,
+    });
+    expect(updated.startOn).toBe('2026-10-06');
+    expect(updated.deadlineAt?.toISOString()).toBe('2026-10-08T15:59:59.999Z');
+    expect(await store.relations.listForTasks([b.id])).toHaveLength(1);
+    await expect(
+      store.relations.setSchedule(a.id, {
+        startOn: null,
+        startRelations: [{ predecessorId: b.id, anchor: 'end', offsetDays: 0 }],
+        endAfterDays: null,
+        endRelations: [],
+        dateZone: zone,
+      }),
+    ).rejects.toMatchObject({ code: 'invalid' });
+  });
+});

@@ -30,6 +30,8 @@ export function taskFromRow(row: TableRow<'tasks'>): Task {
     ownerId: row.owner_id,
     groupId: row.group_id,
     projectId: row.project_id ?? null,
+    startOn: row.start_on ?? null,
+    endAfterDays: row.end_after_days ?? null,
     title: row.title,
     description: row.description,
     deadlineAt: toNullableDate(row.deadline_at),

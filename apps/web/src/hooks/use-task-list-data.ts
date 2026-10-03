@@ -8,9 +8,10 @@ import {
   type RecurrenceOccurrence,
   type Task,
   type TaskAssignment,
+  type TaskRelation,
 } from '@alethego/core';
 import { syncOccurrences, type GroupNotification } from '@alethego/data';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useRepositories } from '@/components/repositories-provider';
 import { browserTimeZone, errorMessage } from '@/lib/format';
@@ -27,6 +28,8 @@ export interface TaskListData {
   projects: Project[];
   /** 任务上的 RACI（只有开了任务分配的项目的任务） */
   assignmentsByTask: Map<string, TaskAssignment[]>;
+  /** 任务关系：taskId → 这个任务的开始 / 结束挂着的关系 */
+  relationsByTask: Map<string, TaskRelation[]>;
   /** 应用内通知与上次打开通知的时间 */
   notifications: GroupNotification[];
   notificationsSeenAt: Date | null;
@@ -40,8 +43,14 @@ export function useTaskListData() {
   const repositories = useRepositories();
   const [data, setData] = useState<TaskListData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // 防止旧数据覆盖新数据：同时有多次加载时只用最后开始的那一次；
+  // 加载期间本地改过（勾选完成等）时，这次读到的可能是改之前的数据，丢掉重新加载
+  const loadSeq = useRef(0);
+  const localVersion = useRef(0);
 
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (): Promise<void> => {
+    const seq = ++loadSeq.current;
+    const version = localVersion.current;
     try {
       // 没有后台定时任务：打开 TaskApp 时检查投票是否超时（删除组和项目一周、任命组长三天，未操作算作同意）
       await repositories.groups.processTimeouts();
@@ -59,7 +68,7 @@ export function useTaskListData() {
       const raciTaskIds = tasks
         .filter((task) => task.projectId && raciProjects.has(task.projectId))
         .map((task) => task.id);
-      const [categoryIdsByTask, occurrences, assignments] = await Promise.all([
+      const [categoryIdsByTask, occurrences, assignments, relations] = await Promise.all([
         repositories.categories.listCategoryIdsByTask(tasks.map((task) => task.id)),
         // 读取时顺带执行归档（生成已出现实例的记录、把被取代的 pending 标为 missed）
         Promise.all(
@@ -71,7 +80,17 @@ export function useTaskListData() {
           ),
         ),
         repositories.assignments.listForTasks(raciTaskIds),
+        repositories.relations.listForTasks(
+          tasks.filter((task) => !task.recurrenceRule).map((task) => task.id),
+        ),
       ]);
+      const relationsByTask = new Map<string, TaskRelation[]>();
+      for (const relation of relations) {
+        relationsByTask.set(relation.taskId, [
+          ...(relationsByTask.get(relation.taskId) ?? []),
+          relation,
+        ]);
+      }
       const assignmentsByTask = new Map<string, TaskAssignment[]>();
       for (const assignment of assignments) {
         const list = assignmentsByTask.get(assignment.taskId) ?? [];
@@ -79,12 +98,18 @@ export function useTaskListData() {
         assignmentsByTask.set(assignment.taskId, list);
       }
       const occurrencesByTask = new Map(recurring.map((task, i) => [task.id, occurrences[i]!]));
+      if (seq !== loadSeq.current) return;
+      if (version !== localVersion.current) {
+        await reload();
+        return;
+      }
       setData({
         tasks,
         categories,
         categoryIdsByTask,
         occurrencesByTask,
         assignmentsByTask,
+        relationsByTask,
         groups,
         projects,
         notifications: notifications.items,
@@ -92,7 +117,7 @@ export function useTaskListData() {
       });
       setError(null);
     } catch (e) {
-      setError(errorMessage(e));
+      if (seq === loadSeq.current) setError(errorMessage(e));
     }
   }, [repositories]);
 
@@ -102,6 +127,7 @@ export function useTaskListData() {
 
   /** 本地替换一条任务（乐观更新 / 写入保存结果），不重新请求 */
   const replaceTask = useCallback((task: Task) => {
+    localVersion.current++;
     setData((current) =>
       current
         ? { ...current, tasks: current.tasks.map((t) => (t.id === task.id ? task : t)) }
@@ -111,6 +137,7 @@ export function useTaskListData() {
 
   /** 本地更新（或新增）一条循环实例记录 */
   const upsertOccurrence = useCallback((occurrence: RecurrenceOccurrence) => {
+    localVersion.current++;
     setData((current) => {
       if (!current) return current;
       const records = current.occurrencesByTask.get(occurrence.taskId) ?? [];

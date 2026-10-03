@@ -3,12 +3,14 @@ import { describe, expect, it } from 'vitest';
 import {
   CREATABLE_GROUP_KINDS,
   GROUP_KIND_CONFIG,
+  featuresForCategoryPage,
   featuresForGroupPage,
   featuresForProject,
   groupMemberActions,
   groupPermissions,
   projectMemberActions,
   projectPermissions,
+  taskHasRelations,
   taskPermissions,
 } from './group';
 
@@ -41,7 +43,7 @@ describe('哪种组、哪些工具开哪些功能', () => {
     });
     expect(featuresForProject({ tools: ['relations'] }).raci).toBe(false);
     expect(featuresForProject({ tools: ['assignment', 'relations'] })).toMatchObject({
-      views: ['list', 'raci'],
+      views: ['list', 'raci', 'gantt'],
       raci: true,
       confirmation: true,
       contacts: true,
@@ -55,6 +57,45 @@ describe('哪种组、哪些工具开哪些功能', () => {
       confirmation: true,
     });
     expect(featuresForGroupPage([{ tools: ['relations'] }]).confirmation).toBe(false);
+  });
+});
+
+describe('任务关系', () => {
+  it('开了任务关系的项目有甘特图；组页面没有', () => {
+    expect(featuresForProject({ tools: ['relations'] })).toMatchObject({
+      views: ['list', 'gantt'],
+      relations: true,
+      raci: false,
+    });
+    expect(featuresForGroupPage([{ tools: ['relations'] }]).views).toEqual(['list']);
+  });
+
+  it('个人：只选中一个开了任务关系的分类时才有甘特图', () => {
+    expect(featuresForCategoryPage([{ tools: ['relations'] }]).views).toEqual([
+      'list',
+      'matrix',
+      'gantt',
+    ]);
+    expect(featuresForCategoryPage([{ tools: ['relations'] }, { tools: [] }]).views).toEqual([
+      'list',
+      'matrix',
+    ]);
+    expect(featuresForCategoryPage([{ tools: [] }]).relations).toBe(false);
+  });
+
+  it('哪些任务有两行逻辑：项目看工具箱，个人看分类；循环任务没有', () => {
+    const plain = { recurrenceRule: null, projectId: null };
+    expect(taskHasRelations(plain, null, [{ tools: [] }, { tools: ['relations'] }])).toBe(true);
+    expect(taskHasRelations(plain, null, [{ tools: [] }])).toBe(false);
+    expect(taskHasRelations({ ...plain, projectId: 'p' }, { tools: ['relations'] }, [])).toBe(true);
+    expect(taskHasRelations({ ...plain, projectId: 'p' }, { tools: ['assignment'] }, [])).toBe(
+      false,
+    );
+    expect(
+      taskHasRelations({ recurrenceRule: 'FREQ=DAILY', projectId: null }, null, [
+        { tools: ['relations'] },
+      ]),
+    ).toBe(false);
   });
 });
 

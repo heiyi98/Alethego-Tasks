@@ -45,6 +45,8 @@ describe('listDeadlineOf', () => {
     ownerId: 'u',
     groupId: null,
     projectId: null,
+    startOn: null,
+    endAfterDays: null,
     title: '健身',
     description: '',
     deadlineAt: sh('2026-10-01T00:00:00'),

@@ -13,8 +13,11 @@ import { ALL_STATUSES, DEFAULT_STATUS } from './format';
  * ?scope=starred&status=completed&cat=id1,id2（取默认值时省略）。
  */
 
-/** 看法：清单 / 时间管理矩阵（个人）/ 责任分配矩阵（开了任务分配的项目，?view=raci） */
-export type ViewMode = 'list' | 'matrix' | 'raci';
+/**
+ * 看法：清单 / 时间管理矩阵（个人）/ 责任分配矩阵（开了任务分配的项目，?view=raci）/
+ * 甘特图（开了任务关系的项目，或者只选中一个开了任务关系的分类，?view=gantt）
+ */
+export type ViewMode = 'list' | 'matrix' | 'raci' | 'gantt';
 
 export interface Selection {
   mode: ViewMode;
@@ -48,18 +51,23 @@ export function parseSelection(pathname: string, params: URLSearchParams): Selec
   const legacyStarred = rawStatus === 'starred';
   const groupId = params.get('group') || null;
   const projectId = (groupId && params.get('project')) || null;
+  const view = params.get('view');
+  const categoryIds = params.get('cat')?.split(',').filter(Boolean) ?? [];
+  const pathMode = modeOfPath(pathname);
   return {
-    // 组里没有时间管理矩阵；开了任务分配的项目可以切到责任分配矩阵
+    // 组里没有时间管理矩阵；项目页面可以切到责任分配矩阵、甘特图；个人只选一个分类时可以切到甘特图
     mode: groupId
-      ? projectId && params.get('view') === 'raci'
-        ? 'raci'
+      ? projectId && (view === 'raci' || view === 'gantt')
+        ? view
         : 'list'
-      : modeOfPath(pathname),
+      : pathMode === 'list' && view === 'gantt' && categoryIds.length === 1
+        ? 'gantt'
+        : pathMode,
     groupId,
     projectId,
     scope: legacyStarred ? 'starred' : isListScope(rawScope) ? rawScope : DEFAULT_LIST_SCOPE,
     status: isStatusFilter(rawStatus) ? rawStatus : DEFAULT_STATUS,
-    categoryIds: params.get('cat')?.split(',').filter(Boolean) ?? [],
+    categoryIds,
   };
 }
 
@@ -70,13 +78,16 @@ export function selectionHref(selection: Selection): string {
     // 组里：项目、看法和状态
     params.set('group', selection.groupId);
     if (selection.projectId) params.set('project', selection.projectId);
-    if (selection.mode === 'raci' && selection.projectId) params.set('view', 'raci');
+    if ((selection.mode === 'raci' || selection.mode === 'gantt') && selection.projectId) {
+      params.set('view', selection.mode);
+    }
     if (selection.status !== DEFAULT_STATUS) params.set('status', selection.status);
     return `/?${params.toString()}`;
   }
   if (selection.scope !== DEFAULT_LIST_SCOPE) params.set('scope', selection.scope);
   if (selection.status !== DEFAULT_STATUS) params.set('status', selection.status);
   if (selection.categoryIds.length > 0) params.set('cat', selection.categoryIds.join(','));
+  if (selection.mode === 'gantt' && selection.categoryIds.length === 1) params.set('view', 'gantt');
   const query = params.toString();
   const path = selection.mode === 'matrix' ? '/matrix' : '/';
   return query ? `${path}?${query}` : path;
@@ -100,7 +111,7 @@ export function groupHref(
 
 /** 回到个人（总览）；个人没有"待确认" */
 export function personal(selection: Selection): Selection {
-  const mode = selection.mode === 'raci' ? 'list' : selection.mode;
+  const mode = selection.mode === 'raci' || selection.mode === 'gantt' ? 'list' : selection.mode;
   const status = selection.status === 'pending' ? DEFAULT_STATUS : selection.status;
   return { ...selection, groupId: null, projectId: null, mode, status };
 }
@@ -109,5 +120,6 @@ export function toggleCategory(selection: Selection, categoryId: string): Select
   const categoryIds = selection.categoryIds.includes(categoryId)
     ? selection.categoryIds.filter((id) => id !== categoryId)
     : [...selection.categoryIds, categoryId];
-  return { ...selection, categoryIds };
+  // 甘特图只在选中一个分类时有：分类变了就回到清单
+  return { ...selection, categoryIds, mode: selection.mode === 'gantt' ? 'list' : selection.mode };
 }

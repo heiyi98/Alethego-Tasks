@@ -3,6 +3,7 @@
 import type { TaskView } from '@alethego/core';
 import type { ComponentType } from 'react';
 
+import { GanttView } from './gantt-view';
 import { ListView } from './list-view';
 import { RaciMatrixView } from './raci-matrix-view';
 
@@ -16,4 +17,5 @@ import { RaciMatrixView } from './raci-matrix-view';
 export const TASK_VIEWS: Record<Exclude<TaskView, 'matrix'>, ComponentType> = {
   list: ListView,
   raci: RaciMatrixView,
+  gantt: GanttView,
 };

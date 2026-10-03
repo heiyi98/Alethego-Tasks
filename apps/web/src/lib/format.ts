@@ -172,3 +172,18 @@ export function fromDateValue(value: string): Date | null {
   const date = new Date(`${value}T00:00`);
   return Number.isNaN(date.getTime()) ? null : date;
 }
+
+const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
+
+/** 日历日 → "10月12日 周一"（任务关系、甘特图用） */
+export function formatDay(date: string): string {
+  const [y, m, d] = date.split('-').map(Number) as [number, number, number];
+  const weekday = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+  return `${m}月${d}日 周${WEEKDAYS[weekday]}`;
+}
+
+/** 关系的偏移：0 → 当天，正数 → 后 N 天，负数 → 前 N 天 */
+export function formatOffset(days: number): string {
+  if (days === 0) return '当天';
+  return days > 0 ? `后 ${days} 天` : `前 ${-days} 天`;
+}

@@ -167,6 +167,12 @@ export const GroupIcon = (p: IconProps) => (
 );
 
 /** 责任分配矩阵（表格） */
+export const GanttIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M4 6h8M8 12h9M6 18h6" strokeWidth="3" />
+  </Svg>
+);
+
 export const RaciIcon = (p: IconProps) => (
   <Svg {...p}>
     <rect x="3.5" y="4.5" width="17" height="15" rx="2" />

@@ -2,7 +2,7 @@
 
 import {
   GROUP_KIND_CONFIG,
-  PERSONAL_FEATURES,
+  featuresForCategoryPage,
   featuresForGroupPage,
   featuresForProject,
   groupPermissions,
@@ -78,7 +78,14 @@ interface Rosters {
 export function CurrentGroupProvider({ children }: { children: ReactNode }) {
   const repositories = useRepositories();
   const { data } = useTaskData();
-  const { groupId, projectId } = useSelection();
+  const { groupId, projectId, categoryIds, scope } = useSelection();
+  const selectedCategories = useMemo(
+    () =>
+      categoryIds
+        .map((id) => data?.categories.find((c) => c.id === id))
+        .filter((c) => c !== undefined),
+    [data, categoryIds],
+  );
   const group = groupId ? (data?.groups.find((g) => g.id === groupId) ?? null) : null;
   const projects = useMemo(
     () => (group ? (data?.projects.filter((p) => p.groupId === group.id) ?? []) : []),
@@ -140,7 +147,7 @@ export function CurrentGroupProvider({ children }: { children: ReactNode }) {
       project,
       projects,
       features: !group
-        ? PERSONAL_FEATURES
+        ? featuresForCategoryPage(scope === 'all' ? selectedCategories : [])
         : project
           ? featuresForProject(project)
           : featuresForGroupPage(projects),
@@ -151,7 +158,7 @@ export function CurrentGroupProvider({ children }: { children: ReactNode }) {
       rosterLoaded: !group || current !== null,
       reloadRoster: load,
     };
-  }, [group, project, projects, rosters, load]);
+  }, [group, project, projects, rosters, load, selectedCategories, scope]);
 
   return <CurrentGroupContext.Provider value={value}>{children}</CurrentGroupContext.Provider>;
 }

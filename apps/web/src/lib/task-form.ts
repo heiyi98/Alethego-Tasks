@@ -8,8 +8,18 @@ import {
   type TaskLocationDraft,
   type TaskPerson,
   type TaskPersonDraft,
+  type EndMode,
+  type RelationRef,
+  type Task,
+  type TaskRelation,
 } from '@alethego/core';
-import type { AssignmentDraft, NewTask, TaskDetail, TaskPatch } from '@alethego/data';
+import type {
+  AssignmentDraft,
+  NewTask,
+  ScheduleInput,
+  TaskDetail,
+  TaskPatch,
+} from '@alethego/data';
 
 import { fromDateTimeLocalValue, fromDateValue, toDateValue, toTimeValue } from './format';
 import {
@@ -48,6 +58,82 @@ export interface TaskFormValue {
   people: PersonRow[];
   /** RACI（管理组）；其他容器为空 */
   raci: AssignmentDraft[];
+  /** 开始 / 结束两行逻辑（有"任务关系"的任务）；其他任务为 null */
+  schedule: ScheduleFormValue | null;
+}
+
+/** 一个关系：于〔某任务〕的〔开始 / 结束〕+ 偏移；scopeId 是选它时所在的项目或分类（只在界面上用） */
+export interface RelationDraft extends RelationRef {
+  scopeId: string;
+}
+
+/**
+ * 两行逻辑。结束是固定日期时，日期就是上面的截止日期（deadline / deadlineTime）。
+ * 没选好任务的关系（predecessorId 为空）不保存。
+ */
+export interface ScheduleFormValue {
+  startMode: 'date' | 'relations';
+  /** 开始的固定日期 YYYY-MM-DD；空 = 没有开始 */
+  startOn: string;
+  startRelations: RelationDraft[];
+  endMode: EndMode;
+  endAfterDays: number;
+  endRelations: RelationDraft[];
+}
+
+export function scheduleFormFrom(
+  task: Pick<Task, 'startOn' | 'endAfterDays'>,
+  relations: readonly TaskRelation[],
+  scopeOf: (predecessorId: string) => string,
+): ScheduleFormValue {
+  const drafts = (side: 'start' | 'end') =>
+    relations
+      .filter((r) => r.side === side)
+      .map((r) => ({
+        predecessorId: r.predecessorId,
+        anchor: r.anchor,
+        offsetDays: r.offsetDays,
+        scopeId: scopeOf(r.predecessorId),
+      }));
+  const startRelations = drafts('start');
+  const endRelations = drafts('end');
+  return {
+    startMode: startRelations.length > 0 ? 'relations' : 'date',
+    startOn: startRelations.length > 0 ? '' : (task.startOn ?? ''),
+    startRelations,
+    endMode:
+      task.endAfterDays !== null ? 'after_start' : endRelations.length > 0 ? 'relations' : 'date',
+    endAfterDays: task.endAfterDays ?? 1,
+    endRelations,
+  };
+}
+
+/** 两行逻辑 → 保存用的输入（只保留当前方式用到的部分） */
+export function scheduleInputFrom(schedule: ScheduleFormValue, timeZone: string): ScheduleInput {
+  const refs = (list: readonly RelationDraft[]) =>
+    list
+      .filter((r) => r.predecessorId)
+      .map(({ predecessorId, anchor, offsetDays }) => ({ predecessorId, anchor, offsetDays }));
+  return {
+    startOn: schedule.startMode === 'date' ? schedule.startOn || null : null,
+    startRelations: schedule.startMode === 'relations' ? refs(schedule.startRelations) : [],
+    endAfterDays: schedule.endMode === 'after_start' ? schedule.endAfterDays : null,
+    endRelations: schedule.endMode === 'relations' ? refs(schedule.endRelations) : [],
+    dateZone: timeZone,
+  };
+}
+
+/** 两行逻辑保存的内容是否相同 */
+export function sameSchedule(
+  a: ScheduleFormValue | null,
+  b: ScheduleFormValue | null,
+  timeZone: string,
+): boolean {
+  if (!a || !b) return a === b;
+  return (
+    JSON.stringify(scheduleInputFrom(a, timeZone)) ===
+    JSON.stringify(scheduleInputFrom(b, timeZone))
+  );
 }
 
 let rowSeq = 0;
@@ -67,6 +153,7 @@ export function emptyTaskForm(categoryIds: string[] = []): TaskFormValue {
     location: { name: '', address: '' },
     people: [],
     raci: [],
+    schedule: null,
   };
 }
 
@@ -82,6 +169,7 @@ export function taskFormFromDetail(
   detail: TaskDetail,
   timeZone: string,
   raci: readonly AssignmentDraft[] = [],
+  schedule: ScheduleFormValue | null = null,
 ): TaskFormValue {
   const { task } = detail;
   return {
@@ -97,6 +185,7 @@ export function taskFormFromDetail(
     location: locationDraft(detail.location),
     people: peopleRows(detail.people),
     raci: [...raci],
+    schedule,
   };
 }
 

@@ -143,6 +143,20 @@ export interface Database {
         Update: NoWrite;
         Relationships: [];
       };
+      task_relations: {
+        Row: {
+          id: string;
+          task_id: string;
+          side: 'start' | 'end';
+          predecessor_id: string;
+          anchor: 'start' | 'end';
+          offset_days: number;
+          created_at: string;
+        };
+        Insert: NoWrite;
+        Update: NoWrite;
+        Relationships: [];
+      };
       task_assignments: {
         Row: {
           id: string;
@@ -207,6 +221,9 @@ export interface Database {
           owner_id: string;
           group_id: string | null;
           project_id: string | null;
+          start_on: string | null;
+          end_after_days: number | null;
+          date_zone: string | null;
           title: string;
           description: string;
           deadline_at: string | null;
@@ -225,6 +242,9 @@ export interface Database {
           owner_id?: string;
           group_id?: string | null;
           project_id?: string | null;
+          start_on?: string | null;
+          end_after_days?: number | null;
+          date_zone?: string | null;
           title: string;
           description?: string;
           deadline_at?: string | null;
@@ -243,6 +263,9 @@ export interface Database {
           owner_id?: string;
           group_id?: string | null;
           project_id?: string | null;
+          start_on?: string | null;
+          end_after_days?: number | null;
+          date_zone?: string | null;
           title?: string;
           description?: string;
           deadline_at?: string | null;
@@ -455,6 +478,17 @@ export interface Database {
         Returns: Database['taskapp']['Tables']['groups']['Row'];
       };
       set_task_raci: { Args: { p_task_id: string; p_assignments: Json }; Returns: undefined };
+      set_task_schedule: {
+        Args: {
+          p_task_id: string;
+          p_start_on: string | null;
+          p_start_relations: Json;
+          p_end_after_days: number | null;
+          p_end_relations: Json;
+          p_date_zone: string | null;
+        };
+        Returns: Database['taskapp']['Tables']['tasks']['Row'];
+      };
       create_project: {
         Args: {
           p_group_id: string;

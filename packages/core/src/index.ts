@@ -24,3 +24,5 @@ export * from './list/task-list-order';
 export * from './list/task-list-filter';
 export * from './matrix/matrix-layout';
 export * from './matrix/label-layout';
+
+export * from './schedule';
