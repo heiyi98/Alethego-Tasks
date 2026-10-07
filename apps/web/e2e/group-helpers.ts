@@ -80,7 +80,7 @@ export async function groupWith(
   for (const u of [owner, ...members]) {
     await rpc(u, 'ensure_current_user', { p_email: u.email, p_display_name: u.name });
   }
-  const group = await rpc<{ id: string }>(owner, 'create_group_v2', {
+  const group = await rpc<{ id: string }>(owner, 'create_group', {
     p_name: name,
     p_kind: kind,
     p_color: null,

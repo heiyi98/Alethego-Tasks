@@ -1,5 +1,5 @@
-// 把 supabase/migrations 按文件名顺序合并成一份完整建库脚本（taskapp-full-schema.sql），
-// 在全新的 Supabase 项目里一次执行就能建好 TaskApp 的全部表和功能。
+// 把 supabase/migrations（初始结构 + 之后的迁移）按文件名顺序合并成一份完整建库脚本
+// （taskapp-full-schema.sql），在全新的 Supabase 项目里一次执行就能建好 TaskApp 的全部表和功能。
 // 用法：node supabase/scripts/build-full-schema.mjs（改了迁移之后重新生成；单元测试会检查它是否最新）
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -17,12 +17,15 @@ export function buildFullSchema() {
   return [
     '-- TaskApp 完整建库脚本：由 supabase/migrations 按顺序合并生成，不要手改。',
     '-- 重新生成：node supabase/scripts/build-full-schema.mjs',
-    '-- 在全新的 Supabase 项目的 SQL Editor 里一次执行即可（不含本地测试用的时钟替换）。',
+    '-- 在没有 taskapp schema 的 Supabase 项目的 SQL Editor 里一次执行即可（不含本地测试用的时钟替换）。',
     '',
     'begin;',
     '',
     ...parts,
     'commit;',
+    '',
+    '-- 让 Data API 立即看到新建的表和函数',
+    "notify pgrst, 'reload schema';",
     '',
   ].join('\n');
 }

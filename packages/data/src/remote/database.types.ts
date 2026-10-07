@@ -469,7 +469,7 @@ export interface Database {
           email: string;
         }[];
       };
-      create_group_v2: {
+      create_group: {
         Args: { p_name: string; p_kind: GroupKindEnum; p_color: string | null };
         Returns: Database['taskapp']['Tables']['groups']['Row'];
       };
@@ -599,7 +599,6 @@ export interface Database {
         Args: { p_group_id: string; p_agree: boolean };
         Returns: 'deleted' | 'agreed' | 'cancelled' | 'no_request';
       };
-      process_expired_group_deletions: { Args: Record<string, never>; Returns: number };
       my_notifications: {
         Args: Record<string, never>;
         Returns: {

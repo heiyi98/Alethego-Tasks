@@ -113,7 +113,7 @@ export class SupabaseGroupRepository implements IGroupRepository {
     const trimmed = input.name.trim();
     if (!trimmed) throw new DataError('invalid', '组名不能为空');
     const row = check(
-      await this.client.rpc('create_group_v2', {
+      await this.client.rpc('create_group', {
         p_name: trimmed,
         p_kind: input.kind,
         p_color: input.color,

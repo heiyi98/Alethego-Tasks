@@ -1,11 +1,3 @@
--- TaskApp 完整建库脚本：由 supabase/migrations 按顺序合并生成，不要手改。
--- 重新生成：node supabase/scripts/build-full-schema.mjs
--- 在没有 taskapp schema 的 Supabase 项目的 SQL Editor 里一次执行即可（不含本地测试用的时钟替换）。
-
-begin;
-
--- ==== 20261007000000_initial_schema.sql ====
-
 -- Alethego Tasks 初始结构（taskapp schema）。
 --
 -- 由 2026-09-25 至 2026-10-05 的 14 份迁移合并而成：去掉了过渡和兼容的内容，命名统一，行为与合并前完全一致。
@@ -2743,8 +2735,3 @@ revoke all on function taskapp.remove_project_member_now(uuid, uuid) from public
 revoke all on function taskapp.task_relations_after_delete() from public, anon, authenticated;
 revoke all on function taskapp.tasks_schedule_cascade() from public, anon, authenticated;
 revoke all on function taskapp.tasks_schedule_compute() from public, anon, authenticated;
-
-commit;
-
--- 让 Data API 立即看到新建的表和函数
-notify pgrst, 'reload schema';

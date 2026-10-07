@@ -1,10 +1,12 @@
--- 把 TaskApp 从 Mindo 项目里一次删干净（迁到 TaskApp 自己的 Supabase 项目之后执行）。
+-- 把 TaskApp 从当前 Supabase 项目里一次删干净。
 --
--- TaskApp 的全部表（包括组、组里的项目、工具箱、RACI、通知、任务关系相关的表）、视图、函数、触发器、类型（occurrence_status）、
--- RLS 策略和默认授权都只在 taskapp 这个 schema 里，
--- supabase/migrations 没有在 public、auth 或其他 schema 里建过任何东西，所以删掉这个 schema 就删干净了，
--- 不碰 Mindo 自己的任何东西。数据不保留。
+-- TaskApp 的全部表、函数、触发器、类型（occurrence_status）、RLS 策略和默认授权都只在 taskapp 这个 schema 里，
+-- 初始结构和之后的迁移都没有在 public、auth 或其他 schema 里建过任何东西，所以删掉这个 schema 就删干净了，
+-- 不碰同一项目里其他产品的任何东西。数据不保留。
 --
--- 执行后还要在控制台的 Data API 设置里把 taskapp 从 Exposed schemas 去掉（见 docs/07-迁库说明.md）。
+-- 只在两种情况下使用（见 docs/07-迁库说明.md）：
+--   1. 迁到 TaskApp 自己的 Supabase 项目之后，从 Mindo 里删掉 TaskApp；
+--   2. 2026-10-07 用初始结构替换 Mindo 里的测试库（最后一次清空数据）。
+-- 除此之外不允许清空数据或删库重建：改库一律写新的迁移。
 
 drop schema if exists taskapp cascade;

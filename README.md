@@ -8,7 +8,7 @@
 packages/core/   领域层：纯 TypeScript，无框架依赖（Web / Mobile 共享）
 packages/data/   数据层：仓储接口、Supabase 远程实现、本地存储接口
 apps/web/        Next.js：任务列表、快速添加、展开面板新建/编辑、矩阵（直接读写 Supabase）
-supabase/        数据库迁移（taskapp schema：users、tasks、categories、task_categories、recurrence_occurrences、
+supabase/        数据库：migrations/ 里是初始结构 20261007000000_initial_schema.sql 和之后的迁移（taskapp schema：users、tasks、categories、task_categories、recurrence_occurrences、
                  task_locations、task_people、groups、group_members、group_invitations、
                  group_deletion_requests / votes、group_leader_requests / votes、projects、project_members、
                  project_invitations、project_deletion_requests / votes、project_contacts、task_assignments、
@@ -65,6 +65,10 @@ supabase db reset   # 应用 supabase/migrations
 
 业务表全部位于独立的 **`taskapp` schema**（不使用 `public`）。在 Supabase 上部署时，除了执行迁移，
 还需要在控制台 **Project Settings → API → Exposed schemas** 中加入 `taskapp`，前端才能访问。
+
+**改库的硬规定**：从初始结构 `supabase/migrations/20261007000000_initial_schema.sql` 起，数据库的任何改动都必须是一份
+新的迁移，在现有结构上修改，保留现有数据；不允许清空数据、删库重建。需要改变现有数据的形状时，迁移里要带上数据转换。
+改完迁移后运行 `node supabase/scripts/build-full-schema.mjs` 重新生成完整建库脚本（详见 docs/07-迁库说明.md）。
 
 ### 运行 Web
 
