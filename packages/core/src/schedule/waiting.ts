@@ -1,5 +1,5 @@
 import type { CalendarDate } from './calendar-date';
-import type { RelationAnchor, TaskRelation } from './schedule-dates';
+import type { RelationAnchor, RelationSide, TaskRelation } from './schedule-dates';
 
 /**
  * 等待：任务的关系对象还没到它等的那一步时，这个任务在等待（清单里状态不变）。
@@ -58,13 +58,20 @@ function hasStarted(taskId: string, context: WaitingContext, visiting: Set<strin
   return task.startOn === null || task.startOn <= context.today;
 }
 
-/** 这个任务在等哪些（先列开始那一行的，再列结束那一行的）；不在等待时为空 */
-export function waitingOn(taskId: string, context: WaitingContext): WaitingOn[] {
+/**
+ * 这个任务在等哪些（先列开始那一行的，再列结束那一行的）；不在等待时为空。
+ * sides 只看其中某一行（例如简介行只显示开始那一行的等待）。
+ */
+export function waitingOn(
+  taskId: string,
+  context: WaitingContext,
+  sides: readonly RelationSide[] = ['start', 'end'],
+): WaitingOn[] {
   const task = context.tasks.get(taskId);
   if (!task || task.confirmedAt !== null) return [];
-  const relations = [...(context.relationsByTask.get(taskId) ?? [])].sort((a, b) =>
-    a.side === b.side ? 0 : a.side === 'start' ? -1 : 1,
-  );
+  const relations = (context.relationsByTask.get(taskId) ?? [])
+    .filter((r) => sides.includes(r.side))
+    .sort((a, b) => (a.side === b.side ? 0 : a.side === 'start' ? -1 : 1));
   const seen = new Set<string>();
   const result: WaitingOn[] = [];
   for (const r of relations) {

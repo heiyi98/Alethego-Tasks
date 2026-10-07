@@ -1,7 +1,7 @@
 import type { Task, TaskRelation } from '@alethego/core';
 import { describe, expect, it } from 'vitest';
 
-import { buildGantt, ganttTicks } from './gantt-layout';
+import { buildGantt, dayLineX, dayLines, ganttTicks, ganttWidth } from './gantt-layout';
 
 const task = (id: string, patch: Partial<Task> = {}): Task => ({
   id,
@@ -32,6 +32,7 @@ describe('甘特图的排布', () => {
     task('A', { startOn: '2026-10-01', deadlineAt: end('2026-10-03') }),
     task('M', { deadlineAt: end('2026-10-06') }),
     task('N'),
+    task('S', { startOn: '2026-10-05' }),
     task('D', { startOn: '2026-10-02', deadlineAt: end('2026-10-02'), completedAt: new Date() }),
   ];
   const relations = new Map<string, TaskRelation[]>([
@@ -46,9 +47,9 @@ describe('甘特图的排布', () => {
     today: '2026-10-02',
   });
 
-  it('按开始日期排序；只有结束、或开始和结束同一天的是里程碑；两个都没有的进未排期', () => {
-    expect(layout.rows.map((r) => r.task.id)).toEqual(['A', 'D', 'B', 'M']);
-    expect(layout.rows.map((r) => r.milestone)).toEqual([false, true, false, true]);
+  it('按开始日期排序；开始和结束同一天、只有开始、只有结束的是菱形；两个都没有的进未排期', () => {
+    expect(layout.rows.map((r) => r.task.id)).toEqual(['A', 'D', 'B', 'S', 'M']);
+    expect(layout.rows.map((r) => r.milestone)).toEqual([false, true, false, true, true]);
     expect(layout.unscheduled.map((t) => t.id)).toEqual(['N']);
   });
 
@@ -59,6 +60,21 @@ describe('甘特图的排布', () => {
     expect(byId.M!.float).toBe(2);
     expect(layout.links).toHaveLength(1);
     expect(layout.from <= '2026-09-29' && layout.to >= '2026-10-08').toBe(true);
+  });
+
+  it('每一天是一条线：同一天结束和开始的任务落在同一条线上；线离两边各半天', () => {
+    const from = '2026-10-01';
+    const w = 40;
+    expect(dayLineX(from, from, w)).toBe(20);
+    expect(dayLineX('2026-10-03', from, w) - dayLineX(from, from, w)).toBe(80);
+    expect(ganttWidth(from, '2026-10-03', w)).toBe(120);
+    const lines = dayLines('2026-09-28', '2026-10-06');
+    expect(lines).toHaveLength(9);
+    expect(lines.filter((l) => l.kind === 'month').map((l) => l.date)).toEqual(['2026-10-01']);
+    expect(lines.filter((l) => l.kind === 'week').map((l) => l.date)).toEqual([
+      '2026-09-28',
+      '2026-10-05',
+    ]);
   });
 
   it('刻度：日（每天）、周（每周一）、月（每月 1 日）', () => {

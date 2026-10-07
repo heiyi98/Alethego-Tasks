@@ -12,6 +12,7 @@ import {
   quickAdd,
   quickAddBar,
   runId,
+  saveAndCollapse,
   taskItem,
   titleBox,
   toast,
@@ -166,7 +167,7 @@ test('同一时间只展开一个面板；打开另一个时当前的收起（�
   await expect(page.getByLabel('快速添加任务')).toHaveValue(`${id} 草稿`);
 });
 
-test('编辑自动保存：地点与多个人物；删除人物与清空描述不确认，提示条可撤销', async ({
+test('编辑地点与多个人物（点 ✓ 保存）；删除人物与清空描述不确认，提示条可撤销', async ({
   page,
   request,
 }) => {
@@ -177,7 +178,7 @@ test('编辑自动保存：地点与多个人物；删除人物与清空描述�
   const taskId = await openTask(page, title);
   const panel = editPanel(page);
 
-  // 编辑面板没有保存 / 还原按钮
+  // 编辑面板只有 ✓（完成编辑），没有另外的保存 / 还原按钮
   await expect(panel.getByRole('button', { name: /保存|还原/ })).toHaveCount(0);
 
   await panel.getByRole('textbox', { name: '描述' }).fill('带两份合同');
@@ -218,26 +219,37 @@ test('编辑自动保存：地点与多个人物；删除人物与清空描述�
   await panel.getByRole('button', { name: '删除第 3 个人物' }).click();
   await expect(toast(page, '已删除人物「同事」')).toBeVisible();
 
-  // 删除李四：不确认，提示条可撤销
+  // 删除李四：不确认，提示条可撤销（还没点 ✓ 时撤销就回到面板里）
   await panel.getByRole('button', { name: '删除第 2 个人物' }).click();
   await expect(page.getByRole('alertdialog')).toHaveCount(0);
   await expect(panel.getByLabel('第 2 个人物的姓名')).toHaveCount(0);
   const removed = toast(page, '已删除人物「李四」');
   await expect(removed).toBeVisible();
-  await waitSaved(page);
-  expect((await queryRest<unknown[]>(request, `task_people?task_id=eq.${taskId}`)).length).toBe(1);
   await removed.getByRole('button', { name: '撤销' }).click();
   await expect(panel.getByLabel('第 2 个人物的姓名')).toHaveValue('李四');
+  await panel.getByRole('button', { name: '删除第 2 个人物' }).click();
   await waitSaved(page);
+  expect((await queryRest<unknown[]>(request, `task_people?task_id=eq.${taskId}`)).length).toBe(1);
+  await panel.getByRole('button', { name: '添加人物' }).click();
+  await panel.getByLabel('第 2 个人物的姓名').fill('李四');
 
-  // 清空描述：不确认，提示条可撤销
+  // 清空描述：不确认，点 ✓ 保存后提示条可撤销
   await panel.getByRole('textbox', { name: '描述' }).fill('');
+  await saveAndCollapse(page);
   const cleared = toast(page, '已清空描述');
   await expect(cleared).toBeVisible();
   await cleared.getByRole('button', { name: '撤销' }).click();
-  await expect(panel.getByRole('textbox', { name: '描述' })).toHaveValue('带两份合同');
-  await waitSaved(page);
-  await collapse(page);
+  await expect
+    .poll(
+      async () =>
+        (
+          await queryRest<{ description: string }[]>(
+            request,
+            `tasks?id=eq.${taskId}&select=description`,
+          )
+        )[0]!.description,
+    )
+    .toBe('带两份合同');
 
   await page.reload();
   await openTask(page, title);
@@ -249,32 +261,124 @@ test('编辑自动保存：地点与多个人物；删除人物与清空描述�
   );
   expect(after.map((p) => p.name)).toEqual(['张三', '李四']);
 
-  // 清空地点：自动保存后删除记录
+  // 清空地点：保存后删除记录
   await panel.getByLabel('地点名称').fill('');
   await panel.getByLabel('地址').fill('');
   await waitSaved(page);
   expect(await queryRest<unknown[]>(request, `task_locations?task_id=eq.${taskId}`)).toEqual([]);
 });
 
-test('收起时立即保存尚未提交的改动', async ({ page, request }) => {
+test('只在点 ✓ 时保存：点别处不保存，先确认（放弃修改 / 继续编辑）；单行输入框里按回车也保存', async ({
+  page,
+  request,
+}) => {
   const id = runId();
-  const title = `${id} 收起即保存`;
+  const title = `${id} 显式保存`;
   await page.goto('/');
   await quickAdd(page, title);
   const taskId = await openTask(page, title);
-  await titleBox(editPanel(page)).fill(`${title}！`);
-  // 不等防抖，直接按 Esc 收起
+  const savedTitle = async () =>
+    (await queryRest<{ title: string }[]>(request, `tasks?id=eq.${taskId}&select=title`))[0]?.title;
+  const dialog = page.getByRole('alertdialog', { name: '有未保存的修改' });
+
+  // 没改动：点别处直接收起，不问
+  await page
+    .locator('h1.title-bar')
+    .first()
+    .click({ position: { x: 2, y: 2 } });
+  await expect(editPanel(page)).toHaveCount(0);
+  await expect(dialog).toHaveCount(0);
+
+  // 改了标题、点别处：不保存，先问；继续编辑 → 面板和改动都还在
+  await openTask(page, title);
+  await titleBox(editPanel(page)).fill(`${title} 改一`);
+  await page
+    .locator('h1.title-bar')
+    .first()
+    .click({ position: { x: 2, y: 2 } });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('button', { name: '放弃修改' })).toBeVisible();
+  await dialog.getByRole('button', { name: '继续编辑' }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(titleBox(editPanel(page))).toHaveValue(`${title} 改一`);
+  expect(await savedTitle()).toBe(title);
+
+  // Esc 也一样先问；放弃修改 → 收起，数据库和清单都是原来的标题
   await page.keyboard.press('Escape');
-  await expect(taskItem(page, `${title}！`)).toBeVisible();
-  await expect
-    .poll(async () => {
-      const [row] = await queryRest<{ title: string }[]>(
-        request,
-        `tasks?id=eq.${taskId}&select=title`,
-      );
-      return row?.title;
-    })
-    .toBe(`${title}！`);
+  await dialog.getByRole('button', { name: '放弃修改' }).click();
+  await expect(editPanel(page)).toHaveCount(0);
+  await expect(taskItem(page, title)).toBeVisible();
+  expect(await savedTitle()).toBe(title);
+
+  // 单行输入框里按回车 = 点 ✓：保存并收起
+  await openTask(page, title);
+  await titleBox(editPanel(page)).fill(`${title} 回车`);
+  await titleBox(editPanel(page)).press('Enter');
+  await expect(editPanel(page)).toHaveCount(0);
+  await expect.poll(savedTitle).toBe(`${title} 回车`);
+
+  // 点 ✓ 保存
+  await openTask(page, `${title} 回车`);
+  await titleBox(editPanel(page)).fill(`${title} 对勾`);
+  await editPanel(page).getByRole('button', { name: '完成编辑' }).first().click();
+  await expect(editPanel(page)).toHaveCount(0);
+  await expect.poll(savedTitle).toBe(`${title} 对勾`);
+});
+
+test('有没保存的修改时：切换页面或打开另一个任务先确认，放弃后照常切换；刷新或关闭时浏览器提示', async ({
+  page,
+  request,
+}) => {
+  const id = runId();
+  const first = `${id} 第一条`;
+  const second = `${id} 第二条`;
+  await page.goto('/');
+  await quickAdd(page, first);
+  await quickAdd(page, second);
+  const firstId = await openTask(page, first);
+  const dialog = page.getByRole('alertdialog', { name: '有未保存的修改' });
+
+  // 打开另一个任务：先问；继续编辑 → 还在第一条
+  await titleBox(editPanel(page)).fill(`${first}！`);
+  await taskItem(page, second).locator('.task-main').first().click();
+  await dialog.getByRole('button', { name: '继续编辑' }).click();
+  await expect(titleBox(editPanel(page))).toHaveValue(`${first}！`);
+  // 放弃修改 → 打开第二条
+  await taskItem(page, second).locator('.task-main').first().click();
+  await dialog.getByRole('button', { name: '放弃修改' }).click();
+  await expect(titleBox(editPanel(page))).toHaveValue(second);
+
+  // 切换页面（侧边栏的"收藏"）：先问；放弃修改 → 切过去
+  await titleBox(editPanel(page)).fill(`${second}！`);
+  await page
+    .getByRole('navigation', { name: '主菜单' })
+    .getByRole('link', { name: /收藏/ })
+    .click();
+  await expect(dialog).toBeVisible();
+  await expect(page).not.toHaveURL(/scope=starred/);
+  await dialog.getByRole('button', { name: '放弃修改' }).click();
+  await expect(page).toHaveURL(/scope=starred/);
+  await expect(editPanel(page)).toHaveCount(0);
+  const rows = await queryRest<{ title: string }[]>(
+    request,
+    `tasks?title=like.${encodeURIComponent(`${id}*`)}&select=title&order=title`,
+  );
+  expect(rows.map((r) => r.title).sort()).toEqual([first, second].sort());
+
+  // 刷新 / 关闭：浏览器自己的离开提示
+  await page.goto('/');
+  await openTask(page, first);
+  await titleBox(editPanel(page)).fill(`${first}？`);
+  const prompt = page.waitForEvent('dialog');
+  void page.close({ runBeforeUnload: true });
+  const beforeUnload = await prompt;
+  expect(beforeUnload.type()).toBe('beforeunload');
+  await beforeUnload.dismiss();
+  expect(page.isClosed()).toBe(false);
+  expect(
+    (await queryRest<{ title: string }[]>(request, `tasks?id=eq.${firstId}&select=title`))[0]!
+      .title,
+  ).toBe(first);
 });
 
 test('手机：面板为底部抽屉，点背景或下滑收起', async ({ page }) => {

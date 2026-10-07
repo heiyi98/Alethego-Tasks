@@ -390,8 +390,8 @@ test('RACI：创建时设定（创建人默认是 A）；R 标记完成进入待
   await expect(panel.getByRole('combobox')).toHaveCount(0);
   // 执行人标记完成 → 待确认
   await pm.getByRole('checkbox', { name: `完成：${title}` }).click();
-  await expect(panel).toHaveAttribute('data-save-state', 'saved');
   await panel.getByRole('button', { name: '完成编辑' }).click();
+  await expect(panel).toHaveCount(0);
   await selectStatus(pm, '待确认');
   await expect(taskItem(pm, title)).toBeVisible();
   // 截止时间已经过了，但待确认不算已错过；也不算已完成

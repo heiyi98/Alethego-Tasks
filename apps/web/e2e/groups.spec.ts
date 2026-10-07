@@ -355,9 +355,10 @@ test('删除组：一周内没有操作的组长算作同意，任何成员打�
     await pb.reload();
     await expect(sidebar(pb)).toBeVisible();
     await expect(groupLink(pb, groupName)).toHaveCount(0);
-    expect(await queryRest<unknown[]>(pb.request, `groups?select=id&id=eq.${groupId}`, a)).toEqual(
-      [],
-    );
+    // 删除在打开页面时异步进行，等它完成
+    await expect
+      .poll(() => queryRest<unknown[]>(pb.request, `groups?select=id&id=eq.${groupId}`, a))
+      .toEqual([]);
     await pb.context().close();
   } finally {
     setDbClock(null);

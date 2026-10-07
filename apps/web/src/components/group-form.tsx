@@ -9,11 +9,12 @@ import {
   type Group,
   type GroupKind,
 } from '@alethego/core';
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { useFeedback } from './feedback-provider';
 import { CheckIcon, IconButton, TrashIcon, XIcon } from './icons';
 import { useRepositories } from './repositories-provider';
+import { useUnsavedChanges } from './unsaved-changes';
 import { errorMessage } from '@/lib/format';
 
 /** 颜色：和分类一样的调色板，也可以自选 */
@@ -76,6 +77,8 @@ export function NewGroupForm({
   );
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
+  useUnsavedChanges(formRef, () => name.trim() !== '', onCancel);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -96,6 +99,7 @@ export function NewGroupForm({
 
   return (
     <form
+      ref={formRef}
       className="category-form group-form"
       aria-label="新建组"
       onSubmit={submit}
@@ -167,6 +171,15 @@ export function EditGroupForm({
   const [deletionPending, setDeletionPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
+  useUnsavedChanges(
+    formRef,
+    () =>
+      (leader &&
+        (name.trim() !== group.name || color !== (group.color ?? DEFAULT_CATEGORY_PALETTE[0]))) ||
+      (nickname !== null && nickname.trim() !== (savedNickname ?? '').trim()),
+    onCancel,
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -234,6 +247,7 @@ export function EditGroupForm({
 
   return (
     <form
+      ref={formRef}
       className="category-form group-form"
       aria-label={`编辑组「${group.name}」`}
       onSubmit={submit}

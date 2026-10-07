@@ -21,6 +21,7 @@ import { useRepositories } from './repositories-provider';
 import { useSelection } from './selection';
 import { EditorTitleRow, StarButton, TaskEditor } from './task-editor';
 import { useTaskData } from './task-data-provider';
+import { isSaveEnter, useUnsaved, useUnsavedChanges } from './unsaved-changes';
 import { errorMessage, toDateValue } from '@/lib/format';
 import { previewDates, relationScopes, scheduleEligible, scopeIdOf } from '@/lib/schedule';
 import {
@@ -95,13 +96,11 @@ export function useCreateTask(container: { groupId: string; projectId: string } 
 }
 
 /* ------------------------------------------------------------------ */
-/* 编辑（自动保存）                                                     */
+/* 编辑（点 ✓ 保存）                                                    */
 /* ------------------------------------------------------------------ */
 
-const SAVE_DELAY_MS = 500;
-
-/** pending：有改动等待保存；invalid：有不合法的字段，暂不保存 */
-type SaveState = 'idle' | 'pending' | 'saving' | 'saved' | 'invalid' | 'error';
+/** dirty：有没保存的改动；invalid：点了 ✓ 但有不合法的字段，没有保存 */
+type SaveState = 'idle' | 'dirty' | 'saving' | 'saved' | 'invalid' | 'error';
 
 interface Loaded {
   task: Task;
@@ -109,8 +108,8 @@ interface Loaded {
 }
 
 /**
- * 编辑已有任务：与新建共用 TaskEditor；改动自动保存（防抖），没有保存 / 还原按钮。
- * 收起（卸载）时立即保存尚未提交的改动。
+ * 编辑已有任务：与新建共用 TaskEditor。改动只在点 ✓（或单行输入框里按回车）时保存，保存后收起；
+ * 有没保存的改动时，点别处、切换页面等由 UnsavedChangesProvider 先确认（放弃修改 / 继续编辑）。
  */
 /** 列表中展开时，任务行本身（留在原位、标题变为可编辑）由 TaskRow 提供的部件组成 */
 export interface EditRowParts {
@@ -153,8 +152,9 @@ export function EditPanel({
   const formRef = useRef<TaskFormValue | null>(null);
   const savedRef = useRef<TaskFormValue | null>(null);
   const taskRef = useRef<Task | null>(null);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const chain = useRef<Promise<void>>(Promise.resolve());
+  const chain = useRef<Promise<boolean>>(Promise.resolve(true));
+  const rootRef = useRef<HTMLDivElement>(null);
+  const { guard } = useUnsaved();
 
   useEffect(() => {
     let cancelled = false;
@@ -166,12 +166,16 @@ export function EditPanel({
           setLoadError('任务不存在或已删除。');
           return;
         }
-        const records = await syncOccurrences(repositories.occurrences, detail.task, {
-          now: new Date(),
-          timeZone,
-        });
+        // RACI 和关系从数据库重新读（刚保存过时清单的数据可能还没刷新）
+        const [records, assignments, relations] = await Promise.all([
+          syncOccurrences(repositories.occurrences, detail.task, { now: new Date(), timeZone }),
+          detail.task.projectId
+            ? repositories.assignments.listForTasks([taskId])
+            : Promise.resolve([]),
+          repositories.relations.listForTasks([taskId]),
+        ]);
         if (cancelled) return;
-        const raci = (dataRef.current?.assignmentsByTask.get(taskId) ?? []).map((a) => ({
+        const raci = assignments.map((a) => ({
           role: a.role,
           userId: a.userId,
           contactId: a.contactId,
@@ -179,7 +183,7 @@ export function EditPanel({
         const current = dataRef.current;
         const schedule = scheduleFormFrom(
           detail.task,
-          current?.relationsByTask.get(taskId) ?? [],
+          relations.filter((r) => r.taskId === taskId),
           (predecessorId) => (current ? scopeIdOf(predecessorId, current) : ''),
         );
         const initial = taskFormFromDetail(detail, timeZone, raci, schedule);
@@ -197,18 +201,9 @@ export function EditPanel({
     };
   }, [repositories, taskId, timeZone]);
 
-  /** 把当前表单与上次保存的差异写入数据库 */
-  const saveNow = useCallback((): Promise<void> => {
-    if (timer.current) {
-      clearTimeout(timer.current);
-      timer.current = null;
-    }
-    chain.current = chain.current.then(async () => {
-      const current = formRef.current;
-      const saved = savedRef.current;
-      const task = taskRef.current;
-      if (!current || !saved || !task) return;
-
+  /** 当前表单与上次保存的差异 */
+  const changesOf = useCallback(
+    (current: TaskFormValue, saved: TaskFormValue, task: Task) => {
       const patch = taskPatchFromForms(current, saved, timeZone);
       const categoriesChanged =
         [...current.categoryIds].sort().join() !== [...saved.categoryIds].sort().join();
@@ -228,16 +223,60 @@ export function EditPanel({
         !saved.recurrence.enabled &&
         saved.schedule !== null &&
         (saved.schedule.startRelations.length > 0 || saved.schedule.endRelations.length > 0);
-      if (
-        Object.keys(patch).length === 0 &&
-        !categoriesChanged &&
-        !raciChanged &&
-        !scheduleChanged &&
-        !clearSchedule &&
-        !(extensionsChanged && people.ok)
-      ) {
-        setSaveState(Object.keys(validateTaskForm(current)).length > 0 ? 'invalid' : 'saved');
-        return;
+      const any =
+        Object.keys(patch).length > 0 ||
+        categoriesChanged ||
+        raciChanged ||
+        scheduleChanged ||
+        clearSchedule ||
+        extensionsChanged;
+      return {
+        patch,
+        categoriesChanged,
+        people,
+        extensionsChanged,
+        raciChanged,
+        scheduleChanged,
+        clearSchedule,
+        any,
+      };
+    },
+    [timeZone],
+  );
+
+  const isDirty = () => {
+    const current = formRef.current;
+    const saved = savedRef.current;
+    const task = taskRef.current;
+    if (!current || !saved || !task) return false;
+    // 改成了不合法的值（例如清空标题）也算没保存的改动
+    return changesOf(current, saved, task).any || Object.keys(validateTaskForm(current)).length > 0;
+  };
+
+  /** 把当前表单与上次保存的差异写入数据库；有不合法的字段时不保存。返回是否已全部保存 */
+  const saveNow = useCallback((): Promise<boolean> => {
+    chain.current = chain.current.then(async () => {
+      const current = formRef.current;
+      const saved = savedRef.current;
+      const task = taskRef.current;
+      if (!current || !saved || !task) return true;
+      if (Object.keys(validateTaskForm(current)).length > 0) {
+        setSaveState('invalid');
+        return false;
+      }
+      const {
+        patch,
+        categoriesChanged,
+        people,
+        extensionsChanged,
+        raciChanged,
+        scheduleChanged,
+        clearSchedule,
+        any,
+      } = changesOf(current, saved, task);
+      if (!any) {
+        setSaveState('saved');
+        return true;
       }
 
       setSaveState('saving');
@@ -344,38 +383,49 @@ export function EditPanel({
         } else {
           setLoaded((l) => (l ? { ...l, task: nextTask } : l));
         }
-        // 保存期间又有新改动时保持 pending；仍有不合法字段（未写入）时为 invalid
-        const invalid = Object.keys(validateTaskForm(formRef.current ?? current)).length > 0;
-        setSaveState(timer.current ? 'pending' : invalid ? 'invalid' : 'saved');
+        setSaveState('saved');
         setSaveError(null);
         void reload();
+        return true;
       } catch (e) {
         setSaveState('error');
         setSaveError(errorMessage(e));
+        return false;
       }
     });
     return chain.current;
-  }, [repositories, timeZone, reload, showUndo]);
+  }, [repositories, timeZone, reload, showUndo, changesOf]);
 
   const saveNowRef = useRef(saveNow);
   saveNowRef.current = saveNow;
 
-  // 收起 / 卸载时立即保存
-  useEffect(
-    () => () => {
-      if (timer.current) void saveNowRef.current();
-    },
-    [],
-  );
+  /** 放弃没保存的改动：表单回到上次保存的样子 */
+  function discardChanges() {
+    if (!savedRef.current) return;
+    formRef.current = savedRef.current;
+    setForm(savedRef.current);
+    setSaveState('idle');
+  }
+
+  useUnsavedChanges(rootRef, isDirty, () => {
+    discardChanges();
+    close();
+  });
+
+  /** ✓：保存并收起；保存不成功（不合法、出错）时留在面板里 */
+  async function saveAndClose() {
+    if (await saveNowRef.current()) close();
+  }
+
+  /** 点别处、Esc、下滑等收起：有改动时先确认 */
+  const requestClose = () => void guard(close);
 
   function onChange(patch: Partial<TaskFormValue>) {
     if (!formRef.current) return;
     const next = { ...formRef.current, ...patch };
     formRef.current = next;
     setForm(next);
-    setSaveState('pending');
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => void saveNowRef.current(), SAVE_DELAY_MS);
+    setSaveState('dirty');
   }
 
   function removePerson(index: number) {
@@ -396,9 +446,9 @@ export function EditPanel({
   async function deleteTask() {
     const task = taskRef.current;
     if (!task) return;
-    // 先保存未提交的改动，撤销删除后内容完整
-    await saveNowRef.current();
+    // 删除时没保存的改动一并放弃；撤销删除恢复的是上次保存的内容
     await repositories.tasks.delete(task.id);
+    discardChanges();
     close();
     await reload();
     showUndo(`已删除「${task.title}」`, async () => {
@@ -412,9 +462,21 @@ export function EditPanel({
       className={`edit-panel edit-panel-${surface}`}
       role="form"
       aria-label="编辑任务"
+      data-task-id={taskId}
       data-save-state={saveState}
+      onKeyDown={(event) => {
+        if (!isSaveEnter(event)) return;
+        event.preventDefault();
+        void saveAndClose();
+      }}
     >
-      <PanelSurface variant={surface} label="编辑任务" onClose={close} header={header}>
+      <PanelSurface
+        variant={surface}
+        label="编辑任务"
+        onClose={requestClose}
+        header={header}
+        rootRef={rootRef}
+      >
         {body}
       </PanelSurface>
     </div>
@@ -498,7 +560,6 @@ export function EditPanel({
     const task = taskRef.current;
     if (!task) return;
     try {
-      await saveNowRef.current();
       const next = await repositories.tasks.update(
         task.id,
         approve ? { confirmedAt: new Date() } : { completedAt: null },
@@ -549,15 +610,12 @@ export function EditPanel({
     </IconButton>
   );
   const setTitle = (title: string) => perms.edit && onChange({ title });
-  // 任务已经存在：右侧是 ✓，点击立即保存并收起（改动本来就会自动保存）
+  // 右侧是 ✓：保存并收起（改动只在这里保存）
   const doneButton = (
     <IconButton
       label="完成编辑"
       className="icon-button-primary edit-done"
-      onClick={async () => {
-        await saveNowRef.current();
-        close();
-      }}
+      onClick={() => void saveAndClose()}
     >
       <CheckIcon />
     </IconButton>
@@ -624,7 +682,7 @@ export function EditPanel({
         now={now}
         timeZone={timeZone}
         fallbackStart={loaded.task.deadlineAt}
-        onToggle={close}
+        onToggle={requestClose}
         onRemovePerson={removePerson}
         titleRow={titleRow}
       />

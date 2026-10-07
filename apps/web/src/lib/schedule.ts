@@ -52,7 +52,7 @@ export function waitingContext(data: TaskListData, today: string): WaitingContex
 /** 这条任务在等哪些（只看有两行逻辑、还没完成的任务） */
 export function waitingOf(task: Task, data: TaskListData, today: string): WaitingOn[] {
   if (!hasRelations(task, data)) return [];
-  return waitingOn(task.id, waitingContext(data, today));
+  return waitingOn(task.id, waitingContext(data, today), ['start']);
 }
 
 /** 选关系对象时的一个范围：组里是项目，个人是分类 */

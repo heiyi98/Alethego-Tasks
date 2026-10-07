@@ -8,6 +8,7 @@ import { useSelection } from '@/components/selection';
 import { useTaskData } from '@/components/task-data-provider';
 import { ViewFrame } from '@/components/view-frame';
 import { useVisibleTasks } from '@/hooks/use-visible-tasks';
+import { PersonName } from '@/components/person-name';
 import { STATUS_LABELS } from '@/lib/format';
 
 /**
@@ -63,7 +64,7 @@ function RaciTable() {
             <th scope="col" className="raci-task-head" />
             {people.map((person) => (
               <th key={person.key} scope="col">
-                {person.name}
+                <PersonName name={person.name} />
               </th>
             ))}
           </tr>

@@ -13,6 +13,7 @@ import {
   switchMode,
   taskItem,
   waitSaved,
+  clickSave,
 } from './helpers';
 import { accessTokenFor } from './auth';
 
@@ -214,6 +215,7 @@ test('重复规则编辑：每 N 天 / 每 N 周与星期、次数；非法规�
     if ((await button.getAttribute('aria-pressed')) === 'true') await button.click();
   }
   await expect(panel).toContainText('请至少选择一个星期几');
+  await clickSave(page);
   await expect(panel).toHaveAttribute('data-save-state', 'invalid');
 
   // 每 2 周的一、三、五，共 5 次

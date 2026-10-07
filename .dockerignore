@@ -1,0 +1,11 @@
+**/node_modules
+**/.next
+**/.next-china
+**/.turbo
+**/.env*
+**/test-results
+**/playwright-report
+apps/web/e2e/.auth
+.git
+docs
+supabase/migrations

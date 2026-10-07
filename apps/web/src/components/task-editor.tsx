@@ -31,6 +31,7 @@ import {
   TrashIcon,
   XIcon,
 } from './icons';
+import { PersonName } from './person-name';
 import { RecurrenceEditor } from './recurrence-editor';
 import { ScheduleField } from './schedule-field';
 import { messages } from '@/i18n';
@@ -187,7 +188,7 @@ export function QuickOptionsRow({
                 </span>
                 <select
                   aria-label={messages.raciRoles[role]}
-                  className={`raci-quick-select${current ? '' : ' raci-quick-empty'}`}
+                  className={`raci-quick-select person-select${current ? '' : ' raci-quick-empty'}`}
                   value={current}
                   onChange={(event) =>
                     onChange({
@@ -563,7 +564,7 @@ function RaciField({
               <div className="chip-row">
                 {chosen.map((a) => (
                   <span key={keyOf(a)} className="chip chip-compact raci-chip">
-                    {nameOf(a)}
+                    <PersonName name={nameOf(a)} />
                     {/* 执行人和负责人不能删到一个都不剩 */}
                     {editable && !(requiredRole(role) && chosen.length === 1) && (
                       <IconButton

@@ -299,6 +299,10 @@ describe('等待', () => {
       'A',
       'B',
     ]);
+    // 只看开始那一行（简介行）：结束那一行的 B 不算
+    expect(
+      waitingOn('T', context(tasks, relations), ['start']).map((w) => w.predecessorId),
+    ).toEqual(['A']);
     expect(
       waitingOn(
         'T',

@@ -16,6 +16,7 @@ import { StarButton } from './task-editor';
 import { useTaskData } from './task-data-provider';
 import { EditPanel } from './task-panels';
 import { formatDeadline, importanceLabel, recurrenceLabel } from '@/lib/format';
+import { PersonNames } from './person-name';
 import { waitingOf } from '@/lib/schedule';
 
 export function TaskRow({
@@ -70,8 +71,7 @@ export function TaskRow({
     assignments
       .filter((a) => a.role === role && a.userId)
       .map((a) => scope?.members.find((m) => m.userId === a.userId)?.nickname ?? '')
-      .filter(Boolean)
-      .join('、');
+      .filter(Boolean);
 
   // 任务关系：还在等前置时，简介行最前面写"等待 某任务 开始 / 结束"，等多个时后面加剩余数量
   const waiting = data && !done ? waitingOf(task, data, dateOfInstant(now, timeZone)) : [];
@@ -96,9 +96,10 @@ export function TaskRow({
       )}
       {(['R', 'A'] as const).map(
         (role) =>
-          namesOf(role) && (
+          namesOf(role).length > 0 && (
             <span key={role} className="task-raci" data-role={role}>
-              <span className="task-raci-letter">{role}</span> {namesOf(role)}
+              <span className="task-raci-letter">{role}</span>
+              <PersonNames names={namesOf(role)} />
             </span>
           ),
       )}

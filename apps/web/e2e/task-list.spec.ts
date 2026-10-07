@@ -503,8 +503,15 @@ test('空白标题：快速添加忽略；面板中清空标题提示错误且�
   const taskId = await openTask(page, `${id} 有空格`);
   await titleBox(editPanel(page)).fill('   ');
   await expect(editPanel(page)).toContainText('标题不能为空');
+  // 点 ✓ 也不保存，面板留着；放弃修改后收起
+  await editPanel(page).getByRole('button', { name: '完成编辑' }).first().click();
   await expect(editPanel(page)).toHaveAttribute('data-save-state', 'invalid');
-  await collapse(page);
+  await page.keyboard.press('Escape');
+  await page
+    .getByRole('alertdialog', { name: '有未保存的修改' })
+    .getByRole('button', { name: '放弃修改' })
+    .click();
+  await expect(editPanel(page)).toHaveCount(0);
 
   const [row] = await queryRest<{ title: string }[]>(request, `tasks?id=eq.${taskId}&select=title`);
   expect(row!.title).toBe(`${id} 有空格`);

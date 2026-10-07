@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
+import { useUnsaved } from './unsaved-changes';
+
 const SWIPE_CLOSE_PX = 80;
 
 /**
@@ -12,12 +14,14 @@ const SWIPE_CLOSE_PX = 80;
  *
  * 带 data-panel-anchor 的元素（例如展开三角、任务行本身）自己负责切换，点击它们不算"面板外"；
  * 带 data-keep-panel 的元素（确认框、撤销提示条）也不会触发收起。
+ * 面板里有没保存的修改时，点面板外由 UnsavedChangesProvider 拦下并确认，这里不收起。
  */
 export function PanelSurface({
   variant,
   label,
   onClose,
   header,
+  rootRef,
   children,
 }: {
   variant: 'inline' | 'floating';
@@ -28,12 +32,16 @@ export function PanelSurface({
    * 点它不算"点面板外面"。
    */
   header?: ReactNode;
+  /** 面板根元素（登记未保存修改的范围用） */
+  rootRef?: React.RefObject<HTMLDivElement | null>;
   children: ReactNode;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
+  const ownRef = useRef<HTMLDivElement>(null);
+  const ref = rootRef ?? ownRef;
   const [dragY, setDragY] = useState(0);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  const { hasUnsaved } = useUnsaved();
 
   useEffect(() => {
     const onPointerDown = (event: PointerEvent) => {
@@ -41,6 +49,7 @@ export function PanelSurface({
       if (!target || !document.contains(target)) return;
       if (ref.current?.contains(target)) return;
       if (target.closest('[data-panel-anchor], [data-keep-panel]')) return;
+      if (hasUnsaved()) return;
       onCloseRef.current();
     };
     const onKeyDown = (event: KeyboardEvent) => {
@@ -54,7 +63,7 @@ export function PanelSurface({
       document.removeEventListener('pointerdown', onPointerDown, true);
       document.removeEventListener('keydown', onKeyDown);
     };
-  }, []);
+  }, [hasUnsaved]);
 
   // 手机底部抽屉：按住顶部把手下滑超过阈值即收起（移动 / 松开监听挂在 window 上，手指移出把手也能跟随）
   function startDrag(event: React.PointerEvent) {

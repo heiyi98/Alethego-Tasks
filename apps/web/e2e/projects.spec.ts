@@ -447,8 +447,8 @@ test('组页面的快速添加：先选项目（只列出我能建任务的项�
   await quickR.selectOption({ label: `${id}组员` });
   await bar.getByRole('button', { name: '创建', exact: true }).click();
   await expect(taskItem(pa, `${id} 分配任务`).locator('.task-raci')).toHaveText([
-    `R ${id}组员`,
-    `A ${id}管理`,
+    `R${id}组员`,
+    `A${id}管理`,
   ]);
   const [created] = await select<{ id: string; project_id: string }>(
     A,

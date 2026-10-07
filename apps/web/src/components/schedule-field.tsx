@@ -1,7 +1,7 @@
 'use client';
 
 import type { CalendarDate, RelationAnchor } from '@alethego/core';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 
 import { CategoryDot } from './category-dot';
 import { IconButton, PlusIcon, XIcon } from './icons';
@@ -10,11 +10,12 @@ import type { RelationScope } from '@/lib/schedule';
 import type { RelationDraft, ScheduleFormValue, TaskFormValue } from '@/lib/task-form';
 
 /**
- * 有"任务关系"的任务在详情里的两行：开始、结束。
- * - 开始：固定日期，或者"于〔某任务〕的〔开始 / 结束〕"
- * - 结束：固定日期（就是截止时间），或者关系，或者"开始后 N 天"
- * 每一行只能二选一；填了关系的那一行日期由系统算出（这里只显示，不能手填）。
- * 一行可以挂多个关系，取最晚；每个关系最后有偏移：默认"当天"，点开是 − / + 步进器，也可以直接输入。
+ * 有"任务关系"的任务在详情里的两行：开始、结束。每行分上下两层：
+ * - 第一层选条件的类型：开始是 日期 / 关系；结束是 日期 / 关系 / 开始后
+ * - 第二层是内容：日期输入框、关系（"于〔某任务〕的〔开始 / 结束〕"）或"N 天"
+ * 填了关系的那一行日期由系统算出（只显示，不能手填），显示在第一层的最后。
+ * 一行可以挂多个关系，取最晚；默认只显示一个条件，它旁边的"＋"再加一个。
+ * 每个关系最后有偏移：默认"当天"，点开是 − / + 步进器，也可以直接输入。
  * 选关系对象时先选项目（组里）或分类（个人），默认是当前所在的那个，再选任务。
  */
 export function ScheduleField({
@@ -41,94 +42,102 @@ export function ScheduleField({
 
   return (
     <fieldset className="editor-fieldset schedule-field" disabled={readOnly}>
-      <div className="schedule-row" role="group" aria-label="开始">
-        <span className="schedule-label">开始</span>
-        <ModeSwitch
-          label="开始的方式"
-          value={value.startMode}
-          options={[
-            ['date', '日期'],
-            ['relations', '关系'],
-          ]}
-          onChange={(startMode) => set({ startMode })}
-        />
-        {value.startMode === 'date' ? (
-          <DateInput
-            label="开始日期"
-            value={value.startOn}
-            onChange={(startOn) => set({ startOn })}
+      <div className="schedule-side" role="group" aria-label="开始">
+        <div className="schedule-row">
+          <span className="schedule-label">开始</span>
+          <ModeSwitch
+            label="开始的方式"
+            value={value.startMode}
+            options={[
+              ['date', '日期'],
+              ['relations', '关系'],
+            ]}
+            onChange={(startMode) => set({ startMode })}
           />
-        ) : (
-          <Computed date={computed.start} label="算出的开始" />
-        )}
-      </div>
-      {value.startMode === 'relations' && (
-        <RelationList
-          side="开始"
-          relations={value.startRelations}
-          onChange={(startRelations) => set({ startRelations })}
-          scopes={scopes}
-          defaultScopeId={defaultScopeId}
-        />
-      )}
-
-      <div className="schedule-row" role="group" aria-label="结束">
-        <span className="schedule-label">结束</span>
-        <ModeSwitch
-          label="结束的方式"
-          value={value.endMode}
-          options={[
-            ['date', '日期'],
-            ['relations', '关系'],
-            ['after_start', '开始后'],
-          ]}
-          onChange={(endMode) => set({ endMode })}
-        />
-        {value.endMode === 'date' && (
-          <>
+          {value.startMode === 'relations' && <Computed date={computed.start} label="算出的开始" />}
+        </div>
+        <div className="schedule-content">
+          {value.startMode === 'date' ? (
             <DateInput
-              label="结束日期"
-              value={deadline}
-              onChange={(d) => onChange(d ? { deadline: d } : { deadline: '', deadlineTime: '' })}
+              label="开始日期"
+              value={value.startOn}
+              onChange={(startOn) => set({ startOn })}
             />
-            {deadline && (
-              <input
-                type="time"
-                aria-label="结束时刻"
-                className={`date-input time-input${deadlineTime ? '' : ' date-input-empty'}`}
-                value={deadlineTime}
-                onChange={(event) => onChange({ deadlineTime: event.target.value })}
-              />
-            )}
-          </>
-        )}
-        {value.endMode === 'after_start' && (
-          <>
-            <input
-              type="number"
-              min={0}
-              max={3650}
-              aria-label="开始后的天数"
-              className="schedule-days"
-              value={value.endAfterDays}
-              onChange={(event) =>
-                set({ endAfterDays: Math.max(0, Math.min(3650, Number(event.target.value) || 0)) })
-              }
+          ) : (
+            <RelationList
+              side="开始"
+              relations={value.startRelations}
+              onChange={(startRelations) => set({ startRelations })}
+              scopes={scopes}
+              defaultScopeId={defaultScopeId}
             />
-            <span className="schedule-unit">天</span>
-          </>
-        )}
-        {value.endMode !== 'date' && <Computed date={computed.end} label="算出的结束" />}
+          )}
+        </div>
       </div>
-      {value.endMode === 'relations' && (
-        <RelationList
-          side="结束"
-          relations={value.endRelations}
-          onChange={(endRelations) => set({ endRelations })}
-          scopes={scopes}
-          defaultScopeId={defaultScopeId}
-        />
-      )}
+
+      <div className="schedule-side" role="group" aria-label="结束">
+        <div className="schedule-row">
+          <span className="schedule-label">结束</span>
+          <ModeSwitch
+            label="结束的方式"
+            value={value.endMode}
+            options={[
+              ['date', '日期'],
+              ['relations', '关系'],
+              ['after_start', '开始后'],
+            ]}
+            onChange={(endMode) => set({ endMode })}
+          />
+          {value.endMode !== 'date' && <Computed date={computed.end} label="算出的结束" />}
+        </div>
+        <div className="schedule-content">
+          {value.endMode === 'date' && (
+            <>
+              <DateInput
+                label="结束日期"
+                value={deadline}
+                onChange={(d) => onChange(d ? { deadline: d } : { deadline: '', deadlineTime: '' })}
+              />
+              {deadline && (
+                <input
+                  type="time"
+                  aria-label="结束时刻"
+                  className={`date-input time-input${deadlineTime ? '' : ' date-input-empty'}`}
+                  value={deadlineTime}
+                  onChange={(event) => onChange({ deadlineTime: event.target.value })}
+                />
+              )}
+            </>
+          )}
+          {value.endMode === 'after_start' && (
+            <>
+              <input
+                type="number"
+                min={0}
+                max={3650}
+                aria-label="开始后的天数"
+                className="schedule-days"
+                value={value.endAfterDays}
+                onChange={(event) =>
+                  set({
+                    endAfterDays: Math.max(0, Math.min(3650, Number(event.target.value) || 0)),
+                  })
+                }
+              />
+              <span className="schedule-unit">天</span>
+            </>
+          )}
+          {value.endMode === 'relations' && (
+            <RelationList
+              side="结束"
+              relations={value.endRelations}
+              onChange={(endRelations) => set({ endRelations })}
+              scopes={scopes}
+              defaultScopeId={defaultScopeId}
+            />
+          )}
+        </div>
+      </div>
     </fieldset>
   );
 }
@@ -214,33 +223,42 @@ function RelationList({
   scopes: readonly RelationScope[];
   defaultScopeId: string;
 }) {
+  const blank = (): RelationDraft => ({
+    predecessorId: '',
+    anchor: 'end',
+    offsetDays: 0,
+    scopeId: defaultScopeId,
+  });
+  // 一个关系都没有时也显示一个空条件（选了对象才算数）
+  const rows = relations.length > 0 ? relations : [blank()];
   const update = (index: number, patch: Partial<RelationDraft>) =>
-    onChange(relations.map((r, i) => (i === index ? { ...r, ...patch } : r)));
+    onChange(rows.map((r, i) => (i === index ? { ...r, ...patch } : r)));
   return (
     <ul className="relation-list" aria-label={`${side}的关系`}>
-      {relations.map((relation, index) => (
+      {rows.map((relation, index) => (
         <RelationRow
           key={index}
           relation={relation}
           scopes={scopes}
           onChange={(patch) => update(index, patch)}
-          onRemove={() => onChange(relations.filter((_, i) => i !== index))}
+          onRemove={
+            rows.length > 1 || relation.predecessorId
+              ? () => onChange(rows.filter((_, i) => i !== index))
+              : undefined
+          }
+          extra={
+            index === rows.length - 1 && (
+              <IconButton
+                label={`添加${side}的关系`}
+                className="icon-button-small relation-add"
+                onClick={() => onChange([...rows, blank()])}
+              >
+                <PlusIcon size={16} />
+              </IconButton>
+            )
+          }
         />
       ))}
-      <li>
-        <IconButton
-          label={`添加${side}的关系`}
-          className="icon-button-small relation-add"
-          onClick={() =>
-            onChange([
-              ...relations,
-              { predecessorId: '', anchor: 'end', offsetDays: 0, scopeId: defaultScopeId },
-            ])
-          }
-        >
-          <PlusIcon size={16} />
-        </IconButton>
-      </li>
     </ul>
   );
 }
@@ -250,11 +268,15 @@ function RelationRow({
   scopes,
   onChange,
   onRemove,
+  extra,
 }: {
   relation: RelationDraft;
   scopes: readonly RelationScope[];
   onChange: (patch: Partial<RelationDraft>) => void;
-  onRemove: () => void;
+  /** 没有时不显示"去掉"（只剩一个空条件） */
+  onRemove?: () => void;
+  /** 行尾的"＋" */
+  extra?: ReactNode;
 }) {
   const [stepper, setStepper] = useState(false);
   const scope = scopes.find((s) => s.id === relation.scopeId) ?? scopes[0];
@@ -338,9 +360,12 @@ function RelationRow({
           </IconButton>
         </span>
       )}
-      <IconButton label="去掉这个关系" className="icon-button-small" onClick={onRemove}>
-        <XIcon size={14} />
-      </IconButton>
+      {onRemove && (
+        <IconButton label="去掉这个关系" className="icon-button-small" onClick={onRemove}>
+          <XIcon size={14} />
+        </IconButton>
+      )}
+      {extra}
     </li>
   );
 }

@@ -15,7 +15,7 @@ import { IconButton, UndoIcon, WarningIcon, XIcon, CheckIcon } from './icons';
 /**
  * 全局反馈：
  * - 撤销提示条：不可逆动作（删除任务 / 删除人物 / 清空描述）执行后短暂显示，点撤销即恢复
- * - 确认框：以图标为主，只用于"放弃新建"与"删除分类"
+ * - 确认框：以图标为主；离开未保存的修改时用文字按钮（放弃修改 / 继续编辑）
  */
 
 const TOAST_MS = 5000;
@@ -35,6 +35,8 @@ interface ConfirmRequest {
   destructive?: boolean;
   /** 只有一个关闭按钮（操作不能执行时告诉用户原因） */
   alertOnly?: boolean;
+  /** 两个按钮直接写字（例如"放弃修改 / 继续编辑"），不用图标 */
+  textButtons?: boolean;
   resolve: (ok: boolean) => void;
 }
 
@@ -143,25 +145,45 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
               ) : (
                 <div className="dialog-detail">{request.detail}</div>
               ))}
-            <div className="dialog-actions">
-              <IconButton
-                label={request.cancelLabel}
-                className="dialog-button"
-                autoFocus
-                onClick={() => answer(false)}
-              >
-                <XIcon />
-              </IconButton>
-              {!request.alertOnly && (
-                <IconButton
-                  label={request.confirmLabel}
-                  className={`dialog-button${request.destructive ? ' dialog-button-danger' : ' dialog-button-primary'}`}
+            {request.textButtons ? (
+              <div className="dialog-actions dialog-actions-text">
+                <button
+                  type="button"
+                  className={request.destructive ? 'button-danger' : 'button-primary'}
                   onClick={() => answer(true)}
                 >
-                  <CheckIcon />
+                  {request.confirmLabel}
+                </button>
+                <button
+                  type="button"
+                  className="button-secondary"
+                  autoFocus
+                  onClick={() => answer(false)}
+                >
+                  {request.cancelLabel}
+                </button>
+              </div>
+            ) : (
+              <div className="dialog-actions">
+                <IconButton
+                  label={request.cancelLabel}
+                  className="dialog-button"
+                  autoFocus
+                  onClick={() => answer(false)}
+                >
+                  <XIcon />
                 </IconButton>
-              )}
-            </div>
+                {!request.alertOnly && (
+                  <IconButton
+                    label={request.confirmLabel}
+                    className={`dialog-button${request.destructive ? ' dialog-button-danger' : ' dialog-button-primary'}`}
+                    onClick={() => answer(true)}
+                  >
+                    <CheckIcon />
+                  </IconButton>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}

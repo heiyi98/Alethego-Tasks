@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { accessTokenFor } from './auth';
 import {
@@ -21,6 +21,7 @@ import {
 } from './group-helpers';
 import {
   createCategory,
+  editPanel,
   localDate,
   quickAdd,
   runId,
@@ -182,16 +183,18 @@ test('通知：结构化记录拼成一句话；收件人按动作决定；只�
   // 界面上拼成连贯的一句话
   const pi = await openAs(browser, I);
   await bell(pi).click();
-  const texts = await notificationList(pi).locator('.notification-text').allTextContents();
-  expect(texts).toEqual(
-    expect.arrayContaining([
-      `${id}组长把${id}执行设为${title}的执行人（R）`,
-      `${id}执行完成了${title}`,
-      `${id}组长确认了${title}`,
-      `${id}组长退回了${title}`,
-      `${id}组长修改了${title}的描述、截止时间、负责人（A）和知会（I）`,
-    ]),
-  );
+  // 通知列表异步加载：等它出来再比
+  await expect
+    .poll(() => notificationList(pi).locator('.notification-text').allTextContents())
+    .toEqual(
+      expect.arrayContaining([
+        `${id}组长把${id}执行设为${title}的执行人（R）`,
+        `${id}执行完成了${title}`,
+        `${id}组长确认了${title}`,
+        `${id}组长退回了${title}`,
+        `${id}组长修改了${title}的描述、截止时间、负责人（A）和知会（I）`,
+      ]),
+    );
   await pi.context().close();
 });
 
@@ -215,8 +218,8 @@ test('开了任务分配的项目：快捷添加必须选执行人；执行人�
   await expect(taskItem(page, `${id} 没选执行人`)).toBeVisible();
   // 简介行：时间、执行人、负责人
   await expect(taskItem(page, `${id} 没选执行人`).locator('.task-raci')).toHaveText([
-    `R ${id}组员`,
-    `A ${id}组长`,
+    `R${id}组员`,
+    `A${id}组长`,
   ]);
 
   // 数据库：不带执行人和负责人建不了；删光也不行
@@ -453,5 +456,85 @@ test('颜色可以重复：分类、组都能用别人已经在用的颜色；�
       .getByRole('form', { name: '新建组' })
       .getByRole('radio', { name: '#FF3B30' }),
   ).toHaveAttribute('aria-checked', 'true');
+  await page.context().close();
+});
+
+test('RACI 人名：简介行、详情、快速添加、责任分配矩阵、甘特图里都是等宽的格子（4 个汉字宽，按字号），放不下省略号', async ({
+  browser,
+}) => {
+  test.setTimeout(120_000);
+  const id = runId();
+  const L = await user('wl', `${id}组长的名字很长`);
+  const M = await user('wm', '王五');
+  const groupId = await groupWith(L, [M], `${id}组`, 'management');
+  const projectId = await projectIn(L, groupId, `${id}项目`, ['assignment', 'relations']);
+  await groupTask(
+    L,
+    projectId,
+    `${id} 宽度`,
+    [
+      { role: 'R', userId: await userId(M) },
+      { role: 'R', userId: await userId(L) },
+      { role: 'A', userId: await userId(L) },
+    ],
+    { deadline_at: `${localDate(3)}T23:59:59.999+08:00` },
+  );
+  const page = await openAs(browser, L);
+  await projectLink(page, `${id}项目`).click();
+
+  /** 每个格子的宽度与 4 个字（按它自己的字号）之比；以及放不下的有没有被截断 */
+  const boxes = (locator: Locator) =>
+    locator.evaluateAll((els) =>
+      els.map((el) => {
+        const style = getComputedStyle(el);
+        return {
+          ratio: el.getBoundingClientRect().width / (4 * parseFloat(style.fontSize)),
+          clipped: el.scrollWidth > el.clientWidth,
+          ellipsis: style.textOverflow,
+        };
+      }),
+    );
+  const expectEqualBoxes = async (locator: Locator, count: number) => {
+    await expect(locator).toHaveCount(count);
+    const all = await boxes(locator);
+    for (const box of all) {
+      expect(box.ratio).toBeCloseTo(1, 2);
+      expect(box.ellipsis).toBe('ellipsis');
+    }
+    return all;
+  };
+
+  // 简介行：短名字和长名字一样宽，长的截断
+  const row = taskItem(page, `${id} 宽度`);
+  const summary = await expectEqualBoxes(row.locator('.task-raci .person-name'), 3);
+  expect(summary.some((b) => b.clipped)).toBe(true);
+  expect(summary.some((b) => !b.clipped)).toBe(true);
+
+  // 详情里的 RACI
+  await row.locator('.task-title').click();
+  await expectEqualBoxes(editPanel(page).locator('.raci-chip .person-name'), 3);
+  await page.keyboard.press('Escape');
+  await expect(editPanel(page)).toHaveCount(0);
+
+  // 快速添加：执行人、负责人两个选人框一样宽（名字部分 4 个汉字宽）
+  await page.getByLabel('快速添加任务').fill(`${id} 新的`);
+  const selects = page.locator('.quick-add .person-select');
+  const widths = await selects.evaluateAll((els) =>
+    els.map((el) => el.getBoundingClientRect().width),
+  );
+  expect(widths).toHaveLength(2);
+  expect(widths[0]).toBeCloseTo(widths[1]!, 1);
+  await page.getByLabel('快速添加任务').fill('');
+
+  // 责任分配矩阵的表头
+  await page.getByRole('link', { name: '切换到责任分配矩阵' }).click();
+  await expectEqualBoxes(
+    page.getByRole('table', { name: '责任分配矩阵' }).locator('thead .person-name'),
+    2,
+  );
+
+  // 甘特图里任务名后面的执行人
+  await page.getByRole('link', { name: '切换到甘特图' }).click();
+  await expectEqualBoxes(page.locator('.gantt-assignees .person-name'), 2);
   await page.context().close();
 });

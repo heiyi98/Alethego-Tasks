@@ -10,12 +10,13 @@ import {
   type Project,
   type ProjectTool,
 } from '@alethego/core';
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { useFeedback } from './feedback-provider';
 import { ColorSwatches } from './group-form';
 import { CheckIcon, IconButton, TrashIcon, XIcon } from './icons';
 import { useRepositories } from './repositories-provider';
+import { useUnsavedChanges } from './unsaved-changes';
 import { errorMessage } from '@/lib/format';
 
 /** 工具箱：多选，也可以都不选；建好后不能改（编辑时只显示，不能改） */
@@ -71,6 +72,8 @@ export function NewProjectForm({
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
+  useUnsavedChanges(formRef, () => name.trim() !== '' || tools.length > 0, onCancel);
 
   useEffect(() => {
     let cancelled = false;
@@ -111,6 +114,7 @@ export function NewProjectForm({
 
   return (
     <form
+      ref={formRef}
       className="category-form group-form"
       aria-label="新建项目"
       onSubmit={submit}
@@ -191,6 +195,12 @@ export function EditProjectForm({
   const [deletionPending, setDeletionPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
+  useUnsavedChanges(
+    formRef,
+    () => name.trim() !== project.name || color !== (project.color ?? DEFAULT_CATEGORY_PALETTE[0]),
+    onCancel,
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -243,6 +253,7 @@ export function EditProjectForm({
 
   return (
     <form
+      ref={formRef}
       className="category-form group-form"
       aria-label={`编辑项目「${project.name}」`}
       onSubmit={submit}

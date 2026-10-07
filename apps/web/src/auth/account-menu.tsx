@@ -3,11 +3,13 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 
 import { useAccounts } from './auth-provider';
+import { CheckIcon, IconButton } from '@/components/icons';
+import { useUnsavedChanges } from '@/components/unsaved-changes';
 
 /**
  * 账号菜单（侧边栏最下面）：显示当前账号的名字，点它展开：
  * - 这台设备上登录过的所有账号，点哪个切换到哪个（不需要再输密码）
- * - 当前账号的名字点开原地编辑（和任务标题的编辑方式一样），保存到 taskapp.users.display_name
+ * - 当前账号的名字点开原地编辑，点 ✓ 或按回车保存到 taskapp.users.display_name（点别处不保存）
  * - 添加账号：进入登录页，登录后加入列表
  * - 退出：退出这台设备上的所有账号，回到登录页
  */
@@ -18,6 +20,14 @@ export function AccountMenu() {
   const [draft, setDraft] = useState(currentUser.displayName);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const rowRef = useRef<HTMLLIElement>(null);
+
+  const cancelEdit = () => {
+    setDraft(currentUser.displayName);
+    setEditing(false);
+    setError(null);
+  };
+  useUnsavedChanges(rowRef, () => editing && draft.trim() !== currentUser.displayName, cancelEdit);
 
   useEffect(() => {
     if (editing) inputRef.current?.select();
@@ -44,9 +54,7 @@ export function AccountMenu() {
       event.preventDefault();
       void save();
     } else if (event.key === 'Escape') {
-      setDraft(currentUser.displayName);
-      setEditing(false);
-      setError(null);
+      cancelEdit();
     }
   }
 
@@ -70,17 +78,25 @@ export function AccountMenu() {
           <ul className="account-list" aria-label="这台设备上的账号">
             {accounts.map((account) =>
               account.id === currentUser.id ? (
-                <li key={account.id} className="account-row account-row-current">
+                <li key={account.id} className="account-row account-row-current" ref={rowRef}>
                   {editing ? (
-                    <input
-                      ref={inputRef}
-                      className="task-title-input account-name-input"
-                      aria-label="名字"
-                      value={draft}
-                      onChange={(event) => setDraft(event.target.value)}
-                      onKeyDown={onKeyDown}
-                      onBlur={() => void save()}
-                    />
+                    <span className="account-name-edit">
+                      <input
+                        ref={inputRef}
+                        className="task-title-input account-name-input"
+                        aria-label="名字"
+                        value={draft}
+                        onChange={(event) => setDraft(event.target.value)}
+                        onKeyDown={onKeyDown}
+                      />
+                      <IconButton
+                        label="保存名字"
+                        className="icon-button-primary"
+                        onClick={() => void save()}
+                      >
+                        <CheckIcon />
+                      </IconButton>
+                    </span>
                   ) : (
                     <button
                       type="button"

@@ -9,12 +9,13 @@ import {
   type Category,
   type ProjectTool,
 } from '@alethego/core';
-import { useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent } from 'react';
 
 import { useFeedback } from './feedback-provider';
 import { CheckIcon, IconButton, TrashIcon, XIcon } from './icons';
 import { ToolboxField } from './project-form';
 import { useRepositories } from './repositories-provider';
+import { useUnsavedChanges } from './unsaved-changes';
 import { errorMessage } from '@/lib/format';
 
 /**
@@ -45,6 +46,18 @@ export function CategoryForm({
   const [tools, setTools] = useState<ProjectTool[]>(() => [...(category?.tools ?? [])]);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  const formRef = useRef<HTMLFormElement>(null);
+  const [initialColor] = useState(color);
+  useUnsavedChanges(
+    formRef,
+    () =>
+      name.trim() !== (category?.name ?? '') ||
+      description.trim() !== (category?.description ?? '') ||
+      color !== initialColor ||
+      (!category && tools.length > 0),
+    onCancel,
+  );
 
   const isPalette = DEFAULT_CATEGORY_PALETTE.some(
     (c) => normalizeColor(c) === normalizeColor(color),
@@ -100,6 +113,7 @@ export function CategoryForm({
 
   return (
     <form
+      ref={formRef}
       className="category-form"
       onSubmit={handleSubmit}
       aria-label={label}

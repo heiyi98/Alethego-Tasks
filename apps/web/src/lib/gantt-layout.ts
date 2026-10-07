@@ -13,8 +13,10 @@ import { taskDates } from './schedule';
 
 /**
  * 甘特图的排布（不涉及画法）：
+ * - 时间轴上每一天是一条竖线（不是一格）；任务条从开始那天的线画到结束那天的线，
+ *   所以某天结束的任务和同一天开始的任务落在同一条线上
  * - 一个任务一行，按开始日期排序；不合并时间不重叠的任务
- * - 有开始和结束：任务条；只有结束（或开始和结束同一天）：里程碑；只有开始：按一天的任务条；
+ * - 开始和结束是不同的两天：任务条；开始和结束同一天、只有开始、只有结束：那一天的线上的菱形；
  *   两个都没有：放在最下面的"未排期"区
  * - 浮动时间和关键路径按整个范围（这个项目 / 这个分类）的任务算，终点是范围里最晚的结束
  * - 关系只画两端都在图上的
@@ -22,8 +24,8 @@ import { taskDates } from './schedule';
 
 export type GanttScale = 'day' | 'week' | 'month';
 
-/** 每一天的宽度（像素） */
-export const PX_PER_DAY: Record<GanttScale, number> = { day: 32, week: 12, month: 4 };
+/** 相邻两天的竖线之间的距离（em，随字号变化） */
+export const DAY_EM: Record<GanttScale, number> = { day: 2.5, week: 0.9, month: 0.3 };
 
 export type GanttStatus = 'todo' | 'pending' | 'completed';
 
@@ -42,7 +44,7 @@ export interface GanttLayout {
   rows: GanttRow[];
   unscheduled: Task[];
   links: (PlanLink & { critical: boolean })[];
-  /** 时间轴的范围（含两端） */
+  /** 时间轴的范围（含两端，各是一条线） */
   from: CalendarDate;
   to: CalendarDate;
 }
@@ -100,12 +102,11 @@ export function buildGantt(input: {
       continue;
     }
     const start = p.start <= p.end ? p.start : p.end;
-    const dates = taskDates(task, timeZone);
     rows.push({
       task,
       start,
       end: p.end,
-      milestone: dates.end !== null && (dates.start === null || dates.start === dates.end),
+      milestone: start === p.end,
       float: Math.max(0, float.floatDays.get(task.id) ?? 0),
       critical: float.critical.has(task.id),
       status: ganttStatus(task),
@@ -137,9 +138,33 @@ export function buildGantt(input: {
   return { rows, unscheduled, links, from, to };
 }
 
-/** 日期在时间轴上的位置（像素，那一天的左边缘） */
-export function dayOffset(date: CalendarDate, from: CalendarDate, scale: GanttScale): number {
-  return daysBetween(from, date) * PX_PER_DAY[scale];
+/**
+ * 某一天的竖线在时间轴上的位置（像素）。第一天的线离左边缘半天，最后一天的线离右边缘半天。
+ * dayWidth：相邻两天的线之间的距离（像素）
+ */
+export function dayLineX(date: CalendarDate, from: CalendarDate, dayWidth: number): number {
+  return (daysBetween(from, date) + 0.5) * dayWidth;
+}
+
+/** 整条时间轴的宽度（像素） */
+export function ganttWidth(from: CalendarDate, to: CalendarDate, dayWidth: number): number {
+  return (daysBetween(from, to) + 1) * dayWidth;
+}
+
+/** 每一天一条线；每周一、每月 1 日的线标出来（画得深一些） */
+export function dayLines(
+  from: CalendarDate,
+  to: CalendarDate,
+): { date: CalendarDate; kind: 'day' | 'week' | 'month' }[] {
+  const lines: { date: CalendarDate; kind: 'day' | 'week' | 'month' }[] = [];
+  const total = daysBetween(from, to);
+  for (let i = 0; i <= total; i++) {
+    const date = addDays(from, i);
+    const day = Number(date.slice(8));
+    const weekday = new Date(dayNumber(date) * 86_400_000).getUTCDay();
+    lines.push({ date, kind: day === 1 ? 'month' : weekday === 1 ? 'week' : 'day' });
+  }
+  return lines;
 }
 
 /** 时间轴的刻度：上面一行（月 / 年）和下面一行（日 / 周 / 月） */

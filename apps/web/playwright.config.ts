@@ -16,6 +16,17 @@ try {
 }
 
 const port = Number(process.env.E2E_PORT ?? 3100);
+// 中国大陆配置（NEXT_PUBLIC_REGION=china）另外构建一份，放在 .next-china，跑在这个端口上。
+// E2E_CHINA_SUPABASE_URL 设了时，这份前端的登录地址和数据地址都用它（同一个 Supabase 实例）。
+const chinaPort = Number(process.env.E2E_CHINA_PORT ?? 3101);
+const chinaUrl = process.env.E2E_CHINA_SUPABASE_URL;
+const chinaEnv = [
+  'NEXT_PUBLIC_REGION=china',
+  'NEXT_DIST_DIR=.next-china',
+  ...(chinaUrl
+    ? [`NEXT_PUBLIC_SUPABASE_URL=${chinaUrl}`, `NEXT_PUBLIC_ALETHEGO_URL=${chinaUrl}`]
+    : []),
+].join(' ');
 
 export default defineConfig({
   testDir: './e2e',
@@ -31,11 +42,26 @@ export default defineConfig({
     locale: 'zh-CN',
     trace: 'retain-on-failure',
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
-  webServer: {
-    command: `pnpm build && pnpm start -p ${port}`,
-    port,
-    reuseExistingServer: true,
-    timeout: 240_000,
-  },
+  projects: [
+    { name: 'chromium', use: { ...devices['Desktop Chrome'] }, testIgnore: /china\.spec\.ts/ },
+    {
+      name: 'china',
+      use: { ...devices['Desktop Chrome'], baseURL: `http://localhost:${chinaPort}` },
+      testMatch: /china\.spec\.ts/,
+    },
+  ],
+  webServer: [
+    {
+      command: `pnpm build && pnpm start -p ${port}`,
+      port,
+      reuseExistingServer: true,
+      timeout: 240_000,
+    },
+    {
+      command: `env ${chinaEnv} pnpm build && env NEXT_DIST_DIR=.next-china pnpm start -p ${chinaPort}`,
+      port: chinaPort,
+      reuseExistingServer: true,
+      timeout: 240_000,
+    },
+  ],
 });

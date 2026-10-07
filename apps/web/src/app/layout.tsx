@@ -7,6 +7,7 @@ import { FeedbackProvider } from '@/components/feedback-provider';
 import { PanelProvider } from '@/components/panel-provider';
 import { RepositoriesProvider } from '@/components/repositories-provider';
 import { TaskDataProvider } from '@/components/task-data-provider';
+import { UnsavedChangesProvider } from '@/components/unsaved-changes';
 
 import './globals.css';
 
@@ -24,9 +25,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           <RepositoriesProvider>
             <TaskDataProvider>
               <FeedbackProvider>
-                <PanelProvider>
-                  <AppShell>{children}</AppShell>
-                </PanelProvider>
+                <UnsavedChangesProvider>
+                  <PanelProvider>
+                    <AppShell>{children}</AppShell>
+                  </PanelProvider>
+                </UnsavedChangesProvider>
               </FeedbackProvider>
             </TaskDataProvider>
           </RepositoriesProvider>

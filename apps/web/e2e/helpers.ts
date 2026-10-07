@@ -130,21 +130,38 @@ export async function openTask(page: Page, title: string): Promise<string> {
   return id;
 }
 
-/** 等待自动保存完成 */
+/**
+ * 点 ✓ 保存（改动只在点 ✓ 时保存，保存后面板收起），再展开同一条任务，接着看或改。
+ * 保存后任务不在当前清单里了（例如完成后离开"未完成"）时不再展开。
+ */
 export async function waitSaved(page: Page) {
-  await expect(editPanel(page)).toHaveAttribute('data-save-state', 'saved');
+  const taskId = await editPanel(page).getAttribute('data-task-id');
+  await editPanel(page).getByRole('button', { name: '完成编辑' }).first().click();
+  await expect(editPanel(page)).toHaveCount(0);
+  if (!taskId) return;
+  const row = page.locator(`.task-main[data-task-id="${taskId}"]`).first();
+  if ((await row.count()) === 0) return;
+  await row.click();
+  await expect(editPanel(page).locator('.task-editor')).toBeVisible();
+}
+
+/** 点 ✓：有不合法的字段时不保存，面板留着 */
+export async function clickSave(page: Page) {
+  await editPanel(page).getByRole('button', { name: '完成编辑' }).first().click();
 }
 
 /** 点三角收起面板 */
 export async function collapse(page: Page) {
+  // 点 ✓ 保存后面板已经收起
+  if ((await page.locator('.task-editor').count()) === 0) return;
   await page.getByRole('button', { name: '收起', exact: true }).click();
   await expect(page.locator('.task-editor')).toHaveCount(0);
 }
 
-/** 等待保存后收起 */
+/** 点 ✓ 保存并收起 */
 export async function saveAndCollapse(page: Page) {
-  await waitSaved(page);
-  await collapse(page);
+  await editPanel(page).getByRole('button', { name: '完成编辑' }).first().click();
+  await expect(editPanel(page)).toHaveCount(0);
 }
 
 /** 撤销提示条 */

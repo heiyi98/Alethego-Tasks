@@ -2,6 +2,8 @@
 
 import { useState, type FormEvent } from 'react';
 
+import { googleSignInEnabled } from '@/lib/region';
+
 export interface LoginActions {
   signIn: (email: string, password: string) => Promise<{ error?: string }>;
   signUp: (
@@ -12,7 +14,7 @@ export interface LoginActions {
 }
 
 /**
- * 登录页：没登录时只显示这一页。两种方式：邮箱密码（登录 / 注册）、Google 登录。
+ * 登录页：没登录时只显示这一页。两种方式：邮箱密码（登录 / 注册）、Google 登录（中国大陆部署时没有）。
  * "添加账号"时也用这一页，多一个取消，回到当前账号。
  */
 export function LoginPage({ actions, onCancel }: { actions: LoginActions; onCancel?: () => void }) {
@@ -101,9 +103,11 @@ export function LoginPage({ actions, onCancel }: { actions: LoginActions; onCanc
           </button>
         </form>
 
-        <button type="button" className="login-google" onClick={google}>
-          使用 Google 登录
-        </button>
+        {googleSignInEnabled() && (
+          <button type="button" className="login-google" onClick={google}>
+            使用 Google 登录
+          </button>
+        )}
 
         {onCancel && (
           <button type="button" className="button-link login-cancel" onClick={onCancel}>

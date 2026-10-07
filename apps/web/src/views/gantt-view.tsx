@@ -1,19 +1,22 @@
 'use client';
 
-import { dateOfInstant, daysBetween, startOfLocalDay, type Task } from '@alethego/core';
+import { dateOfInstant, type Task } from '@alethego/core';
 import { useRouter } from 'next/navigation';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { useCurrentGroup } from '@/components/current-group';
+import { PersonNames } from '@/components/person-name';
 import { useSelection } from '@/components/selection';
 import { useTaskData } from '@/components/task-data-provider';
 import { ViewFrame } from '@/components/view-frame';
 import { useVisibleTasks } from '@/hooks/use-visible-tasks';
 import {
-  PX_PER_DAY,
+  DAY_EM,
   buildGantt,
-  dayOffset,
+  dayLineX,
+  dayLines,
   ganttTicks,
+  ganttWidth,
   type GanttRow,
   type GanttScale,
 } from '@/lib/gantt-layout';
@@ -22,8 +25,11 @@ import { canvasMeasure, estimateMeasure } from '@/lib/text-measure';
 
 /**
  * 甘特图（开了任务关系的项目；个人只选中一个开了任务关系的分类时）：
- * 时间轴从左到右是过去到将来，以天为单位，刻度可在日、周、月之间切换，有一条"今天"的竖线，可以左右滑动。
- * 一个任务一行，按开始日期排序；任务名写在条里（条太短写在条右边）；条按未完成、待确认、已完成区分；
+ * 时间轴从左到右是过去到将来，每一天是一条竖线，刻度可在日、周、月之间切换（两天之间的距离按字号算），
+ * "今天"就是今天那条线，可以左右滑动。
+ * 一个任务一行，按开始日期排序；任务条从开始那天的线到结束那天的线，同一天结束和开始的任务在同一条线上；
+ * 开始和结束同一天、只有开始或只有结束的任务是那天线上的菱形。
+ * 任务名写在条里（条太短写在条右边）；条按未完成、待确认、已完成区分；
  * 浮动时间是条后面一段淡色的延长，关键路径醒目标出；关系画成箭头，从前置指向后续。
  * 只能看：点任务条切回清单，把这条任务滚动到屏幕中间并原地展开。
  */
@@ -55,6 +61,18 @@ function GanttChart() {
   const [scale, setScale] = useState<GanttScale>('day');
   const scrollRef = useRef<HTMLDivElement>(null);
   const today = dateOfInstant(now, timeZone);
+  // 1em 是多少像素（天与天的距离按 em 定，画线和箭头时换成像素）
+  const [emPx, setEmPx] = useState(16);
+  useLayoutEffect(() => {
+    const measureEm = () => {
+      const el = scrollRef.current;
+      if (el) setEmPx(parseFloat(getComputedStyle(el).fontSize) || 16);
+    };
+    measureEm();
+    window.addEventListener('resize', measureEm);
+    return () => window.removeEventListener('resize', measureEm);
+  }, []);
+  const dayWidth = DAY_EM[scale] * emPx;
 
   const layout = useMemo(() => {
     if (!data) return null;
@@ -78,36 +96,32 @@ function GanttChart() {
   useEffect(() => {
     const el = scrollRef.current;
     if (!el || !layout) return;
-    el.scrollLeft = Math.max(0, dayOffset(today, layout.from, scale) - 3 * PX_PER_DAY[scale]);
+    el.scrollLeft = Math.max(0, dayLineX(today, layout.from, dayWidth) - 3.5 * dayWidth);
     // 只在换刻度、换范围时滚动
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scale, layout?.from]);
+  }, [scale, layout?.from, emPx]);
 
   const measure = useMemo(() => canvasMeasure(LABEL_FONT) ?? estimateMeasure(13), []);
 
   if (!data || !layout) return null;
-  const px = PX_PER_DAY[scale];
-  const width = (daysBetween(layout.from, layout.to) + 1) * px;
+  const x = (date: string) => dayLineX(date, layout.from, dayWidth);
+  const width = ganttWidth(layout.from, layout.to, dayWidth);
   const height = layout.rows.length * ROW_H;
   const ticks = ganttTicks(layout.from, layout.to, scale);
+  const lines = dayLines(layout.from, layout.to);
   const rowIndex = new Map(layout.rows.map((r, i) => [r.task.id, i]));
-  const xStart = (r: GanttRow) => dayOffset(r.start, layout.from, scale);
-  const xEnd = (r: GanttRow) => dayOffset(r.end, layout.from, scale) + px;
-  const xMilestone = (r: GanttRow) => dayOffset(r.end, layout.from, scale) + px / 2;
-  // "今天"的竖线：在今天那一格里按现在的时刻往右挪
-  const todayX =
-    dayOffset(today, layout.from, scale) +
-    ((now.getTime() - startOfLocalDay(now, timeZone).getTime()) / 86_400_000) * px;
+  const xStart = (r: GanttRow) => x(r.start);
+  const xEnd = (r: GanttRow) => x(r.end);
+  const todayX = x(today);
 
   // 开了任务分配的项目：任务名后面加上执行人
   const assigneesOf = (task: Task) => {
     const scope = scopeOf(task.projectId);
-    if (!scope?.features.raci) return '';
+    if (!scope?.features.raci) return [];
     return (data.assignmentsByTask.get(task.id) ?? [])
       .filter((a) => a.role === 'R' && a.userId)
       .map((a) => scope.members.find((m) => m.userId === a.userId)?.nickname ?? '')
-      .filter(Boolean)
-      .join('、');
+      .filter(Boolean);
   };
 
   // 点任务条：切回清单，原地展开这条任务（和通知里的"查看"一样）
@@ -116,8 +130,7 @@ function GanttChart() {
     router.replace(`${href}${href.includes('?') ? '&' : '?'}task=${taskId}`, { scroll: false });
   };
 
-  const anchorX = (r: GanttRow, at: 'start' | 'end') =>
-    r.milestone ? xMilestone(r) : at === 'start' ? xStart(r) : xEnd(r);
+  const anchorX = (r: GanttRow, at: 'start' | 'end') => (at === 'start' ? xStart(r) : xEnd(r));
 
   return (
     <div className="gantt">
@@ -135,37 +148,40 @@ function GanttChart() {
           </button>
         ))}
       </div>
-      <div className="gantt-scroll" ref={scrollRef} data-testid="gantt-scroll">
+      <div
+        className="gantt-scroll"
+        ref={scrollRef}
+        data-testid="gantt-scroll"
+        data-day-width={dayWidth}
+      >
         <div className="gantt-canvas" style={{ width, height: HEADER_H + height }}>
           <div className="gantt-header" style={{ width }}>
             {ticks.major.map((t) => (
-              <span
-                key={`M${t.date}`}
-                className="gantt-tick-major"
-                style={{ left: dayOffset(t.date, layout.from, scale) }}
-              >
+              <span key={`M${t.date}`} className="gantt-tick-major" style={{ left: x(t.date) }}>
                 {t.label}
               </span>
             ))}
             {ticks.minor.map((t) => (
-              <span
-                key={`m${t.date}`}
-                className="gantt-tick-minor"
-                style={{ left: dayOffset(t.date, layout.from, scale) }}
-              >
+              <span key={`m${t.date}`} className="gantt-tick-minor" style={{ left: x(t.date) }}>
                 {t.label}
               </span>
             ))}
           </div>
           <div className="gantt-body" style={{ top: HEADER_H, width, height }}>
-            {ticks.minor.map((t) => (
+            {lines.map((line) => (
               <span
-                key={`g${t.date}`}
-                className="gantt-grid"
-                style={{ left: dayOffset(t.date, layout.from, scale) }}
+                key={`g${line.date}`}
+                className={`gantt-grid gantt-grid-${line.kind}`}
+                data-date={line.date}
+                style={{ left: x(line.date) }}
               />
             ))}
-            <span className="gantt-today" data-testid="gantt-today" style={{ left: todayX }} />
+            <span
+              className="gantt-today"
+              data-testid="gantt-today"
+              data-date={today}
+              style={{ left: todayX }}
+            />
             <svg className="gantt-links" width={width} height={height} aria-hidden>
               <defs>
                 <marker
@@ -217,17 +233,31 @@ function GanttChart() {
             </svg>
             {layout.rows.map((row, i) => {
               const names = assigneesOf(row.task);
-              const label = names ? `${row.task.title} ${names}` : row.task.title;
+              const assignees = names.length > 0 && (
+                <span className="gantt-assignees">
+                  <PersonNames names={names} />
+                </span>
+              );
+              // 名字格子每个 4 个字宽（13px 的字），格子之间留 0.25 字
+              const labelWidth =
+                measure.width(row.task.title) +
+                (names.length > 0 ? 13 / 2 : 0) +
+                names.length * (4 * 13 + 13 / 4);
               const top = i * ROW_H + (ROW_H - BAR_H) / 2;
               const classes = `gantt-bar gantt-${row.status}${row.critical ? ' gantt-critical' : ''}`;
               if (row.milestone) {
-                const x = xMilestone(row);
+                const mx = xEnd(row);
                 return (
                   <div key={row.task.id} className="gantt-row" data-task-id={row.task.id}>
                     {row.float > 0 && (
                       <span
                         className="gantt-float"
-                        style={{ left: x, top: top + 4, width: row.float * px, height: BAR_H - 8 }}
+                        style={{
+                          left: mx,
+                          top: top + 4,
+                          width: row.float * dayWidth,
+                          height: BAR_H - 8,
+                        }}
                       />
                     )}
                     <button
@@ -235,41 +265,49 @@ function GanttChart() {
                       className={`${classes} gantt-milestone`}
                       aria-label={row.task.title}
                       data-milestone
-                      style={{ left: x - BAR_H / 2, top, width: BAR_H, height: BAR_H }}
+                      data-x={mx}
+                      style={{ left: mx - BAR_H / 2, top, width: BAR_H, height: BAR_H }}
                       onClick={() => openInList(row.task.id)}
                     />
                     <span
                       className="gantt-label gantt-label-outside"
-                      style={{ left: x + BAR_H / 2 + 4, top }}
+                      style={{ left: mx + BAR_H / 2 + 4, top }}
                     >
                       {row.task.title}
-                      {names && <span className="gantt-assignees"> {names}</span>}
+                      {assignees}
                     </span>
                   </div>
                 );
               }
               const left = xStart(row);
               const barWidth = xEnd(row) - left;
-              const inside = measure.width(label) + 12 <= barWidth;
+              const inside = labelWidth + 12 <= barWidth;
               return (
                 <div key={row.task.id} className="gantt-row" data-task-id={row.task.id}>
                   {row.float > 0 && (
                     <span
                       className="gantt-float"
-                      style={{ left: left + barWidth, top, width: row.float * px, height: BAR_H }}
+                      style={{
+                        left: left + barWidth,
+                        top,
+                        width: row.float * dayWidth,
+                        height: BAR_H,
+                      }}
                     />
                   )}
                   <button
                     type="button"
                     className={classes}
                     aria-label={row.task.title}
+                    data-x={left}
+                    data-x-end={left + barWidth}
                     style={{ left, top, width: barWidth, height: BAR_H }}
                     onClick={() => openInList(row.task.id)}
                   >
                     {inside && (
                       <span className="gantt-label gantt-label-inside">
                         {row.task.title}
-                        {names && <span className="gantt-assignees"> {names}</span>}
+                        {assignees}
                       </span>
                     )}
                   </button>
@@ -279,7 +317,7 @@ function GanttChart() {
                       style={{ left: left + barWidth + 4, top }}
                     >
                       {row.task.title}
-                      {names && <span className="gantt-assignees"> {names}</span>}
+                      {assignees}
                     </span>
                   )}
                 </div>

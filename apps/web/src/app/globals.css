@@ -232,6 +232,34 @@ a {
   font-weight: 600;
 }
 
+/* RACI 人名：等宽的格子，刚好放下 4 个汉字（随字号变化），放不下省略号 */
+.person-name {
+  display: inline-block;
+  width: 4em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+  text-align: left;
+}
+
+.person-names {
+  display: inline-flex;
+  gap: 0.25em;
+}
+
+.task-raci {
+  display: inline-flex;
+  gap: 0.25em;
+}
+
+/* 选人的下拉框：显示的名字同样是 4 个汉字宽 */
+.raci-quick-select.person-select {
+  width: calc(4em + 2.2em);
+  max-width: none;
+  text-overflow: ellipsis;
+}
+
 .task-missed .task-deadline {
   color: var(--danger);
 }
@@ -1361,6 +1389,28 @@ a {
   margin-top: 10px;
 }
 
+.dialog-actions-text {
+  gap: 12px;
+}
+
+.dialog-actions-text button {
+  min-height: 44px;
+  padding: 8px 18px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
+.dialog-actions-text .button-danger {
+  border-color: var(--danger);
+}
+
+.dialog-actions-text .button-secondary {
+  background: var(--tertiary-fill);
+  color: var(--label, inherit);
+}
+
 .dialog-button {
   width: 44px;
   height: 44px;
@@ -1920,7 +1970,15 @@ a {
   overflow-wrap: anywhere;
 }
 
+.account-name-edit {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .account-name-input {
+  flex: 1;
+  min-width: 0;
   margin: 0;
   font-size: 14px;
   font-weight: 400;
@@ -2321,7 +2379,7 @@ a {
 }
 
 .raci-table td {
-  min-width: 56px;
+  min-width: 4em;
   text-align: center;
   font-weight: 600;
 }
@@ -2549,7 +2607,23 @@ a {
 .schedule-field {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 10px;
+}
+
+/* 一行（开始 / 结束）分两层：第一层选条件类型，第二层是内容 */
+.schedule-side {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.schedule-content {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding-left: 40px;
 }
 
 .schedule-row {
@@ -2600,7 +2674,7 @@ a {
   flex-direction: column;
   gap: 4px;
   margin: 0;
-  padding: 0 0 0 40px;
+  padding: 0;
   list-style: none;
 }
 
@@ -2675,10 +2749,14 @@ a {
 .gantt-tick-major,
 .gantt-tick-minor {
   position: absolute;
-  padding-left: 4px;
   font-size: 12px;
   white-space: nowrap;
   color: var(--secondary-label);
+}
+
+/* 刻度的字以那一天的线为中心 */
+.gantt-tick-minor {
+  transform: translateX(-50%);
 }
 
 .gantt-tick-major {
@@ -2702,14 +2780,22 @@ a {
   top: 0;
   bottom: 0;
   width: 1px;
+  margin-left: -0.5px;
   background: var(--quaternary-fill);
 }
 
+.gantt-grid-week,
+.gantt-grid-month {
+  background: var(--opaque-separator, var(--tertiary-fill));
+}
+
+/* "今天"就是今天那条线 */
 .gantt-today {
   position: absolute;
   top: -44px;
   bottom: 0;
   width: 2px;
+  margin-left: -1px;
   background: var(--system-red);
   z-index: 3;
 }
@@ -2800,6 +2886,7 @@ a {
 }
 
 .gantt-assignees {
+  margin-left: 0.5em;
   opacity: 0.75;
 }
 
