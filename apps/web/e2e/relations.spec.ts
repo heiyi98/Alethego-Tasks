@@ -16,7 +16,15 @@ import {
   userId,
   type GroupUser,
 } from './group-helpers';
-import { editPanel, localDate, runId, selectStatus, taskItem, waitSaved } from './helpers';
+import {
+  categoryItem,
+  editPanel,
+  localDate,
+  runId,
+  selectStatus,
+  taskItem,
+  waitSaved,
+} from './helpers';
 
 // 多个账号各用自己的浏览器上下文：从"没登录"开始
 test.use({ storageState: { cookies: [], origins: [] } });
@@ -269,9 +277,7 @@ test('选关系对象：先选项目或分类再选任务；跨项目、跨分�
   await personal(`${id} 个人乙`, `${id}关系乙`, `${localDate(7)}T23:59:59.999+08:00`);
   const plainId = await personal(`${id} 个人普通`, `${id}普通`);
   await page.reload();
-  await sidebar(page)
-    .getByRole('button', { name: new RegExp(`^${id}关系甲`) })
-    .click();
+  await categoryItem(page, `${id}关系甲`).click();
   const personalPanel = await open(page, `${id} 个人甲`);
   await startRow(page).getByRole('radio', { name: '关系' }).click();
   const pStarts = personalPanel.getByRole('list', { name: '开始的关系' });
@@ -411,7 +417,7 @@ test('等待：简介行写"等待 某任务 开始 / 结束"，多个时加剩�
   await page.context().close();
 });
 
-test('甘特图：入口（项目、只选一个开了任务关系的分类；组页面没有）、未排期、点任务条回清单展开', async ({
+test('甘特图：入口（项目、开了任务关系的分类；组页面没有）、未排期、点任务条回清单展开', async ({
   browser,
 }) => {
   test.setTimeout(120_000);
@@ -471,7 +477,7 @@ test('甘特图：入口（项目、只选一个开了任务关系的分类；�
     })
     .toBeLessThan(page.viewportSize()!.height / 3);
 
-  // 个人：只选中一个开了任务关系的分类时才有清单 / 甘特图的切换
+  // 个人：开了任务关系的分类页面才有清单 / 甘特图的切换
   await sidebar(page).getByRole('link', { name: /总览/ }).click();
   await expect(page.getByRole('link', { name: '切换到甘特图' })).toHaveCount(0);
   for (const [name, on] of [
@@ -485,16 +491,15 @@ test('甘特图：入口（项目、只选一个开了任务关系的分类；�
     await form.getByRole('button', { name: '添加分类' }).click();
     await expect(form).toHaveCount(0);
   }
-  const relCat = sidebar(page).getByRole('button', { name: new RegExp(`^${id}关系`) });
-  const plainCat = sidebar(page).getByRole('button', { name: new RegExp(`^${id}普通`) });
+  const relCat = categoryItem(page, `${id}关系`);
+  const plainCat = categoryItem(page, `${id}普通`);
   await plainCat.click();
   await expect(page.getByRole('link', { name: '切换到甘特图' })).toHaveCount(0);
-  await plainCat.click();
   await relCat.click();
   await page.getByRole('link', { name: '切换到甘特图' }).click();
   await expect(page).toHaveURL(/view=gantt/);
   await expect(page.locator('.gantt')).toBeVisible();
-  // 再选一个分类：回到清单
+  // 换到另一个分类：回到清单
   await plainCat.click();
   await expect(page).not.toHaveURL(/view=gantt/);
   await expect(page.getByRole('link', { name: '切换到甘特图' })).toHaveCount(0);

@@ -14,6 +14,7 @@ import {
   taskItem,
   waitSaved,
   clickSave,
+  matrixAllPersonal,
 } from './helpers';
 import { accessTokenFor } from './auth';
 
@@ -61,7 +62,7 @@ test('循环任务：代表实例按时刻切换；过点未勾选立刻记为�
   await expect(rule(page).getByLabel('重复频率').locator('option')).toHaveText(['天', '周']);
   await rule(page).getByLabel('重复频率').selectOption('daily');
   await rule(page).getByLabel('开始时间').fill('2026-10-02T09:00');
-  await pickImportance(panel, 4);
+  await pickImportance(panel, 3);
   await waitSaved(page);
 
   // 规则描述与"当前实例"那一行已删除
@@ -130,9 +131,10 @@ test('循环任务：代表实例按时刻切换；过点未勾选立刻记为�
 
   // 矩阵（短期）：N = 2 → "2天–1天"那一格；循环任务永远不进逾期区
   await switchMode(page, 'matrix');
+  await matrixAllPersonal(page);
   const dot = page.locator(`.matrix-node[aria-label^="${title}，"]`);
   await expect(dot).toHaveAttribute('data-column', '4');
-  await expect(dot).toHaveAttribute('data-row', '4');
+  await expect(dot).toHaveAttribute('data-row', '3');
 
   // 清单里勾选完成的是"本次"，任务本身不完成，代表顺延到后天
   await switchMode(page, 'list');
@@ -170,7 +172,7 @@ test('循环任务：当前实例一过它的时刻，代表立刻换成下一�
   await panel.getByRole('switch', { name: '重复' }).check();
   await rule(page).getByLabel('重复频率').selectOption('daily');
   await rule(page).getByLabel('开始时间').fill('2026-10-05T16:00');
-  await pickImportance(panel, 3);
+  await pickImportance(panel, 2);
   await waitSaved(page);
   await collapse(page);
 
@@ -178,6 +180,7 @@ test('循环任务：当前实例一过它的时刻，代表立刻换成下一�
   const row = taskItem(page, title);
   await expect(row.locator('.task-deadline')).toHaveText('本次 今天 16:00');
   await switchMode(page, 'matrix');
+  await matrixAllPersonal(page);
   const dot = page.locator(`.matrix-node[aria-label^="${title}，"]`);
   await expect(dot).toHaveAttribute('data-column', '5');
 
@@ -362,6 +365,7 @@ test('回归：勾选"完成本次"时，切换页面引起的重新加载晚到
   });
   await page.reload();
   await switchMode(page, 'matrix');
+  await matrixAllPersonal(page);
   // 回到清单时的重新加载：读循环记录的那个请求晚 1.5 秒才回来（模拟慢网络），
   // 它读到的是勾选之前的数据
   let slow = true;

@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 import {
-  categoryToggle,
+  categoryItem,
   collapse,
   createCategory,
   dateInput,
@@ -15,6 +15,7 @@ import {
   runId,
   saveAndCollapse,
   scopeItem,
+  selectCategory,
   selectScope,
   selectStatus,
   setTime,
@@ -24,7 +25,6 @@ import {
   timeInput,
   titleBox,
   toast,
-  toggleCategory,
   waitSaved,
 } from './helpers';
 
@@ -44,9 +44,9 @@ test('快速添加带重要性与截止日期、按截止时间排序、状态�
   await expect(sidebar(page).getByRole('region', { name: '状态' })).toHaveCount(0);
   await selectStatus(page, '全部');
 
-  // 选项行默认：重要性 0、没有截止日期
+  // 选项行默认：重要性随意、没有截止日期
   const bar = quickAddBar(page);
-  await expect(bar.getByRole('button', { name: '重要性 0', exact: true })).toHaveAttribute(
+  await expect(bar.getByRole('button', { name: '随意', exact: true })).toHaveAttribute(
     'aria-pressed',
     'true',
   );
@@ -54,11 +54,11 @@ test('快速添加带重要性与截止日期、按截止时间排序、状态�
 
   await quickAdd(page, t('无截止'));
   await quickAdd(page, t('下周'), { deadline: localDate(7) });
-  await quickAdd(page, t('明天'), { deadline: localDate(1), importance: 4 });
+  await quickAdd(page, t('明天'), { deadline: localDate(1), importance: 3 });
   await quickAdd(page, t('已过期'), { deadline: localDate(-1) });
 
   // 创建后选项恢复默认
-  await expect(bar.getByRole('button', { name: '重要性 0', exact: true })).toHaveAttribute(
+  await expect(bar.getByRole('button', { name: '随意', exact: true })).toHaveAttribute(
     'aria-pressed',
     'true',
   );
@@ -72,7 +72,7 @@ test('快速添加带重要性与截止日期、按截止时间排序、状态�
   await expect(deadlineOf('明天')).toHaveText(/^\d+月\d+日 周. · 还剩1天$/);
   await expect(deadlineOf('下周')).toHaveText(/^\d+月\d+日 周. · 还剩7天$/);
   await expect(deadlineOf('已过期')).toHaveText(/^\d+月\d+日 周. · 逾期1天$/);
-  await expect(taskItem(page, t('明天'))).toContainText('重要性 4');
+  await expect(taskItem(page, t('明天')).locator('.task-importance')).toHaveText('必须');
 
   // 未完成：已过期的不在其中；添加栏每个状态下都有
   await selectStatus(page, '未完成');
@@ -168,7 +168,7 @@ test('具体时刻：没选时刻过完当天才算错过，选了时刻过了�
   await expect(timeInput(bar)).toBeVisible();
 });
 
-test('筛选：范围 × 分类多选（命中任一即显示）× 页面内状态行；页面内没有分类标签', async ({
+test('分类页面（单选）× 页面内状态行；一个任务挂多个分类时在每个分类页面里都有；页面内没有分类标签', async ({
   page,
 }) => {
   const id = runId();
@@ -197,20 +197,18 @@ test('筛选：范围 × 分类多选（命中任一即显示）× 页面内状�
   await expect(page.getByRole('group', { name: '分类筛选' })).toHaveCount(0);
   await expect(page.getByRole('group', { name: '状态筛选' })).toHaveCount(0);
 
-  // 一个分类都不选 = 所有分类
+  // 总览：所有个人任务
   await expectTitles(page, id, [t('无分类'), t('工作和家庭'), t('只工作')]);
 
-  await toggleCategory(page, home);
+  await selectCategory(page, home);
   await expectTitles(page, id, [t('工作和家庭')]);
-  await expect(page.getByTestId('title-capsule')).toHaveText([home]);
-
-  // 多选累加：命中任一所选分类即显示
-  await toggleCategory(page, work);
+  await selectCategory(page, work);
   await expectTitles(page, id, [t('工作和家庭'), t('只工作')]);
+  await expect(categoryItem(page, home)).not.toHaveAttribute('aria-current', 'page');
 
-  // 与状态组合；切换状态时分类选择保持
+  // 与状态组合；切换状态时所在的页面不变
   await selectStatus(page, '未完成');
-  await expect(categoryToggle(page, work)).toHaveAttribute('aria-pressed', 'true');
+  await expect(categoryItem(page, work)).toHaveAttribute('aria-current', 'page');
   await expectTitles(page, id, [t('工作和家庭'), t('只工作')]);
   await page.getByRole('checkbox', { name: `完成：${t('只工作')}` }).click();
   await expectTitles(page, id, [t('工作和家庭')]);
@@ -219,14 +217,8 @@ test('筛选：范围 × 分类多选（命中任一即显示）× 页面内状�
 
   // 刷新后保持
   await page.reload();
-  await expect(categoryToggle(page, home)).toHaveAttribute('aria-pressed', 'true');
+  await expect(categoryItem(page, work)).toHaveAttribute('aria-current', 'page');
   await expectTitles(page, id, [t('只工作')]);
-
-  // 取消全部分类：回到所有分类
-  await selectStatus(page, '全部');
-  await toggleCategory(page, work);
-  await toggleCategory(page, home);
-  await expectTitles(page, id, [t('无分类'), t('工作和家庭'), t('只工作')]);
 });
 
 test('快速添加：左边没有图标，右端 ➕ 创建（回车是额外的快捷方式）；输入栏这一行展开详情前后完全不变', async ({
@@ -297,7 +289,7 @@ test('快速添加：左边没有图标，右端 ➕ 创建（回车是额外的
   await expect(taskItem(page, `${id} 已存在改`)).toBeVisible();
 });
 
-test('快速添加：自动带上当前选中的全部分类；没选分类就不带', async ({ page }) => {
+test('快速添加：在分类页面新建的任务带上这个分类；在总览新建不带分类', async ({ page }) => {
   const id = runId();
   const t = (name: string) => `${id} ${name}`;
   const work = `${id}工作`;
@@ -310,52 +302,44 @@ test('快速添加：自动带上当前选中的全部分类；没选分类就�
   // 输入栏不显示占位提示文字
   await expect(input).not.toHaveAttribute('placeholder', /.*/);
 
-  // 选一个
-  await toggleCategory(page, work);
-  await expect(input).not.toHaveAttribute('placeholder', /.*/);
-  await quickAdd(page, t('单选'));
-  await expect(row('单选')).toContainText(work);
-  await expect(row('单选')).not.toContainText(home);
+  await selectCategory(page, work);
+  await quickAdd(page, t('工作里建'));
+  await expect(row('工作里建')).toContainText(work);
+  await expect(row('工作里建')).not.toContainText(home);
 
-  // 选两个：新任务同时带上两个分类（取代原来"只选一个才自动归入"的规则）
-  await toggleCategory(page, home);
-  await quickAdd(page, t('多选'));
-  await expect(row('多选')).toContainText(work);
-  await expect(row('多选')).toContainText(home);
-
-  // 展开面板：两个分类都已预选
+  // 展开面板：这个分类已预选
   await quickAddBar(page).getByRole('button', { name: '展开完整选项' }).click();
   const create = page.getByRole('form', { name: '新建任务' });
-  for (const name of [work, home]) {
-    await expect(create.getByRole('button', { name, exact: true })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
-  }
+  await expect(create.getByRole('button', { name: work, exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(create.getByRole('button', { name: home, exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  );
   await create.getByRole('button', { name: '收起', exact: true }).click();
 
-  // 都不选：不带分类
-  await toggleCategory(page, work);
-  await toggleCategory(page, home);
-  await quickAdd(page, t('不选'));
-  await expect(row('不选')).not.toContainText(work);
-  await expect(row('不选')).not.toContainText(home);
+  // 总览：不带分类
+  await sidebar(page)
+    .getByRole('region', { name: '范围' })
+    .getByRole('link', { name: /^总览/ })
+    .click();
+  await quickAdd(page, t('总览里建'));
+  await expect(row('总览里建')).not.toContainText(work);
 
   // 刷新后仍然成立（分类关联已写入数据库）
   await page.reload();
-  await expect(row('多选')).toContainText(home);
-  await expect(row('单选')).not.toContainText(home);
+  await expect(row('工作里建')).toContainText(work);
 });
 
-test('标星：列表行与面板里都可切换；范围"收藏"= 标星任务，可配合分类与状态；在收藏里新建自动标星', async ({
+test('标星：列表行与面板里都可切换；范围"收藏"= 标星任务，可配合状态；在收藏里新建自动标星', async ({
   page,
   request,
 }) => {
   const id = runId();
   const t = (name: string) => `${id} ${name}`;
-  const work = `${id}工作`;
   await page.goto('/');
-  await createCategory(page, work);
   await selectStatus(page, '全部');
   await quickAdd(page, t('后天'), { deadline: localDate(2) });
   await quickAdd(page, t('明天'), { deadline: localDate(1) });
@@ -405,11 +389,6 @@ test('标星：列表行与面板里都可切换；范围"收藏"= 标星任务�
   await quickAdd(page, t('收藏里新建'), { deadline: localDate(5) });
   await expect(star('收藏里新建')).toHaveAttribute('aria-pressed', 'true');
   await expectTitles(page, id, [t('后天'), t('已完成'), t('收藏里新建')]);
-
-  // 收藏 + 分类
-  await toggleCategory(page, work);
-  await expectTitles(page, id, []);
-  await toggleCategory(page, work);
 
   // 在收藏里取消标星：任务离开收藏
   await star('后天').click();
@@ -557,18 +536,15 @@ test('面板中勾选完成：任务在收起前留在原位，收起后离开"�
   await editPanel(page)
     .getByRole('checkbox', { name: `完成：${title}` })
     .click();
-  await waitSaved(page);
   await expect(editPanel(page).getByRole('checkbox', { name: `取消完成：${title}` })).toBeChecked();
   await expect(taskItem(page, title)).toBeVisible();
-  await collapse(page);
+  await saveAndCollapse(page);
   await expect(taskItem(page, title)).toHaveCount(0);
   await selectStatus(page, '已完成');
   await expect(taskItem(page, title)).toBeVisible();
 });
 
-test('左侧菜单的数字：按页面当前的状态计数；总览不分分类，收藏与分类项在当前选择内计数', async ({
-  page,
-}) => {
+test('左侧菜单的数字：按页面当前的状态计数；每一项数的是它自己那一页的内容', async ({ page }) => {
   const id = runId();
   const work = `${id}工作`;
   await page.goto('/');
@@ -576,34 +552,28 @@ test('左侧菜单的数字：按页面当前的状态计数；总览不分分�
   await selectStatus(page, '全部');
   const count = (locator: ReturnType<typeof scopeItem>) => locator.locator('.sidebar-count');
   const overviewBefore = Number(await count(scopeItem(page, '总览')).textContent());
+  const starredBefore = Number(await count(scopeItem(page, '收藏')).textContent());
 
-  await toggleCategory(page, work);
+  await selectCategory(page, work);
   await quickAdd(page, `${id} 一`);
   await quickAdd(page, `${id} 二`, { deadline: localDate(-1) });
   await taskItem(page, `${id} 一`).getByRole('button', { name: '标星', exact: true }).click();
 
-  // 总览 = 没有选任何分类：数的是全部任务（这里新增了 2 个）
+  // 总览数的是全部个人任务（这里新增了 2 个）；分类项只数这个分类的
   await expect(count(scopeItem(page, '总览'))).toHaveText(String(overviewBefore + 2));
-  // 收藏在所选分类内计数；分类项在当前范围内计数
-  await expect(count(scopeItem(page, '收藏'))).toHaveText('1');
-  await expect(count(categoryToggle(page, work))).toHaveText('2');
+  await expect(count(scopeItem(page, '收藏'))).toHaveText(String(starredBefore + 1));
+  await expect(count(categoryItem(page, work))).toHaveText('2');
 
   // 状态"已错过"：数字跟着变
   await selectStatus(page, '已错过');
-  await expect(count(scopeItem(page, '收藏'))).toHaveText('0');
-  await expect(count(categoryToggle(page, work))).toHaveText('1');
-
-  // 范围"收藏"：分类项只数标星的
-  await selectStatus(page, '全部');
-  await selectScope(page, '收藏');
-  await expect(count(categoryToggle(page, work))).toHaveText('1');
+  await expect(count(categoryItem(page, work))).toHaveText('1');
 });
 
-test('标题栏：总览 / 分类胶囊（名字不能点，只有 ✕ 取消）/ 收藏；高度固定，胶囊再多也不把下方内容顶下去', async ({
+test('列表侧边栏单选：每一项是一个页面，标题就是这一项的名字；高度固定；没有分类胶囊', async ({
   page,
 }) => {
   const id = runId();
-  const names = [1, 2, 3, 4, 5, 6].map((n) => `${id}很长的分类名称${n}`);
+  const names = [1, 2].map((n) => `${id}很长的分类名称${n}`);
   await page.goto('/');
   for (const name of names) await createCategory(page, name);
   const bar = page.getByRole('heading', { level: 1 });
@@ -612,43 +582,23 @@ test('标题栏：总览 / 分类胶囊（名字不能点，只有 ✕ 取消）
   const statusY = async () => (await statusBar(page).boundingBox())!.y;
   const baseY = await statusY();
 
-  // 选一个分类：标题变成胶囊，栏数不变，下方内容不动
-  await toggleCategory(page, names[0]!);
-  await expect(page.getByTestId('title-capsule')).toHaveText([names[0]!]);
-  await expect(bar).not.toContainText('总览');
-  expect(await statusY()).toBe(baseY);
-
-  // 胶囊放不下时在同一行里左右滑动：标题行高度不变，下方内容不动
-  for (const name of names.slice(1)) {
-    await toggleCategory(page, name);
-    expect((await bar.boundingBox())!.height).toBe(rowHeight);
-    expect(await statusY()).toBe(baseY);
-  }
-  expect(await bar.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
-
-  // 点 ✕ 取消这个分类的选择
-  await page.getByRole('button', { name: `取消选择「${names[5]}」` }).click();
-  await expect(page.getByTestId('title-capsule')).toHaveCount(5);
-  await expect(page.locator('main')).not.toContainText(names[5]!);
-
-  // 胶囊上的名字不能点：没有按钮，点了什么都不发生（编辑分类只走侧边栏的铅笔）
-  const capsule = page.getByTestId('title-capsule').filter({ hasText: names[0]! });
-  await expect(capsule.getByRole('button')).toHaveCount(1);
-  await capsule.locator('.title-capsule-name').click();
-  await expect(page.getByRole('main').getByRole('form', { name: /编辑分类/ })).toHaveCount(0);
-  expect(await statusY()).toBe(baseY);
-  await expect(capsule).not.toHaveAttribute('title', /.*/);
-
-  // 收藏：标题永远只显示"收藏"，分类筛选照常生效，侧边栏开关保持高亮
-  await selectScope(page, '收藏');
-  await expect(bar).toHaveText('收藏');
+  await selectCategory(page, names[0]!);
+  await expect(bar).toHaveText(names[0]!);
+  await expect(categoryItem(page, names[0]!)).toHaveAttribute('aria-current', 'page');
   await expect(page.getByTestId('title-capsule')).toHaveCount(0);
-  await expect(categoryToggle(page, names[0]!)).toHaveAttribute('aria-pressed', 'true');
+  expect((await bar.boundingBox())!.height).toBe(rowHeight);
+  expect(await statusY()).toBe(baseY);
 
-  // 点总览：清空所有分类选择
-  await selectScope(page, '总览');
-  await expect(bar).toHaveText('总览');
-  await expect(categoryToggle(page, names[0]!)).toHaveAttribute('aria-pressed', 'false');
+  // 单选：选另一个分类，前一个不再选中
+  await selectCategory(page, names[1]!);
+  await expect(bar).toHaveText(names[1]!);
+  await expect(categoryItem(page, names[0]!)).not.toHaveAttribute('aria-current', 'page');
+
+  for (const scope of ['今日', '收藏', '总览']) {
+    await selectScope(page, scope);
+    await expect(bar).toHaveText(scope);
+    await expect(categoryItem(page, names[1]!)).not.toHaveAttribute('aria-current', 'page');
+  }
   await expect(page).not.toHaveURL(/cat=/);
 });
 

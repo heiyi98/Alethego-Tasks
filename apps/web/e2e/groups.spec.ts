@@ -59,13 +59,12 @@ test('建组、建项目、邀请（接受 / 拒绝）、昵称；合作组里�
   await expect(projectLink(pa, `${id}项目一`)).toHaveAttribute('aria-current', 'page');
   const projectId = new URL(pa.url()).searchParams.get('project')!;
 
-  // 项目里：没有清单 / 矩阵切换，快速添加没有重要性、收藏，展开后没有分类
-  await expect(pa.getByRole('link', { name: '切换到矩阵' })).toHaveCount(0);
+  // 项目里：清单 / 矩阵切换照常在左上角；快速添加有重要性、没有收藏，展开后没有分类
+  await expect(pa.getByRole('link', { name: '切换到矩阵' })).toHaveCount(1);
   const bar = pa.locator('.quick-add');
-  await expect(bar.getByRole('group', { name: '重要性' })).toHaveCount(0);
+  await expect(bar.getByRole('group', { name: '重要性' })).toHaveCount(1);
   await bar.getByRole('button', { name: '展开完整选项' }).click();
   await expect(bar.getByRole('group', { name: '分类' })).toHaveCount(0);
-  await expect(bar.getByRole('group', { name: '重要性' })).toHaveCount(0);
   await expect(bar.getByRole('button', { name: '标星' })).toHaveCount(0);
   await expect(bar.getByRole('group', { name: '地点' })).toBeVisible();
   await expect(bar.getByRole('group', { name: '人物' })).toBeVisible();
@@ -73,16 +72,16 @@ test('建组、建项目、邀请（接受 / 拒绝）、昵称；合作组里�
   await quickAdd(pa, `${id} 甲建的组任务`);
   const row = taskItem(pa, `${id} 甲建的组任务`);
   await expect(row.getByRole('button', { name: '标星' })).toHaveCount(0);
-  // 展开的面板里同样没有重要性、分类、收藏
+  // 展开的面板里有重要性，没有分类、收藏
   await row.locator('.task-main').click();
   const panel = pa.getByRole('form', { name: '编辑任务' });
   await expect(panel.getByRole('group', { name: '地点' })).toBeVisible();
-  await expect(panel.getByRole('group', { name: '重要性' })).toHaveCount(0);
+  await expect(panel.getByRole('group', { name: '重要性' })).toHaveCount(1);
   await expect(panel.getByRole('group', { name: '分类' })).toHaveCount(0);
   await expect(panel.getByRole('button', { name: '标星' })).toHaveCount(0);
   await panel.getByRole('button', { name: '完成编辑' }).click();
 
-  // 落库：任务记下所属的项目和组，重要性 0、没有标星
+  // 落库：任务记下所属的项目和组，重要性是默认的随意（0）、没有标星
   const [stored] = await queryRest<
     { group_id: string; project_id: string; importance_level: number; is_starred: boolean }[]
   >(
@@ -196,7 +195,7 @@ test('建组、建项目、邀请（接受 / 拒绝）、昵称；合作组里�
   await expect(pc).not.toHaveURL(/group=/);
   await expect(taskItem(pc, `${id} 甲建的组任务`)).toHaveCount(0);
 
-  // 组任务不能改成收藏 / 带重要性（数据库层面也拦住）
+  // 组任务不能改成收藏（数据库层面也拦住）
   const [task] = await queryRest<{ id: string }[]>(
     pa.request,
     `tasks?select=id&title=eq.${id} 乙建的组任务`,
@@ -220,7 +219,7 @@ test('建组、建项目、邀请（接受 / 拒绝）、昵称；合作组里�
   await Promise.all([pa, pb, pc].map((p) => p.context().close()));
 });
 
-test('在组里点分类：回到个人总览并选中这个分类；/matrix?group= 改成组的清单', async ({
+test('在组里点分类：到这个分类的页面（单选导航，只高亮这一项）；从组页面进矩阵再回来，回到这个组', async ({
   browser,
 }) => {
   const id = runId();
@@ -233,19 +232,22 @@ test('在组里点分类：回到个人总览并选中这个分类；/matrix?gro
   const form = page.getByRole('form', { name: '新建分类' });
   await form.getByLabel('分类名称', { exact: true }).fill(`${id}工作`);
   await form.getByRole('button', { name: '添加分类' }).click();
-  await expect(sidebar(page).getByRole('button', { name: new RegExp(`^${id}工作`) })).toBeVisible();
+  const category = sidebar(page).getByRole('link', { name: new RegExp(`^${id}工作`) });
+  await expect(category).toBeVisible();
 
   await groupLink(page, `${id}组`).click();
   await expect(titleBar(page)).toHaveText(`${id}组`);
-  // 分类仍然显示（个人的），但不是选中状态
-  const category = sidebar(page).getByRole('button', { name: new RegExp(`^${id}工作`) });
-  await expect(category).toHaveAttribute('aria-pressed', 'false');
+  await expect(category).not.toHaveAttribute('aria-current', 'page');
   await category.click();
   await expect(page).not.toHaveURL(/group=/);
   await expect(titleBar(page)).toHaveText(`${id}工作`);
-  await expect(category).toHaveAttribute('aria-pressed', 'true');
+  await expect(category).toHaveAttribute('aria-current', 'page');
+  await expect(groupLink(page, `${id}组`)).not.toHaveAttribute('aria-current', 'page');
 
-  await page.goto(`/matrix?group=${groupId}`);
+  await groupLink(page, `${id}组`).click();
+  await page.getByRole('link', { name: '切换到矩阵' }).click();
+  await expect(page).toHaveURL(new RegExp(`/matrix\\?group=${groupId}$`));
+  await page.getByRole('link', { name: '切换到清单' }).click();
   await expect(page).toHaveURL(new RegExp(`/\\?group=${groupId}$`));
   await expect(titleBar(page)).toHaveText(`${id}组`);
   await page.context().close();

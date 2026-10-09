@@ -14,7 +14,9 @@ import {
   switchMode,
   taskItem,
   titleBox,
-  toggleCategory,
+  filterBar,
+  matrixOnlyCategory,
+  selectCategory,
   waitSaved,
 } from './helpers';
 
@@ -64,26 +66,27 @@ test('矩阵：短期 / 长期两种模式，6 格等宽、中线在正中；逾
   // 选中本用例的分类后快速添加：自动带上该分类，并直接带上截止日期与重要性
   await page.goto('/');
   await createCategory(page, category);
-  await toggleCategory(page, category);
+  await selectCategory(page, category);
   await selectStatus(page, '全部');
 
   const specs = [
-    { name: '明天重要', deadline: localDate(1), importance: 5 },
+    { name: '明天重要', deadline: localDate(1), importance: 3 },
     { name: '下月不重要', deadline: localDate(30), importance: 1 },
-    { name: '无截止重要', importance: 4 },
-    { name: '前两日截止', deadline: localDate(-2), importance: 2 },
-    { name: '远期', deadline: localDate(500), importance: 3 },
+    { name: '无截止重要', importance: 2 },
+    { name: '前两日截止', deadline: localDate(-2), importance: 1 },
+    { name: '远期', deadline: localDate(500), importance: 2 },
     { name: '未处理' },
   ];
   for (const { name, ...options } of specs) await quickAdd(page, t(name), options);
 
-  // LOGO 右边的图标按钮切到矩阵；分类选择沿用；矩阵页没有分类标签、状态行和添加栏
+  // LOGO 右边的图标按钮切到矩阵；左边换成筛选栏；矩阵页没有标题、状态行和添加栏
   await switchMode(page, 'matrix');
+  await matrixOnlyCategory(page, category);
   await expect(page).toHaveURL(/cat=/);
-  await expect(page.getByRole('group', { name: '分类筛选' })).toHaveCount(0);
+  await expect(page.locator('h1.title-bar')).toHaveCount(0);
   await expect(statusBar(page)).toHaveCount(0);
   await expect(page.getByLabel('快速添加任务')).toHaveCount(0);
-  await expect(sidebar(page).getByRole('link', { name: '切换到清单' })).toBeVisible();
+  await expect(filterBar(page).getByRole('link', { name: '切换到清单' })).toBeVisible();
 
   // 矩阵没有外框，和页面背景融为一体
   const card = page.locator('.matrix-card');
@@ -100,8 +103,8 @@ test('矩阵：短期 / 长期两种模式，6 格等宽、中线在正中；逾
   // 短期：N > 14 的不画；远期与未处理不显示
   await expect(page.locator('.matrix-node')).toHaveCount(3);
 
-  // Y 轴：刻度 0–5 标在分界线上，顶端没有"6"
-  await expect(page.getByTestId('matrix-y-tick')).toHaveText(['0', '1', '2', '3', '4', '5']);
+  // Y 轴：刻度 0–3 标在分界线上，顶端没有"4"
+  await expect(page.getByTestId('matrix-y-tick')).toHaveText(['0', '1', '2', '3']);
 
   // X 轴：刻度名在分界线上，从左到右；逾期区不写字
   const shortTicks = ['两周', '一周', '5天', '3天', '2天', '1天'];
@@ -109,7 +112,7 @@ test('矩阵：短期 / 长期两种模式，6 格等宽、中线在正中；逾
   // 矩阵图里只允许出现四种文字：X 轴刻度名、Y 轴刻度数字、四个方位字、任务标题
   const nonTaskTexts = () =>
     page.locator('svg.matrix > text, svg.matrix > g:not(.matrix-node) text').allTextContents();
-  const fixedTexts = ['0', '1', '2', '3', '4', '5', '不紧急', '紧急', '重要', '不重要'];
+  const fixedTexts = ['0', '1', '2', '3', '不紧急', '紧急', '重要', '不重要'];
   expect((await nonTaskTexts()).sort()).toEqual([...shortTicks, ...fixedTexts].sort());
 
   // 6 格等宽：相邻分界线间距相同；中线在 6 格正中（"3天"上）；逾期区是接在右边的 1/4 格
@@ -144,7 +147,7 @@ test('矩阵：短期 / 长期两种模式，6 格等宽、中线在正中；逾
   // 明天：N = 2 → "2天–1天"那一格；圆点在格子里
   await expect(tomorrow).toHaveAttribute('data-quadrant', 'important_urgent');
   await expect(tomorrow).toHaveAttribute('data-column', '4');
-  await expect(tomorrow).toHaveAttribute('data-row', '5');
+  await expect(tomorrow).toHaveAttribute('data-row', '3');
   const shortTickX = await tickXs(page);
   const c = await dotCenter(page, t('明天重要'));
   expect(c.x).toBeGreaterThan(shortTickX.get('2天')!);
@@ -248,16 +251,17 @@ test('矩阵按日历日判档：不看几点几分；紧急与否跟着模式�
   const category = `${id}日历日`;
   await page.goto('/');
   await createCategory(page, category);
-  await toggleCategory(page, category);
+  await selectCategory(page, category);
 
-  await quickAdd(page, t('今天全天'), { deadline: localDate(0), importance: 4 });
-  await quickAdd(page, t('明天零点半'), { deadline: localDate(1), time: '00:30', importance: 4 });
-  await quickAdd(page, t('明天全天'), { deadline: localDate(1), importance: 4 });
+  await quickAdd(page, t('今天全天'), { deadline: localDate(0), importance: 2 });
+  await quickAdd(page, t('明天零点半'), { deadline: localDate(1), time: '00:30', importance: 2 });
+  await quickAdd(page, t('明天全天'), { deadline: localDate(1), importance: 2 });
   // 9 天后：N = 10
-  await quickAdd(page, t('十天'), { deadline: localDate(9), importance: 4 });
+  await quickAdd(page, t('十天'), { deadline: localDate(9), importance: 2 });
   // 15 天后：N = 16
-  await quickAdd(page, t('十六天'), { deadline: localDate(15), importance: 4 });
+  await quickAdd(page, t('十六天'), { deadline: localDate(15), importance: 2 });
   await switchMode(page, 'matrix');
+  await matrixOnlyCategory(page, category);
   await setMatrixMode(page, 'short');
 
   await expect(dot(page, t('今天全天'))).toHaveAttribute('data-column', '5');
@@ -295,11 +299,12 @@ test('标签标题最宽 45ch（随字号变化），超出按宽度截断加省
   const fits = `${id} 不超过宽度的标题`;
   await page.goto('/');
   await createCategory(page, category);
-  await toggleCategory(page, category);
+  await selectCategory(page, category);
   for (const title of [cjk, latin, fits]) {
-    await quickAdd(page, title, { deadline: localDate(1), importance: 4 });
+    await quickAdd(page, title, { deadline: localDate(1), importance: 2 });
   }
   await switchMode(page, 'matrix');
+  await matrixOnlyCategory(page, category);
 
   // 1ch = 标签字体里"0"的宽度
   const ch = await page.evaluate(() => {
@@ -332,21 +337,25 @@ test('标签标题最宽 45ch（随字号变化），超出按宽度截断加省
   await expect(dot(page, fits).locator('.node-title')).toHaveText(fits);
 });
 
-test('矩阵：完成任务后从矩阵消失；分类未命中时不显示', async ({ page }) => {
+test('矩阵：完成任务后从矩阵消失；筛选栏没勾它的分类时不显示', async ({ page }) => {
   const id = runId();
   const title = `${id} 待完成`;
+  const mine = `${id}自己`;
   const other = `${id}其他`;
   await page.goto('/');
+  await createCategory(page, mine);
   await createCategory(page, other);
-  await quickAdd(page, title, { deadline: localDate(2), importance: 3 });
+  await selectCategory(page, mine);
+  await quickAdd(page, title, { deadline: localDate(2), importance: 2 });
 
   await switchMode(page, 'matrix');
+  await matrixOnlyCategory(page, mine);
   await expect(dot(page, title)).toHaveCount(1);
 
-  // 选中一个该任务不属于的分类 → 不显示
-  await toggleCategory(page, other);
+  // 只勾一个该任务不属于的分类 → 不显示
+  await matrixOnlyCategory(page, other);
   await expect(dot(page, title)).toHaveCount(0);
-  await toggleCategory(page, other);
+  await matrixOnlyCategory(page, mine);
 
   await switchMode(page, 'list');
   await selectStatus(page, '全部');
@@ -357,7 +366,7 @@ test('矩阵：完成任务后从矩阵消失；分类未命中时不显示', as
   await expect(dot(page, title)).toHaveCount(0);
 });
 
-test('矩阵只受范围和分类影响：收藏只显示标星；清单页的状态原样保留、不再自动切回清单', async ({
+test('矩阵只看筛选栏的勾选，不受清单所在页面和状态影响；回到清单时回到原来的页面和状态', async ({
   page,
 }) => {
   const id = runId();
@@ -365,40 +374,41 @@ test('矩阵只受范围和分类影响：收藏只显示标星；清单页的�
   const category = `${id}状态`;
   await page.goto('/');
   await createCategory(page, category);
-  await toggleCategory(page, category);
-  await quickAdd(page, t('标星'), { deadline: localDate(2), importance: 4 });
-  await quickAdd(page, t('普通'), { deadline: localDate(3), importance: 2 });
+  await selectCategory(page, category);
+  await quickAdd(page, t('标星'), { deadline: localDate(2), importance: 3 });
+  await quickAdd(page, t('普通'), { deadline: localDate(1), importance: 1 });
   await taskItem(page, t('标星')).getByRole('button', { name: '标星', exact: true }).click();
   await expect(taskItem(page, t('标星')).getByRole('button', { name: '取消标星' })).toBeVisible();
 
-  // 清单页选了"已完成"再切到矩阵：矩阵照常显示，不自动切回清单
+  // 清单页选了"已完成"再切到矩阵：矩阵照常显示勾选的内容
   await selectStatus(page, '已完成');
   await switchMode(page, 'matrix');
-  await expect(page).toHaveURL(/\/matrix\?status=completed/);
+  await expect(page).toHaveURL(/\/matrix\?cat=.*status=completed/);
+  await matrixOnlyCategory(page, category);
   await expect(page.locator('.matrix-node')).toHaveCount(2);
-  await page.goto('/matrix?status=missed&cat=' + new URL(page.url()).searchParams.get('cat'));
-  await expect(page).toHaveURL(/\/matrix\?/);
-  await expect(page.locator('.matrix-node')).toHaveCount(2);
-
-  // 收藏：只显示标星任务；标星不改变它在矩阵上的位置
-  await selectScope(page, '收藏');
-  await expect(page).toHaveURL(/\/matrix\?scope=starred/);
-  await expect(page.locator('.matrix-node')).toHaveCount(1);
-  await expect(dot(page, t('标星'))).toHaveAttribute('data-row', '4');
+  await expect(dot(page, t('标星'))).toHaveAttribute('data-row', '3');
   await expect(page.getByRole('region', { name: '重要且紧急', exact: true })).toContainText(
     t('标星'),
   );
-  await expect(page.getByRole('region', { name: '紧急不重要', exact: true })).not.toContainText(
+  await expect(page.getByRole('region', { name: '紧急不重要', exact: true })).toContainText(
     t('普通'),
   );
 
-  // 切回清单：范围、分类、状态都还在
+  // 切回清单：回到这个分类、状态还是"已完成"
   await switchMode(page, 'list');
-  await expect(page.getByRole('heading', { level: 1, name: '收藏' })).toBeVisible();
-  await expect(statusBar(page).getByRole('button', { name: '已错过' })).toHaveAttribute(
+  await expect(page.getByRole('heading', { level: 1, name: category })).toBeVisible();
+  await expect(statusBar(page).getByRole('button', { name: '已完成' })).toHaveAttribute(
     'aria-pressed',
     'true',
   );
+
+  // 从"收藏"进入矩阵：还是上一次的勾选（不是只看标星）
+  await selectScope(page, '收藏');
+  await switchMode(page, 'matrix');
+  await expect(page).toHaveURL(/\/matrix\?scope=starred/);
+  await expect(page.locator('.matrix-node')).toHaveCount(2);
+  await switchMode(page, 'list');
+  await expect(page.getByRole('heading', { level: 1, name: '收藏' })).toBeVisible();
 });
 
 test('逾期区：一个区、不分道、不写字；圆点按重要性竖向定位、互不重叠；满 3 天退场；两种模式都有', async ({
@@ -409,16 +419,17 @@ test('逾期区：一个区、不分道、不写字；圆点按重要性竖向�
   const category = `${id}逾期`;
   await page.goto('/');
   await createCategory(page, category);
-  await toggleCategory(page, category);
+  await selectCategory(page, category);
   await selectStatus(page, '全部');
   // 今天 00:00 已经过去（除非恰好在午夜运行）→ 逾期 0 天
-  await quickAdd(page, t('今日零点截止'), { deadline: localDate(0), time: '00:00', importance: 3 });
+  await quickAdd(page, t('今日零点截止'), { deadline: localDate(0), time: '00:00', importance: 2 });
   // 日期型：从截止日期的次日 00:00 起逾期
-  await quickAdd(page, t('昨天截止'), { deadline: localDate(-1), importance: 3 });
-  await quickAdd(page, t('前天截止'), { deadline: localDate(-2), importance: 3 });
+  await quickAdd(page, t('昨天截止'), { deadline: localDate(-1), importance: 2 });
+  await quickAdd(page, t('前天截止'), { deadline: localDate(-2), importance: 2 });
   await quickAdd(page, t('不重要的'), { deadline: localDate(-1), importance: 1 });
-  await quickAdd(page, t('三天前截止'), { deadline: localDate(-3), importance: 3 });
+  await quickAdd(page, t('三天前截止'), { deadline: localDate(-3), importance: 2 });
   await switchMode(page, 'matrix');
+  await matrixOnlyCategory(page, category);
 
   for (const mode of ['short', 'long'] as const) {
     await setMatrixMode(page, mode);
@@ -441,7 +452,7 @@ test('逾期区：一个区、不分道、不写字；圆点按重要性竖向�
         expect(d).toBeGreaterThanOrEqual(13);
       }
     }
-    // 竖向按重要性：重要性 1 的在重要性 3 的下面
+    // 竖向按重要性：可以（1）在应该（2）的下面
     expect(centers[3]!.y).toBeGreaterThan(Math.max(centers[0]!.y, centers[1]!.y, centers[2]!.y));
     // 逾期区里没有刻度
     await expect(page.getByTestId('matrix-x-tick').locator('line')).toHaveCount(6);
@@ -459,9 +470,10 @@ test('四象限清单：每行有完成勾选，完成后离开矩阵和清单',
   const category = `${id}象限`;
   await page.goto('/');
   await createCategory(page, category);
-  await toggleCategory(page, category);
-  await quickAdd(page, title, { deadline: localDate(2), importance: 4 });
+  await selectCategory(page, category);
+  await quickAdd(page, title, { deadline: localDate(2), importance: 2 });
   await switchMode(page, 'matrix');
+  await matrixOnlyCategory(page, category);
 
   const quadrant = page.getByRole('region', { name: '重要且紧急', exact: true });
   await quadrant.getByRole('checkbox', { name: `完成：${title}` }).click();
@@ -497,7 +509,7 @@ test('对照表截图：固定 now 为周一 15:54；短期、长期各一张，
   const category = `${id}周一`;
   await page.goto('/');
   await createCategory(page, category);
-  await toggleCategory(page, category);
+  await selectCategory(page, category);
   await selectStatus(page, '全部');
 
   // [标题, 截止日期, 短期所在格的左右刻度名, 长期所在格的左右刻度名]；null = 不显示；右侧 null = 逾期区
@@ -533,15 +545,16 @@ test('对照表截图：固定 now 为周一 15:54；短期、长期各一张，
     '取快递',
   ];
   for (const [title, date] of table) {
-    await quickAdd(page, title, { deadline: date, importance: 3 });
+    await quickAdd(page, title, { deadline: date, importance: 2 });
   }
   for (const name of crowded) {
-    await quickAdd(page, `周二·${name}`, { deadline: '2026-10-06', importance: 4 });
+    await quickAdd(page, `周二·${name}`, { deadline: '2026-10-06', importance: 3 });
   }
   const crowdedTable = crowded.map(
     (name) => [`周二·${name}`, '2026-10-06', ['2天', '1天'], ['3天', null]] as const,
   );
   await switchMode(page, 'matrix');
+  await matrixOnlyCategory(page, category);
 
   for (const mode of ['short', 'long'] as const) {
     await setMatrixMode(page, mode);

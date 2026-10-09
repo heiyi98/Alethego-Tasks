@@ -6,7 +6,13 @@ import {
   IMPORTANCE_LEVELS_STRONG_FIRST,
   isImportant,
 } from '../domain/importance';
-import { subtaskApplies, subtaskProgress, subtasksFor, type Subtask } from '../domain/subtask';
+import {
+  occurrenceListAsOf,
+  subtaskApplies,
+  subtaskProgress,
+  subtasksFor,
+  type Subtask,
+} from '../domain/subtask';
 import type { Task } from '../domain/task';
 import {
   DEFAULT_MATRIX_FILTER,
@@ -223,6 +229,24 @@ describe('子任务', () => {
     ]);
     expect(subtasksFor(list, sh('2026-10-09T09:00:00')).map((s) => s.id)).toEqual(['old', 'new']);
     expect(subtaskApplies(list[1]!, sh('2026-10-05T00:00:00'))).toBe(false);
+  });
+  it('提前完成的那一次：清单定格在完成的时刻，之后加的不算进它', () => {
+    const date = sh('2026-10-09T09:00:00');
+    const early = {
+      occurrenceDate: date,
+      status: 'completed',
+      completedAt: sh('2026-10-05T12:00:00'),
+    };
+    expect(occurrenceListAsOf(early)).toEqual(sh('2026-10-05T12:00:00'));
+    expect(subtasksFor(list, date, occurrenceListAsOf(early)).map((s) => s.id)).toEqual(['old']);
+    // 按时完成或还没完成的：就是这一次的时间
+    const late = {
+      occurrenceDate: date,
+      status: 'completed',
+      completedAt: sh('2026-10-09T10:00:00'),
+    };
+    expect(occurrenceListAsOf(late)).toEqual(date);
+    expect(occurrenceListAsOf({ ...early, status: 'missed' })).toEqual(date);
   });
   it('进度按这一次自己的勾选算，各次互不相关', () => {
     const d1 = sh('2026-10-03T09:00:00');

@@ -3,13 +3,13 @@ import { expect, test, type Page } from '@playwright/test';
 import {
   createCategory,
   editPanel,
-  categoryToggle,
+  categoryItem,
   openTask,
   queryRest,
   quickAdd,
   runId,
   selectStatus,
-  toggleCategory,
+  selectCategory,
   sidebar,
   taskItem,
 } from './helpers';
@@ -19,7 +19,7 @@ const randomColor = () =>
     .toString(16)
     .padStart(6, '0')}`;
 
-const categoriesRegion = (page: Page) => sidebar(page).getByRole('region', { name: '分类' });
+const categoriesRegion = (page: Page) => sidebar(page).getByRole('region', { name: '个人' });
 
 async function editCategory(page: Page, name: string) {
   await categoriesRegion(page)
@@ -49,7 +49,7 @@ test('新建分类可以手动选择颜色；颜色可以和别的分类相同',
   await form.getByRole('radio', { name: chosen }).click();
   await expect(form.getByRole('radio', { name: chosen })).toHaveAttribute('aria-checked', 'true');
   await form.getByRole('button', { name: '添加分类' }).click();
-  await expect(categoryToggle(page, `${id}甲`)).toBeVisible();
+  await expect(categoryItem(page, `${id}甲`)).toBeVisible();
 
   // 再新建时：用过的颜色照样能选，没有任何提示
   await sidebar(page).getByRole('button', { name: '+ 新建分类' }).click();
@@ -61,7 +61,7 @@ test('新建分类可以手动选择颜色；颜色可以和别的分类相同',
   await form2.getByLabel('自选颜色').fill(chosen.toLowerCase());
   await expect(form2.getByRole('alert')).toHaveCount(0);
   await form2.getByRole('button', { name: '添加分类' }).click();
-  await expect(categoryToggle(page, `${id}乙`)).toBeVisible();
+  await expect(categoryItem(page, `${id}乙`)).toBeVisible();
 });
 
 test('编辑分类：名称、描述、颜色（可以和别的分类相同）；描述只在编辑表单里显示', async ({
@@ -93,17 +93,15 @@ test('编辑分类：名称、描述、颜色（可以和别的分类相同）�
   await form.getByRole('button', { name: '保存分类' }).click();
   await expect(form).toHaveCount(0);
 
-  // 没有悬停提示：描述不出现在标题栏胶囊、侧边栏或页面上，只在编辑表单里（侧边栏的铅笔）
-  await toggleCategory(page, `${second}改`);
-  const capsule = page.getByTestId('title-capsule').filter({ hasText: `${second}改` });
-  await expect(capsule).not.toHaveAttribute('title', /.*/);
-  await expect(categoryToggle(page, `${second}改`)).not.toHaveAttribute('title', /.*/);
+  // 没有悬停提示：描述不出现在标题栏、侧边栏或页面上，只在编辑表单里（侧边栏的铅笔）
+  await selectCategory(page, `${second}改`);
+  await expect(page.locator('h1.title-bar')).not.toHaveAttribute('title', /.*/);
+  await expect(categoryItem(page, `${second}改`)).not.toHaveAttribute('title', /.*/);
   await expect(page.getByRole('main')).not.toContainText('周末的家务');
   await expect(sidebar(page)).not.toContainText('周末的家务');
   const reopened = await editCategory(page, `${second}改`);
   await expect(reopened.getByLabel('分类描述')).toHaveValue('周末的家务');
   await reopened.getByRole('button', { name: '取消' }).click();
-  await toggleCategory(page, `${second}改`);
 
   const [saved] = await queryRest<{ name: string; description: string; color: string }[]>(
     request,
@@ -118,7 +116,7 @@ test('编辑分类：名称、描述、颜色（可以和别的分类相同）�
   await expect(again).toContainText('请输入分类名称');
   await again.getByRole('button', { name: '取消' }).click();
   await expect(
-    categoriesRegion(page).getByRole('button', { name: new RegExp(`^${second}改`) }),
+    categoriesRegion(page).getByRole('link', { name: new RegExp(`^${second}改`) }),
   ).toBeVisible();
 });
 
@@ -131,7 +129,7 @@ test('删除分类：图标确认框说明任务保留；取消不删；确认�
   const title = `${id} 分类里的任务`;
   await page.goto('/');
   await createCategory(page, category);
-  await toggleCategory(page, category);
+  await selectCategory(page, category);
   await quickAdd(page, title);
   await expect(taskItem(page, title)).toContainText(category);
 
@@ -144,12 +142,11 @@ test('删除分类：图标确认框说明任务保留；取消不删；确认�
   await expect(dialog).toHaveCount(0);
   await expect(form).toBeVisible();
 
-  // 确认：分类消失，并从当前选择中去掉（回到所有分类）
+  // 确认：分类消失；正在看的就是这个分类时回到总览
   await form.getByRole('button', { name: '删除分类' }).click();
   await dialog.getByRole('button', { name: '删除分类' }).click();
-  await expect(categoryToggle(page, category)).toHaveCount(0);
+  await expect(categoryItem(page, category)).toHaveCount(0);
   await expect(page).not.toHaveURL(/cat=/);
-  await expect(page.getByTestId('title-capsule')).toHaveCount(0);
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('总览');
 
   // 任务保留，不再属于任何分类

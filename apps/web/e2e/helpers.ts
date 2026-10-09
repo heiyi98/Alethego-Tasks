@@ -52,11 +52,16 @@ export async function queryRest<T>(
 export const quickAddBar = (page: Page) => page.locator('.quick-add');
 
 /** 在一组"重要性"按钮中选择 level */
-export async function pickImportance(scope: Locator, level: number) {
-  await scope
+/** 重要性四档的名字：0 = 随意、1 = 可以、2 = 应该、3 = 必须 */
+export const IMPORTANCE_NAMES = ['随意', '可以', '应该', '必须'] as const;
+
+export const importanceButton = (scope: Locator, level: number) =>
+  scope
     .getByRole('group', { name: '重要性' })
-    .getByRole('button', { name: `重要性 ${level}`, exact: true })
-    .click();
+    .getByRole('button', { name: IMPORTANCE_NAMES[level]!, exact: true });
+
+export async function pickImportance(scope: Locator, level: number) {
+  await importanceButton(scope, level).click();
 }
 
 export const dateInput = (scope: Locator) => scope.locator('input[aria-label="截止日期"]');
@@ -182,7 +187,7 @@ export async function selectStatus(page: Page, label: string) {
   await expect(button).toHaveAttribute('aria-pressed', 'true');
 }
 
-/** 侧边栏上区（单选）：总览 / 收藏（链接名后面跟着计数）；总览 = 清空分类选择 */
+/** 侧边栏最上面（单选导航）：总览 / 今日 / 收藏（链接名后面跟着计数） */
 export const scopeItem = (page: Page, label: string) =>
   sidebar(page)
     .getByRole('region', { name: '范围' })
@@ -193,18 +198,18 @@ export async function selectScope(page: Page, label: string) {
   await expect(page.getByRole('heading', { level: 1, name: label })).toBeVisible();
 }
 
-/** 侧边栏"分类"区块中的分类开关（可多选累加） */
-export const categoryToggle = (page: Page, name: string) =>
+/** 侧边栏"个人"分区里的一个分类（单选导航：点一下就是这个分类的页面） */
+export const categoryItem = (page: Page, name: string) =>
   sidebar(page)
-    .getByRole('region', { name: '分类' })
-    .getByRole('button', { name: new RegExp(`^${name}`) });
+    .getByRole('region', { name: '个人' })
+    .getByRole('link', { name: new RegExp(`^${name}`) });
 
-/** 切换某个分类的选中状态，并等待 URL / 按钮状态更新 */
-export async function toggleCategory(page: Page, name: string) {
-  const toggle = categoryToggle(page, name);
-  const before = await toggle.getAttribute('aria-pressed');
-  await toggle.click();
-  await expect(toggle).toHaveAttribute('aria-pressed', before === 'true' ? 'false' : 'true');
+/** 打开某个分类的页面：标题就是分类名，这一行整行高亮 */
+export async function selectCategory(page: Page, name: string) {
+  const item = categoryItem(page, name);
+  await item.click();
+  await expect(item).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('heading', { level: 1, name })).toBeVisible();
 }
 
 /** 在侧边栏新建分类（颜色默认取调色板中第一个未被使用的）；创建后不改变当前的选择 */
@@ -213,15 +218,52 @@ export async function createCategory(page: Page, name: string) {
   const form = page.getByRole('form', { name: '新建分类' });
   await form.getByLabel('分类名称', { exact: true }).fill(name);
   await form.getByRole('button', { name: '添加分类' }).click();
-  await expect(categoryToggle(page, name)).toBeVisible();
+  await expect(categoryItem(page, name)).toBeVisible();
 }
 
-/** 清单 / 矩阵切换（LOGO 右边的图标按钮） */
+/** 清单 / 矩阵切换（左上角 LOGO 右边的图标按钮；矩阵里在筛选栏上） */
 export async function switchMode(page: Page, to: 'matrix' | 'list') {
-  await sidebar(page)
-    .getByRole('link', { name: to === 'matrix' ? '切换到矩阵' : '切换到清单' })
-    .click();
+  await page.getByRole('link', { name: to === 'matrix' ? '切换到矩阵' : '切换到清单' }).click();
   await expect(page).toHaveURL(to === 'matrix' ? /\/matrix/ : /localhost:\d+\/(\?|$)/);
+}
+
+/** 矩阵的筛选栏（进入矩阵后替换左边的侧边栏） */
+export const filterBar = (page: Page) => page.getByRole('navigation', { name: '矩阵筛选' });
+
+/** 筛选栏里某一行的勾选框（名字精确匹配） */
+export const filterCheck = (page: Page, name: string) =>
+  filterBar(page).getByRole('checkbox', { name, exact: true });
+
+/**
+ * 矩阵里只勾某一个个人分类（用例之间共用主测试账号：只看本用例的分类，别的用例的任务不出现）。
+ * 先把"个人"整个取消（部分选中时点一下是全勾，再点一下是全不勾），再勾这个分类；组都不勾。
+ */
+export async function matrixOnlyCategory(page: Page, category: string) {
+  const personal = filterCheck(page, '个人');
+  for (let i = 0; i < 2 && (await personal.getAttribute('aria-checked')) !== 'false'; i++) {
+    await personal.click();
+  }
+  await expect(personal).toHaveAttribute('aria-checked', 'false');
+  for (const box of await filterBar(page)
+    .getByRole('region', { name: '组' })
+    .getByRole('checkbox')
+    .all()) {
+    if (await box.isChecked()) await box.uncheck();
+  }
+  await filterCheck(page, category).check();
+}
+
+/** 矩阵里勾上全部个人任务、组都不勾（用例之间共用主测试账号，上一个用例的勾选会留在账号上） */
+export async function matrixAllPersonal(page: Page) {
+  const personal = filterCheck(page, '个人');
+  if ((await personal.getAttribute('aria-checked')) !== 'true') await personal.click();
+  await expect(personal).toHaveAttribute('aria-checked', 'true');
+  for (const box of await filterBar(page)
+    .getByRole('region', { name: '组' })
+    .getByRole('checkbox')
+    .all()) {
+    if (await box.isChecked()) await box.uncheck();
+  }
 }
 
 /* ---------------- 数据库时钟（只用于本地端到端测试） ---------------- */

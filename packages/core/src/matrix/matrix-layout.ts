@@ -90,8 +90,6 @@ export function buildMatrixLayout(
   const points: MatrixPoint[] = [];
 
   for (const task of sources.tasks) {
-    // 组任务不进矩阵
-    if (task.groupId !== null) continue;
     const representative = resolveTaskRepresentative(
       task,
       sources.occurrencesByTask?.get(task.id) ?? [],

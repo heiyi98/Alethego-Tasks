@@ -164,13 +164,13 @@ describe('buildMatrixLayout', () => {
   });
 });
 
-describe('组任务不进矩阵', () => {
-  it('图和四象限清单里都没有组任务', () => {
+describe('组任务', () => {
+  it('传进来的组任务照常放进矩阵（选哪些任务由筛选栏决定）', () => {
     const result = layout([
       task('mine', { deadlineAt: sh('2026-09-25T09:00:00'), importanceLevel: 3 }),
-      task('group', { deadlineAt: sh('2026-09-25T09:00:00'), groupId: 'g1' }),
+      task('group', { deadlineAt: sh('2026-09-25T09:00:00'), groupId: 'g1', projectId: 'p1' }),
     ]);
-    expect(result.points.map((p) => p.task.id)).toEqual(['mine']);
+    expect(result.points.map((p) => p.task.id).sort()).toEqual(['group', 'mine']);
   });
 });
 

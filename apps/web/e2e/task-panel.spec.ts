@@ -54,7 +54,7 @@ test('展开面板新建：三角旋转、收起不丢内容（三角 / 点外�
   const inputBox = (await panel.getByLabel('快速添加任务').boundingBox())!;
   const surfaceBox = (await panel.getByRole('dialog', { name: '新建任务' }).boundingBox())!;
   expect(surfaceBox.y).toBeGreaterThanOrEqual(inputBox.y + inputBox.height - 1);
-  await expect(panel.getByRole('button', { name: '重要性 3', exact: true })).toHaveAttribute(
+  await expect(panel.getByRole('button', { name: '必须', exact: true })).toHaveAttribute(
     'aria-pressed',
     'true',
   );
@@ -99,7 +99,7 @@ test('展开面板新建：三角旋转、收起不丢内容（三角 / 点外�
   await expect(panel).toHaveCount(0);
   await expect(taskItem(page, title)).toBeVisible();
   await expect(page.getByLabel('快速添加任务')).toHaveValue('');
-  await expect(taskItem(page, title)).toContainText('重要性 3');
+  await expect(taskItem(page, title)).toContainText('必须');
 
   const taskId = await openTask(page, title);
   await expect(editPanel(page).getByRole('textbox', { name: '描述' })).toHaveValue('带上身份证');

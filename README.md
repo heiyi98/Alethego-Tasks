@@ -67,6 +67,7 @@ supabase db reset   # 应用 supabase/migrations
 还需要在控制台 **Project Settings → API → Exposed schemas** 中加入 `taskapp`，前端才能访问。
 
 **数据库的工作规则**：
+
 - 上线前（现在）：数据库的改动直接改进 `supabase/migrations/20261007000000_initial_schema.sql` 这份初始结构，不新增迁移文件；
   同步运行 `node supabase/scripts/build-full-schema.mjs` 重新生成完整建库脚本。测试数据可以随时清空。
 - 上线后：只能新增迁移，保留现有数据。

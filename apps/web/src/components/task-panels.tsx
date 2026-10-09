@@ -6,6 +6,7 @@ import {
   normalizePeopleDrafts,
   resolveRepresentativeInstance,
   seriesFromTask,
+  occurrenceListAsOf,
   subtaskProgress,
   subtasksFor,
   taskPermissions,
@@ -750,7 +751,11 @@ export function EditPanel({
         subtaskChecks={subtaskChecks}
         historyProgress={(date) => {
           const all = data?.subtasksByTask.get(loaded.task.id) ?? [];
-          const progress = subtaskProgress(all, data?.subtaskChecks ?? [], date);
+          const occurrence = data?.occurrencesByTask
+            .get(loaded.task.id)
+            ?.find((o) => o.occurrenceDate.getTime() === date.getTime());
+          const asOf = occurrence ? occurrenceListAsOf(occurrence) : date;
+          const progress = subtaskProgress(all, data?.subtaskChecks ?? [], date, asOf);
           return progress.total > 0 ? `${progress.done}/${progress.total}` : null;
         }}
       />

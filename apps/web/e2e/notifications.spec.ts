@@ -273,7 +273,7 @@ test('简介行一直存在、高度固定：个人、没开和开了任务分�
   );
   const page = await openAs(browser, L);
   await quickAdd(page, `${id} 没有简介`);
-  await quickAdd(page, `${id} 有截止和重要性`, { deadline: localDate(3), importance: 4 });
+  await quickAdd(page, `${id} 有截止和重要性`, { deadline: localDate(3), importance: 3 });
   for (let i = 0; i < 6; i++) await createCategory(page, `${id}很长的分类名称${i}`);
 
   const heights: number[] = [];
