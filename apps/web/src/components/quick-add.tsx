@@ -24,6 +24,7 @@ import {
   type FormErrors,
   type TaskFormValue,
 } from '@/lib/task-form';
+import { toDateValue } from '@/lib/format';
 
 /**
  * 快速添加（每个清单页面都有）：输入栏本身就是标题，下方一行常用选项（重要性、截止日期 / 时刻），
@@ -36,12 +37,15 @@ import {
 export function QuickAdd({
   categories,
   starred,
+  dueToday = false,
   groupId = null,
   projectId = null,
 }: {
   categories: readonly Category[];
   /** 在"收藏"里：新任务默认标星 */
   starred: boolean;
+  /** 在"今日"里：新任务的截止日期默认是今天（建好后就在今日里） */
+  dueToday?: boolean;
   /** 当前所在的组；null = 个人 */
   groupId?: string | null;
   /** 当前所在的项目；在组页面为 null（先选项目） */
@@ -86,6 +90,7 @@ export function QuickAdd({
   };
   const form: TaskFormValue = {
     ...draft,
+    deadline: draft.deadline || (dueToday ? toDateValue(now) : ''),
     categoryIds: draft.categoryIds ?? defaults.categoryIds,
     isStarred: draft.isStarred ?? defaults.isStarred,
     raci: draft.raci ?? defaults.raci,

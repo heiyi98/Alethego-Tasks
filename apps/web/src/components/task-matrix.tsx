@@ -3,6 +3,7 @@
 import {
   MATRIX_COLUMNS,
   MATRIX_ROWS,
+  MATRIX_ROW_MIDLINE,
   layoutLabels,
   separateDots,
   type Category,
@@ -14,7 +15,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { usePanels } from './panel-provider';
-import { QUADRANT_LABELS, formatDeadline } from '@/lib/format';
+import { QUADRANT_LABELS, formatDeadline, importanceLabel } from '@/lib/format';
 import { MIDLINE_BOUNDARY, slotKey, xTicks } from '@/lib/matrix-axis';
 import {
   TITLE_MAX_CH,
@@ -29,7 +30,8 @@ import {
  *
  * X 轴：短期 / 长期两种模式都是 6 个等宽的格子，按日历日判档，刻度名标在分界线上，中线在 6 格正中；
  * 逾期区接在 6 格最右边（1/4 格宽，不写字）；没设截止日期的任务贴在图的最左边缘。
- * Y 轴：刻度 0–5 标在分界线上，重要性 N 落在标 N 那条线上方的一格；中线在刻度 3 上。
+ * Y 轴：重要性四档，刻度 0–3 标在分界线上（0 = 随意、3 = 必须，只写数字），重要性 N 落在标 N 那条线上方的一格；
+ * 中线在刻度 2 上（"应该"和"可以"之间），上下各两档。
  *
  * 图里只出现四种文字：X 轴刻度名、Y 轴刻度数字、四个方位字、任务标题。
  * 圆点是任务的位置，永远在所属格子里；标签（写在细横线上的标题，最宽 45ch）用力导向算法排布，
@@ -45,8 +47,8 @@ const PLOT_W = VIEW_W - M.left - M.right;
 const PLOT_H = VIEW_H - M.top - M.bottom;
 const COL_W = PLOT_W / (MATRIX_COLUMNS + OVERDUE_CELLS);
 const ROW_H = PLOT_H / MATRIX_ROWS;
-/** 重要区：重要性 3–5（上三） */
-const FIRST_IMPORTANT_ROW = 3;
+/** 重要区：应该、必须（上两档）；中线在"应该"和"可以"之间 */
+const FIRST_IMPORTANT_ROW = MATRIX_ROW_MIDLINE;
 
 /** 圆点 */
 const DOT_R = 5;
@@ -64,7 +66,7 @@ const TEXT_PAD = 1;
 const colX = (boundary: number) => M.left + boundary * COL_W;
 /** 重要性 row 所在一格的顶边（重要性 N 在标 N 那条线上方的一格） */
 const rowTop = (row: number) => M.top + (MATRIX_ROWS - 1 - row) * ROW_H;
-/** 重要性刻度 v（0–5）所在分界线的 y：第 v 格的下边 */
+/** 重要性刻度 v（0–3）所在分界线的 y：第 v 格的下边 */
 const valueY = (v: number) => M.top + (MATRIX_ROWS - v) * ROW_H;
 const OVERDUE_LEFT = colX(MATRIX_COLUMNS);
 const PLOT_RIGHT = OVERDUE_LEFT + COL_W * OVERDUE_CELLS;
@@ -314,7 +316,7 @@ export function TaskMatrix({
             不重要
           </text>
 
-          {/* Y 轴刻度：0–5 标在分界线上 */}
+          {/* Y 轴刻度：0–3 标在分界线上 */}
           {Array.from({ length: MATRIX_ROWS }, (_, v) => (
             <g key={v} data-testid="matrix-y-tick">
               <line
@@ -366,7 +368,7 @@ export function TaskMatrix({
             const aria = [
               point.task.title,
               describeDeadline(point, now, timeZone),
-              `重要性 ${point.task.importanceLevel}`,
+              importanceLabel(point.task.importanceLevel),
               QUADRANT_LABELS[point.quadrant],
             ].join('，');
             return (

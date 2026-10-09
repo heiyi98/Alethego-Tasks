@@ -2,15 +2,17 @@ import type { RecurrenceOccurrence } from '../domain/occurrence';
 import type { Task } from '../domain/task';
 import { deriveTaskStatus, type TaskStatus } from '../domain/task-status';
 import { resolveRepresentativeInstance, seriesFromTask } from '../recurrence/recurrence-engine';
-import type { EvaluationContext } from '../time/zoned-time';
+import { calendarDaysBetween, localDayNumber, type EvaluationContext } from '../time/zoned-time';
+import { OVERDUE_MATRIX_GRACE_DAYS } from '../urgency/tiers';
 import { listDeadlineOf, sortByDeadline } from './task-list-order';
 
 /**
- * 范围（左侧菜单上区，单选）：全部 / 收藏。收藏 = 所有标星任务。
+ * 范围（左侧菜单最上面三项，和分类、组、项目一起单选）：
+ * 总览（我所有的个人任务）/ 今日 / 收藏（标星的个人任务）。
  */
-export type ListScope = 'all' | 'starred';
+export type ListScope = 'all' | 'today' | 'starred';
 
-export const LIST_SCOPES: readonly ListScope[] = ['all', 'starred'];
+export const LIST_SCOPES: readonly ListScope[] = ['all', 'today', 'starred'];
 
 export const DEFAULT_LIST_SCOPE: ListScope = 'all';
 
@@ -32,8 +34,8 @@ export const STATUS_FILTERS: readonly StatusFilter[] = [
 export const DEFAULT_STATUS_FILTER: StatusFilter = 'todo';
 
 /**
- * 内容 = 容器（个人 / 某一个组）∩ 所选范围 ∩ 所选分类的并集 ∩ 所选状态。
- * 在组里时范围和分类不起作用（组里没有收藏和分类）。
+ * 内容 = 所选那一项（总览 / 今日 / 收藏 / 某个分类 / 某个组 / 组里的某个项目）∩ 所选状态。
+ * 今日 = 我的个人任务和"和我有关的组任务"里，今天截止的、以及逾期不满 3 天还没完成的。
  */
 export interface TaskListFilter {
   /** 容器：null / 不传 = 个人（总览）；组 id = 这个组的任务 */
@@ -43,8 +45,51 @@ export interface TaskListFilter {
   /** 默认"全部" */
   scope?: ListScope;
   status: StatusFilter;
-  /** 选中的分类（多选，命中其一即显示）；为空表示所有分类 */
+  /** 选中的分类（命中其一即显示）；为空表示所有分类 */
   categoryIds: readonly string[];
+  /** 今日用："和我有关的组任务"（见 isRelatedGroupTask） */
+  isRelatedGroupTask?: (task: Task) => boolean;
+}
+
+/**
+ * 今日：今天截止的任务（不管完成没有），以及逾期不满 3 天、还没完成的任务
+ * （逾期满 3 天离开今日，和矩阵的逾期区一致，见 OVERDUE_MATRIX_GRACE_DAYS）。
+ * 循环任务看它当前的代表实例。
+ */
+export function isTodayTask(
+  task: Task,
+  occurrences: readonly Pick<RecurrenceOccurrence, 'occurrenceDate' | 'status'>[],
+  context: EvaluationContext,
+): boolean {
+  const deadline = listDeadlineOf(task, occurrences, context);
+  if (!deadline) return false;
+  if (
+    localDayNumber(deadline, context.timeZone) === localDayNumber(context.now, context.timeZone)
+  ) {
+    return true;
+  }
+  if (deadline.getTime() >= context.now.getTime()) return false;
+  if (deriveListStatus(task, occurrences, context) === 'completed') return false;
+  return calendarDaysBetween(deadline, context.now, context.timeZone) < OVERDUE_MATRIX_GRACE_DAYS;
+}
+
+/**
+ * "和我有关的组任务"：开了任务分配的项目里，我是执行人的任务；没开任务分配的项目里，
+ * 我所在项目的全部任务（看得到的组任务都在我所在的项目里）。
+ */
+export function isRelatedGroupTask(
+  task: Pick<Task, 'id' | 'projectId'>,
+  context: {
+    myUserId: string;
+    projectHasAssignment: (projectId: string) => boolean;
+    assignmentsOf: (taskId: string) => readonly { role: string; userId: string | null }[];
+  },
+): boolean {
+  if (!task.projectId) return false;
+  if (!context.projectHasAssignment(task.projectId)) return true;
+  return context
+    .assignmentsOf(task.id)
+    .some((a) => a.role === 'R' && a.userId === context.myUserId);
 }
 
 /**
@@ -72,7 +117,7 @@ export function matchesStatusFilter(
 }
 
 export function matchesScope(task: Pick<Task, 'isStarred'>, scope: ListScope): boolean {
-  return scope === 'all' || task.isStarred;
+  return scope !== 'starred' || task.isStarred;
 }
 
 /** 分类多选：命中其一即显示（逻辑或）；未点亮任何分类时不筛选。 */
@@ -103,14 +148,22 @@ export function buildTaskList(
 ): Task[] {
   const scope = filter.scope ?? DEFAULT_LIST_SCOPE;
   const groupId = filter.groupId ?? null;
+  const today = groupId === null && scope === 'today';
+  const occurrencesOf = (task: Task) => sources.occurrencesByTask?.get(task.id) ?? [];
   const rows = sources.tasks
     .filter((task) => !task.deletedAt)
-    .filter((task) => task.groupId === groupId)
+    .filter((task) =>
+      today
+        ? task.groupId === null || (filter.isRelatedGroupTask?.(task) ?? false)
+        : task.groupId === groupId,
+    )
     .filter((task) => !filter.projectId || task.projectId === filter.projectId)
-    .filter((task) => groupId !== null || matchesScope(task, scope))
+    .filter((task) => !today || isTodayTask(task, occurrencesOf(task), context))
+    .filter((task) => groupId !== null || today || matchesScope(task, scope))
     .filter(
       (task) =>
         groupId !== null ||
+        today ||
         matchesCategoryFilter(sources.categoryIdsByTask.get(task.id) ?? [], filter.categoryIds),
     )
     .filter((task) => {
@@ -127,7 +180,7 @@ export function buildTaskList(
   return sortByDeadline(rows).map((row) => row.task);
 }
 
-/** 快速添加时新任务自动带上的分类：当前选中的全部分类；没选分类就不带。 */
+/** 快速添加时新任务自动带上的分类：在某个分类里新建就带上它；没选分类就不带。 */
 export function categoriesForQuickAdd(selectedCategoryIds: readonly string[]): string[] {
   return [...new Set(selectedCategoryIds)];
 }

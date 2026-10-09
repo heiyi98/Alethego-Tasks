@@ -34,11 +34,11 @@ describe('resolveTaskRepresentative', () => {
     const task = {
       ...baseTask,
       deadlineAt: sh('2026-09-26T18:00:00'),
-      importanceLevel: 4 as const,
+      importanceLevel: 3 as const,
     };
     expect(resolveTaskRepresentative(task, [], context)).toEqual({
       taskId: 'task-1',
-      importanceLevel: 4,
+      importanceLevel: 3,
       deadlineAt: task.deadlineAt,
       occurrenceAt: null,
     });
@@ -51,7 +51,7 @@ describe('resolveTaskRepresentative', () => {
   });
 
   it('已删除的任务没有代表', () => {
-    const task = { ...baseTask, importanceLevel: 5 as const, deletedAt: context.now };
+    const task = { ...baseTask, importanceLevel: 3 as const, deletedAt: context.now };
     expect(resolveTaskRepresentative(task, [], context)).toBeNull();
   });
 

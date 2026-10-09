@@ -53,6 +53,7 @@ export function RecurrenceEditor({
   onChange,
   records,
   onToggleRecord,
+  historyProgress,
   now,
   timeZone,
 }: {
@@ -64,6 +65,8 @@ export function RecurrenceEditor({
   records: readonly RecurrenceOccurrence[];
   /** 切换某次实例的完成状态；不传时不显示历史（例如新建时） */
   onToggleRecord?: (record: RecurrenceOccurrence, completed: boolean) => void;
+  /** 历史里每一次的子任务进度（例如 2/5）；那一次没有子任务时为 null */
+  historyProgress?: (occurrenceDate: Date) => string | null;
   now: Date;
   timeZone: string;
 }) {
@@ -305,6 +308,11 @@ export function RecurrenceEditor({
                         onChange={(event) => onToggleRecord(record, event.target.checked)}
                       />
                       <span className="task-title task-deadline">{when}</span>
+                      {historyProgress?.(record.occurrenceDate) && (
+                        <span className="history-progress">
+                          {historyProgress(record.occurrenceDate)}
+                        </span>
+                      )}
                     </li>
                   );
                 })}

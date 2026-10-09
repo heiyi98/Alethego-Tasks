@@ -11,7 +11,7 @@ import { ChevronDownIcon, GroupIcon, IconButton, PencilIcon } from './icons';
 import { EditProjectForm, NewProjectForm } from './project-form';
 import { useSelection } from './selection';
 import { useTaskData } from './task-data-provider';
-import { groupHref } from '@/lib/selection';
+import { groupHref, isCurrentPage } from '@/lib/selection';
 
 /** 折叠状态只是本机的便利设置，读不到就展开 */
 const COLLAPSED_KEY = 'alethego.groups-collapsed';
@@ -128,7 +128,9 @@ export function GroupSection({
                         scroll={false}
                         className="sidebar-item sidebar-toggle"
                         aria-current={
-                          inThisGroup(group) && !selection.projectId ? 'page' : undefined
+                          isCurrentPage(selection, { kind: 'group', id: group.id })
+                            ? 'page'
+                            : undefined
                         }
                       >
                         <span className="sidebar-icon" aria-hidden>

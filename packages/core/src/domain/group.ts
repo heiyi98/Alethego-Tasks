@@ -163,10 +163,10 @@ export const PERSONAL_FEATURES: ContainerFeatures = {
   relations: false,
 };
 
-/** 没开任何工具的项目：只有清单，项目成员都能标记完成，完成即确认 */
+/** 没开任何工具的项目：只有清单；有重要性（全组共用），不能收藏；项目成员都能标记完成，完成即确认 */
 const BASE_PROJECT_FEATURES: ContainerFeatures = {
   views: ['list'],
-  importance: false,
+  importance: true,
   categories: false,
   starred: false,
   raci: false,

@@ -79,9 +79,9 @@ describe('task mappers', () => {
   });
 
   it('补丁只包含传入的字段，null 会被显式写入', () => {
-    expect(taskPatchToUpdate({ deadlineAt: null, importanceLevel: 5 })).toEqual({
+    expect(taskPatchToUpdate({ deadlineAt: null, importanceLevel: 3 })).toEqual({
       deadline_at: null,
-      importance_level: 5,
+      importance_level: 3,
     });
   });
 });

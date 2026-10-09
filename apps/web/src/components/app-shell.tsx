@@ -4,6 +4,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState, type ReactNode } from 'react';
 
 import { CurrentGroupProvider } from './current-group';
+import { MatrixFilterProvider } from './matrix-filter';
 import { ModeToggle } from './mode-toggle';
 import { Sidebar } from './sidebar';
 import { needsCanonicalRedirect, parseSelection, selectionHref } from '@/lib/selection';
@@ -38,44 +39,46 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [closeDrawer] = useState(() => () => setDrawerOpen(false));
 
   return (
-    <div className={`app-shell${drawerOpen ? ' drawer-open' : ''}`}>
-      <Suspense>
-        <CloseDrawerOnNavigate onNavigate={closeDrawer} />
-        <CanonicalizeUrl />
-      </Suspense>
-      <div className="app-sidebar">
+    <MatrixFilterProvider>
+      <div className={`app-shell${drawerOpen ? ' drawer-open' : ''}`}>
         <Suspense>
-          <Sidebar />
+          <CloseDrawerOnNavigate onNavigate={closeDrawer} />
+          <CanonicalizeUrl />
         </Suspense>
-      </div>
-      {drawerOpen && (
-        <button
-          type="button"
-          className="drawer-backdrop"
-          aria-label="关闭菜单"
-          onClick={() => setDrawerOpen(false)}
-        />
-      )}
-      <div className="app-main">
-        <div className="mobile-bar">
-          <button
-            type="button"
-            className="menu-button"
-            aria-label="打开菜单"
-            aria-expanded={drawerOpen}
-            onClick={() => setDrawerOpen(true)}
-          >
-            ☰
-          </button>
-          <span className="mobile-brand">Alethego</span>
+        <div className="app-sidebar">
           <Suspense>
-            <ModeToggle />
+            <Sidebar />
           </Suspense>
         </div>
-        <Suspense>
-          <CurrentGroupProvider>{children}</CurrentGroupProvider>
-        </Suspense>
+        {drawerOpen && (
+          <button
+            type="button"
+            className="drawer-backdrop"
+            aria-label="关闭菜单"
+            onClick={() => setDrawerOpen(false)}
+          />
+        )}
+        <div className="app-main">
+          <div className="mobile-bar">
+            <button
+              type="button"
+              className="menu-button"
+              aria-label="打开菜单"
+              aria-expanded={drawerOpen}
+              onClick={() => setDrawerOpen(true)}
+            >
+              ☰
+            </button>
+            <span className="mobile-brand">Alethego</span>
+            <Suspense>
+              <ModeToggle />
+            </Suspense>
+          </div>
+          <Suspense>
+            <CurrentGroupProvider>{children}</CurrentGroupProvider>
+          </Suspense>
+        </div>
       </div>
-    </div>
+    </MatrixFilterProvider>
   );
 }

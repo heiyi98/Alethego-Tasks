@@ -2,6 +2,7 @@
 
 import {
   GROUP_KIND_CONFIG,
+  PERSONAL_FEATURES,
   featuresForCategoryPage,
   featuresForGroupPage,
   featuresForProject,
@@ -147,7 +148,14 @@ export function CurrentGroupProvider({ children }: { children: ReactNode }) {
       project,
       projects,
       features: !group
-        ? featuresForCategoryPage(scope === 'all' ? selectedCategories : [])
+        ? scope === 'today'
+          ? // 今日：只有清单；里面有开了任务分配的项目的任务时，状态行有"待确认"
+            {
+              ...PERSONAL_FEATURES,
+              views: ['list'],
+              confirmation: (data?.projects ?? []).some((p) => p.tools.includes('assignment')),
+            }
+          : featuresForCategoryPage(scope === 'all' ? selectedCategories : [])
         : project
           ? featuresForProject(project)
           : featuresForGroupPage(projects),
@@ -158,7 +166,7 @@ export function CurrentGroupProvider({ children }: { children: ReactNode }) {
       rosterLoaded: !group || current !== null,
       reloadRoster: load,
     };
-  }, [group, project, projects, rosters, load, selectedCategories, scope]);
+  }, [group, project, projects, rosters, load, selectedCategories, scope, data]);
 
   return <CurrentGroupContext.Provider value={value}>{children}</CurrentGroupContext.Provider>;
 }

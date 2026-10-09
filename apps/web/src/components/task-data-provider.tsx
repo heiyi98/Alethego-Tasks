@@ -1,6 +1,6 @@
 'use client';
 
-import type { Task } from '@alethego/core';
+import { subtasksFor, type Subtask, type Task } from '@alethego/core';
 import { completeCurrentOccurrence } from '@alethego/data';
 import { usePathname } from 'next/navigation';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
@@ -23,6 +23,8 @@ interface TaskDataValue {
   reload: () => Promise<void>;
   /** 勾选完成：普通任务切换自身完成状态；循环任务完成当前代表实例 */
   toggleComplete: (task: Task) => Promise<void>;
+  /** 勾选 / 取消一个子任务；循环任务给出是哪一次，普通任务为 null（不发通知） */
+  toggleSubtask: (subtask: Subtask, occurrenceDate: Date | null, checked: boolean) => Promise<void>;
   /** 切换标星（书签） */
   toggleStar: (task: Task) => Promise<void>;
   actionError: string | null;
@@ -33,7 +35,14 @@ const TaskDataContext = createContext<TaskDataValue | null>(null);
 export function TaskDataProvider({ children }: { children: ReactNode }) {
   const repositories = useRepositories();
   const pathname = usePathname();
-  const { data, error, reload, replaceTask, upsertOccurrence } = useTaskListData();
+  const { data, error, reload, replaceTask, upsertOccurrence, setSubtaskCheck } = useTaskListData();
+
+  /** 父任务（或循环任务的这一次）勾完成时，没勾的子任务一起勾上（数据库同样处理） */
+  const checkAllSubtasks = (task: Task, occurrenceDate: Date | null) => {
+    for (const subtask of subtasksFor(data?.subtasksByTask.get(task.id) ?? [], occurrenceDate)) {
+      setSubtaskCheck(subtask.id, occurrenceDate, true);
+    }
+  };
   const now = useNow();
   const [timeZone] = useState(browserTimeZone);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -55,7 +64,10 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
           data?.occurrencesByTask.get(task.id) ?? [],
           { now: new Date(), timeZone },
         );
-        if (done) upsertOccurrence(done);
+        if (done) {
+          upsertOccurrence(done);
+          checkAllSubtasks(task, done.occurrenceDate);
+        }
         setActionError(null);
       } catch (e) {
         setActionError(errorMessage(e));
@@ -67,6 +79,18 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
     replaceTask({ ...task, completedAt }); // 乐观更新，勾选立即生效
     try {
       replaceTask(await repositories.tasks.update(task.id, { completedAt }));
+      if (completedAt) checkAllSubtasks(task, null);
+      setActionError(null);
+    } catch (e) {
+      setActionError(errorMessage(e));
+      await reload();
+    }
+  }
+
+  async function toggleSubtask(subtask: Subtask, occurrenceDate: Date | null, checked: boolean) {
+    setSubtaskCheck(subtask.id, occurrenceDate, checked); // 乐观更新
+    try {
+      await repositories.subtasks.setChecked(subtask.id, occurrenceDate, checked);
       setActionError(null);
     } catch (e) {
       setActionError(errorMessage(e));
@@ -88,7 +112,17 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
 
   return (
     <TaskDataContext.Provider
-      value={{ data, error, now, timeZone, reload, toggleComplete, toggleStar, actionError }}
+      value={{
+        data,
+        error,
+        now,
+        timeZone,
+        reload,
+        toggleComplete,
+        toggleSubtask,
+        toggleStar,
+        actionError,
+      }}
     >
       {children}
     </TaskDataContext.Provider>

@@ -2,6 +2,12 @@ import type { Messages } from './messages';
 
 export const zh: Messages = {
   you: '你',
+  importance: {
+    must: '必须',
+    should: '应该',
+    could: '可以',
+    optional: '随意',
+  },
   raciRoles: {
     R: '执行人（R）',
     A: '负责人（A）',
@@ -12,6 +18,7 @@ export const zh: Messages = {
     title: '标题',
     description: '描述',
     deadline: '截止时间',
+    importance: '重要性',
     recurrence: '循环',
     deleted: '删除',
     restored: '恢复',
@@ -21,6 +28,7 @@ export const zh: Messages = {
     I: '知会（I）',
     people: '人物',
     location: '地点',
+    subtasks: '子任务',
   },
   joinList: (items) =>
     items.length <= 1

@@ -8,6 +8,8 @@ import {
   type OccurrenceStatus,
   type RecurrenceOccurrence,
   type ReconcileResult,
+  type Subtask,
+  type SubtaskCheck,
   type Task,
   type TaskRelation,
 } from '@alethego/core';
@@ -22,7 +24,10 @@ import type {
   ITaskPeopleRepository,
   ITaskRepository,
   IRelationRepository,
+  ISubtaskRepository,
+  IUserSettingsRepository,
   ScheduleInput,
+  SubtaskDraft,
   NewCategory,
   NewTask,
   TaskListQuery,
@@ -35,7 +40,7 @@ import {
   validatePeopleDrafts,
   validateTaskPatch,
 } from '../validation';
-import type { TableRow, TableUpdate } from './database.types';
+import type { Json, TableRow, TableUpdate } from './database.types';
 import {
   categoryFromRow,
   locationFromRow,
@@ -142,6 +147,8 @@ export class SupabaseTaskRepository implements ITaskRepository {
             name: p.name,
             relation: p.relation,
           })),
+          p_importance_level: valid.importanceLevel ?? 0,
+          p_subtasks: (valid.subtasks ?? []).map((title) => ({ title })),
         }),
         '创建任务',
       ) as TableRow<'tasks'>;
@@ -503,6 +510,101 @@ export interface SupabaseRemoteStoreOptions {
   ownerId: string;
 }
 
+export class SupabaseSubtaskRepository implements ISubtaskRepository {
+  constructor(private readonly client: TaskAppSupabaseClient) {}
+
+  async listForTasks(taskIds: readonly string[]) {
+    const subtasks: Subtask[] = [];
+    for (let i = 0; i < taskIds.length; i += 100) {
+      const rows = unwrap(
+        await this.client
+          .from('task_subtasks')
+          .select('*')
+          .in('task_id', taskIds.slice(i, i + 100))
+          .order('position', { ascending: true }),
+        '查询子任务',
+      );
+      subtasks.push(...rows.map(subtaskFromRow));
+    }
+    const checks: SubtaskCheck[] = [];
+    const ids = subtasks.map((s) => s.id);
+    for (let i = 0; i < ids.length; i += 100) {
+      const rows = unwrap(
+        await this.client
+          .from('task_subtask_checks')
+          .select('subtask_id, occurrence_date')
+          .in('subtask_id', ids.slice(i, i + 100)),
+        '查询子任务的勾选',
+      );
+      checks.push(
+        ...rows.map((row) => ({
+          subtaskId: row.subtask_id,
+          occurrenceDate: row.occurrence_date ? new Date(row.occurrence_date) : null,
+        })),
+      );
+    }
+    return { subtasks, checks };
+  }
+
+  async setList(taskId: string, items: readonly SubtaskDraft[]) {
+    const rows = unwrap(
+      await this.client.rpc('set_task_subtasks', {
+        p_task_id: taskId,
+        p_items: items.map((item) =>
+          item.id ? { id: item.id, title: item.title } : { title: item.title },
+        ),
+      }),
+      '保存子任务',
+    ) as TableRow<'task_subtasks'>[];
+    return rows.map(subtaskFromRow);
+  }
+
+  async setChecked(subtaskId: string, occurrenceDate: Date | null, checked: boolean) {
+    const { error } = await this.client.rpc('set_subtask_checked', {
+      p_subtask_id: subtaskId,
+      p_occurrence_date: occurrenceDate ? occurrenceDate.toISOString() : null,
+      p_checked: checked,
+    });
+    if (error) unwrap({ data: null, error }, '勾选子任务');
+  }
+}
+
+function subtaskFromRow(row: TableRow<'task_subtasks'>): Subtask {
+  return {
+    id: row.id,
+    taskId: row.task_id,
+    title: row.title,
+    position: row.position,
+    createdAt: new Date(row.created_at),
+    deletedAt: row.deleted_at ? new Date(row.deleted_at) : null,
+  };
+}
+
+export class SupabaseUserSettingsRepository implements IUserSettingsRepository {
+  constructor(
+    private readonly client: TaskAppSupabaseClient,
+    private readonly userId: string,
+  ) {}
+
+  async getMatrixFilter() {
+    const { data, error } = await this.client
+      .from('users')
+      .select('matrix_filter')
+      .eq('id', this.userId)
+      .maybeSingle();
+    if (error) unwrap({ data: null, error }, '读取矩阵筛选');
+    return data?.matrix_filter ?? null;
+  }
+
+  async setMatrixFilter(filter: unknown) {
+    const { error } = await this.client
+      .from('users')
+      .update({ matrix_filter: filter as Json })
+      .eq('id', this.userId);
+    if (error) unwrap({ data: null, error }, '保存矩阵筛选');
+  }
+}
+
 export class SupabaseRemoteStore implements IRemoteStore {
   readonly kind = 'remote' as const;
   readonly tasks: SupabaseTaskRepository;
@@ -514,6 +616,8 @@ export class SupabaseRemoteStore implements IRemoteStore {
   readonly projects: SupabaseProjectRepository;
   readonly assignments: SupabaseAssignmentRepository;
   readonly relations: SupabaseRelationRepository;
+  readonly subtasks: SupabaseSubtaskRepository;
+  readonly settings: SupabaseUserSettingsRepository;
 
   constructor(client: TaskAppSupabaseClient, options: SupabaseRemoteStoreOptions) {
     const { ownerId } = options;
@@ -526,5 +630,7 @@ export class SupabaseRemoteStore implements IRemoteStore {
     this.projects = new SupabaseProjectRepository(client, ownerId);
     this.assignments = new SupabaseAssignmentRepository(client);
     this.relations = new SupabaseRelationRepository(client);
+    this.subtasks = new SupabaseSubtaskRepository(client);
+    this.settings = new SupabaseUserSettingsRepository(client, ownerId);
   }
 }

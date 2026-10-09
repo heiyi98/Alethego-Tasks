@@ -1,4 +1,5 @@
 import {
+  IMPORTANCE_DEFAULT,
   endOfLocalDay,
   normalizeLocationDraft,
   normalizePeopleDrafts,
@@ -42,6 +43,13 @@ export interface PersonRow {
   relation: string;
 }
 
+/** 子任务清单的一行：有 id 的是已保存的子任务 */
+export interface SubtaskRow {
+  key: string;
+  id?: string;
+  title: string;
+}
+
 export interface TaskFormValue {
   title: string;
   description: string;
@@ -60,6 +68,8 @@ export interface TaskFormValue {
   raci: AssignmentDraft[];
   /** 开始 / 结束两行逻辑（有"任务关系"的任务）；其他任务为 null */
   schedule: ScheduleFormValue | null;
+  /** 子任务清单（只有标题；勾选不在表单里，勾了立即生效） */
+  subtasks: SubtaskRow[];
 }
 
 /** 一个关系：于〔某任务〕的〔开始 / 结束〕+ 偏移；scopeId 是选它时所在的项目或分类（只在界面上用） */
@@ -145,7 +155,7 @@ export function emptyTaskForm(categoryIds: string[] = []): TaskFormValue {
     description: '',
     deadline: '',
     deadlineTime: '',
-    importanceLevel: 0,
+    importanceLevel: IMPORTANCE_DEFAULT,
     categoryIds,
     completed: false,
     isStarred: false,
@@ -154,7 +164,26 @@ export function emptyTaskForm(categoryIds: string[] = []): TaskFormValue {
     people: [],
     raci: [],
     schedule: null,
+    subtasks: [],
   };
+}
+
+export function subtaskRows(subtasks: readonly { id: string; title: string }[]): SubtaskRow[] {
+  return subtasks.map((s) => ({ key: s.id, id: s.id, title: s.title }));
+}
+
+/** 写入用的子任务清单：去掉空白的行 */
+export function subtaskDrafts(rows: readonly SubtaskRow[]): { id?: string; title: string }[] {
+  return rows
+    .filter((row) => row.title.trim())
+    .map((row) => (row.id ? { id: row.id, title: row.title.trim() } : { title: row.title.trim() }));
+}
+
+/** 两份子任务清单是否相同（顺序、标题；空白的新行不算） */
+export function sameSubtasks(a: readonly SubtaskRow[], b: readonly SubtaskRow[]): boolean {
+  const key = (rows: readonly SubtaskRow[]) =>
+    JSON.stringify(subtaskDrafts(rows).map((d) => [d.id ?? '', d.title]));
+  return key(a) === key(b);
 }
 
 export function peopleRows(people: readonly TaskPerson[]): PersonRow[] {
@@ -170,6 +199,7 @@ export function taskFormFromDetail(
   timeZone: string,
   raci: readonly AssignmentDraft[] = [],
   schedule: ScheduleFormValue | null = null,
+  subtasks: readonly { id: string; title: string }[] = [],
 ): TaskFormValue {
   const { task } = detail;
   return {
@@ -186,6 +216,7 @@ export function taskFormFromDetail(
     people: peopleRows(detail.people),
     raci: [...raci],
     schedule,
+    subtasks: subtaskRows(subtasks),
   };
 }
 
@@ -222,12 +253,13 @@ export function isDraftDirty(
     form.description.trim() !== '' ||
     form.deadline !== '' ||
     form.deadlineTime !== '' ||
-    form.importanceLevel !== 0 ||
+    form.importanceLevel !== IMPORTANCE_DEFAULT ||
     form.isStarred !== defaults.isStarred ||
     form.recurrence.enabled ||
     form.location.name.trim() !== '' ||
     form.location.address.trim() !== '' ||
     form.people.some((p) => p.name.trim() || p.relation.trim()) ||
+    form.subtasks.some((s) => s.title.trim()) ||
     [...form.categoryIds].sort().join() !== [...defaultCategoryIds].sort().join() ||
     !sameRaci(form.raci, defaults.raci ?? [])
   );
@@ -251,7 +283,7 @@ export function validateTaskForm(form: TaskFormValue): FormErrors {
 
 /**
  * 新建：表单 → 任务字段（调用前应先通过 validateTaskForm）。
- * 传了 groupId 就是这个组的任务：组任务不使用重要性、分类和收藏。
+ * 传了 groupId 就是这个组的任务：组任务有重要性（全组共用），不使用分类和收藏。
  */
 export function newTaskFromForm(
   form: TaskFormValue,
@@ -264,7 +296,7 @@ export function newTaskFromForm(
   return {
     title: normalizeTaskTitle(form.title) ?? form.title,
     description: form.description.trim(),
-    importanceLevel: groupId ? 0 : form.importanceLevel,
+    importanceLevel: form.importanceLevel,
     deadlineAt: recurring ? null : deadlineFromForm(form.deadline, form.deadlineTime, timeZone),
     isStarred: groupId ? false : form.isStarred,
     recurrenceRule: recurrence.ok ? recurrence.recurrenceRule : null,

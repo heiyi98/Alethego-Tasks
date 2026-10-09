@@ -29,13 +29,15 @@ import {
   TagIcon,
   TextIcon,
   TrashIcon,
+  ChecklistIcon,
+  PlusIcon,
   XIcon,
 } from './icons';
 import { PersonName } from './person-name';
 import { RecurrenceEditor } from './recurrence-editor';
 import { ScheduleField } from './schedule-field';
 import { messages } from '@/i18n';
-import { IMPORTANCE_LEVELS, fromDateValue, toDateValue } from '@/lib/format';
+import { IMPORTANCE_LEVELS, fromDateValue, importanceLabel, toDateValue } from '@/lib/format';
 import type { RelationScope } from '@/lib/schedule';
 import { newRowKey, type FormErrors, type TaskFormValue } from '@/lib/task-form';
 
@@ -55,7 +57,6 @@ export function QuickOptionsRow({
   onToggle,
   toggleLabel,
   actions,
-  inGroup = false,
   readOnly = false,
   leading,
   assignees,
@@ -69,7 +70,7 @@ export function QuickOptionsRow({
   toggleLabel: string;
   /** 放在三角左边的操作图标（桌面上的新建面板：标星、放弃） */
   actions?: ReactNode;
-  /** 组任务：不显示重要性 */
+  /** 组任务（不再影响这一行：组任务也有重要性） */
   inGroup?: boolean;
   /** 只能看不能改（管理组里的组员）：三角照常可用 */
   readOnly?: boolean;
@@ -87,26 +88,23 @@ export function QuickOptionsRow({
     <div className="quick-options">
       <fieldset className="editor-fieldset quick-options-fields" disabled={readOnly}>
         {leading}
-        {!inGroup && (
-          <div className="option" role="group" aria-label="重要性">
-            <FieldIcon label="重要性">
-              <FlagIcon size={16} />
-            </FieldIcon>
-            <div className="mini-segmented">
-              {IMPORTANCE_LEVELS.map((level) => (
-                <button
-                  key={level}
-                  type="button"
-                  aria-pressed={value.importanceLevel === level}
-                  aria-label={`重要性 ${level}`}
-                  onClick={() => onChange({ importanceLevel: level })}
-                >
-                  {level}
-                </button>
-              ))}
-            </div>
+        <div className="option" role="group" aria-label="重要性">
+          <FieldIcon label="重要性">
+            <FlagIcon size={16} />
+          </FieldIcon>
+          <div className="mini-segmented importance-picker">
+            {IMPORTANCE_LEVELS.map((level) => (
+              <button
+                key={level}
+                type="button"
+                aria-pressed={value.importanceLevel === level}
+                onClick={() => onChange({ importanceLevel: level })}
+              >
+                {importanceLabel(level)}
+              </button>
+            ))}
           </div>
-        )}
+        </div>
 
         {!value.recurrence.enabled && !hideDeadline && (
           <div className="option">
@@ -291,12 +289,14 @@ export function TaskEditor({
   optionsActions,
   optionsLeading,
   schedule,
+  subtaskChecks,
+  historyProgress,
 }: {
   value: TaskFormValue;
   onChange: (patch: Partial<TaskFormValue>) => void;
   errors: FormErrors;
   categories: readonly Category[];
-  /** 组任务：不显示重要性和分类（收藏由外层决定是否显示） */
+  /** 组任务：不显示分类（收藏由外层决定是否显示；重要性组任务也有） */
   inGroup?: boolean;
   /** 开了任务分配的项目：可选的项目成员与只有名字的人；editable = 能不能改 */
   raci?: { members: readonly RaciPerson[]; contacts: readonly ProjectContact[]; editable: boolean };
@@ -318,6 +318,17 @@ export function TaskEditor({
   onToggle: () => void;
   /** 常用选项一行里、三角左边的操作图标 */
   optionsActions?: ReactNode;
+  /**
+   * 已保存的子任务的勾选（勾了立即生效，不经过 ✓）。不传时只编辑清单（新建时）。
+   * canCheck：个人任务是自己；开了任务分配的项目里是执行人；没开的项目里是项目成员
+   */
+  subtaskChecks?: {
+    isChecked: (subtaskId: string) => boolean;
+    canCheck: boolean;
+    onToggle: (subtaskId: string, checked: boolean) => void;
+  };
+  /** 循环任务历史里每一次的子任务进度（各次的勾选互不相关，过去各次保持原样） */
+  historyProgress?: (occurrenceDate: Date) => string | null;
   /** 常用选项一行最前面的选项（组页面新建：选项目） */
   optionsLeading?: ReactNode;
   /** 有"任务关系"的任务：开始 / 结束两行（关系对象的候选和算出的日期） */
@@ -338,6 +349,9 @@ export function TaskEditor({
 
   // 循环任务没有两行逻辑
   const showSchedule = Boolean(value.schedule && schedule && !value.recurrence.enabled);
+
+  const setSubtask = (key: string, title: string) =>
+    onChange({ subtasks: value.subtasks.map((s) => (s.key === key ? { ...s, title } : s)) });
 
   const setPerson = (key: string, patch: { name?: string; relation?: string }) =>
     onChange({ people: value.people.map((p) => (p.key === key ? { ...p, ...patch } : p)) });
@@ -397,6 +411,57 @@ export function TaskEditor({
           />
         </div>
 
+        <div className="editor-field editor-field-top" role="group" aria-label="子任务">
+          <FieldIcon label="子任务">
+            <ChecklistIcon />
+          </FieldIcon>
+          <div className="editor-field-body">
+            {value.subtasks.length > 0 && (
+              <ul className="subtask-edit-list">
+                {value.subtasks.map((row, index) => (
+                  <li key={row.key} className="subtask-edit-row">
+                    {subtaskChecks && (
+                      <input
+                        type="checkbox"
+                        className="subtask-check"
+                        aria-label={`完成子任务：${row.title}`}
+                        checked={row.id ? subtaskChecks.isChecked(row.id) : false}
+                        disabled={!row.id || !subtaskChecks.canCheck}
+                        onChange={(event) =>
+                          row.id && subtaskChecks.onToggle(row.id, event.target.checked)
+                        }
+                      />
+                    )}
+                    <input
+                      aria-label={`第 ${index + 1} 个子任务`}
+                      placeholder="子任务"
+                      value={row.title}
+                      onChange={(event) => setSubtask(row.key, event.target.value)}
+                    />
+                    <IconButton
+                      label={`删除第 ${index + 1} 个子任务`}
+                      onClick={() =>
+                        onChange({ subtasks: value.subtasks.filter((s) => s.key !== row.key) })
+                      }
+                    >
+                      <TrashIcon size={16} />
+                    </IconButton>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <IconButton
+              label="添加子任务"
+              className="add-person"
+              onClick={() =>
+                onChange({ subtasks: [...value.subtasks, { key: newRowKey(), title: '' }] })
+              }
+            >
+              <PlusIcon size={16} />
+            </IconButton>
+          </div>
+        </div>
+
         {!inGroup && (
           <div className="editor-field" role="group" aria-label="分类">
             <FieldIcon label="分类">
@@ -434,6 +499,7 @@ export function TaskEditor({
               onChange={(recurrence) => onChange({ recurrence })}
               records={records}
               onToggleRecord={onToggleRecord}
+              historyProgress={historyProgress}
               now={now}
               timeZone={timeZone}
             />

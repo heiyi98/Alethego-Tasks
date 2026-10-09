@@ -1,4 +1,4 @@
-import { IMPORTANCE_UNSET, isImportant } from '../domain/importance';
+import { IMPORTANCE_OPTIONAL, isImportant } from '../domain/importance';
 import { MATRIX_CELLS, OVERDUE_MATRIX_GRACE_DAYS, type MatrixMode } from '../urgency/tiers';
 import { cellForDayNumber, isUrgent } from '../urgency/urgency-calculator';
 import type { MatrixCandidate } from './matrix-candidate';
@@ -39,7 +39,9 @@ export type MatrixPlacement =
   | { visible: false; reason: MatrixHiddenReason };
 
 function isUnprocessed(candidate: MatrixCandidate): boolean {
-  return candidate.importanceLevel === IMPORTANCE_UNSET && candidate.urgency.kind === 'no_deadline';
+  return (
+    candidate.importanceLevel === IMPORTANCE_OPTIONAL && candidate.urgency.kind === 'no_deadline'
+  );
 }
 
 /**

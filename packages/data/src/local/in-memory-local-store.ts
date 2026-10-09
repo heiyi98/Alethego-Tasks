@@ -16,6 +16,8 @@ import {
   type ReconcileResult,
   type RecurrenceOccurrence,
   type Project,
+  type Subtask,
+  type SubtaskCheck,
   type Task,
 } from '@alethego/core';
 
@@ -27,6 +29,9 @@ import type {
   ITaskLocationRepository,
   ITaskPeopleRepository,
   ITaskRepository,
+  ISubtaskRepository,
+  IUserSettingsRepository,
+  SubtaskDraft,
   NewCategory,
   NewTask,
   TaskListQuery,
@@ -426,6 +431,75 @@ class MemoryRelationRepository implements IRelationRepository {
   }
 }
 
+/** 本地存储里的子任务（只有一个人，权限不检查） */
+class MemorySubtaskRepository implements ISubtaskRepository {
+  private subtasks: Subtask[] = [];
+  private checks: SubtaskCheck[] = [];
+
+  constructor(private readonly state: MemoryState) {}
+
+  async listForTasks(taskIds: readonly string[]) {
+    const subtasks = this.subtasks.filter((s) => taskIds.includes(s.taskId));
+    const ids = new Set(subtasks.map((s) => s.id));
+    return { subtasks, checks: this.checks.filter((c) => ids.has(c.subtaskId)) };
+  }
+
+  async setList(taskId: string, items: readonly SubtaskDraft[]) {
+    const now = this.state.now();
+    const keep = new Set<string>();
+    items
+      .filter((item) => item.title.trim())
+      .forEach((item, position) => {
+        const existing = item.id
+          ? this.subtasks.find((s) => s.id === item.id && s.taskId === taskId && !s.deletedAt)
+          : undefined;
+        if (existing) {
+          existing.title = item.title.trim();
+          existing.position = position;
+          keep.add(existing.id);
+        } else {
+          const created: Subtask = {
+            id: this.state.newId(),
+            taskId,
+            title: item.title.trim(),
+            position,
+            createdAt: now,
+            deletedAt: null,
+          };
+          this.subtasks.push(created);
+          keep.add(created.id);
+        }
+      });
+    for (const s of this.subtasks) {
+      if (s.taskId === taskId && !s.deletedAt && !keep.has(s.id)) s.deletedAt = now;
+    }
+    return this.subtasks
+      .filter((s) => s.taskId === taskId && !s.deletedAt)
+      .sort((a, b) => a.position - b.position);
+  }
+
+  async setChecked(subtaskId: string, occurrenceDate: Date | null, checked: boolean) {
+    const same = (c: SubtaskCheck) =>
+      c.subtaskId === subtaskId &&
+      (c.occurrenceDate?.getTime() ?? null) === (occurrenceDate?.getTime() ?? null);
+    this.checks = this.checks.filter((c) => !same(c));
+    if (checked) this.checks.push({ subtaskId, occurrenceDate });
+  }
+}
+
+/** 本地存储里的账号设置 */
+class MemoryUserSettingsRepository implements IUserSettingsRepository {
+  private matrixFilter: unknown = null;
+
+  async getMatrixFilter() {
+    return this.matrixFilter;
+  }
+
+  async setMatrixFilter(filter: unknown) {
+    this.matrixFilter = filter;
+  }
+}
+
 export class InMemoryLocalStore implements ILocalStore {
   readonly kind = 'local' as const;
   readonly tasks: ITaskRepository;
@@ -437,6 +511,8 @@ export class InMemoryLocalStore implements ILocalStore {
   readonly projects: IProjectRepository;
   readonly assignments: IAssignmentRepository;
   readonly relations: IRelationRepository;
+  readonly subtasks: ISubtaskRepository;
+  readonly settings: IUserSettingsRepository;
 
   constructor(options: InMemoryLocalStoreOptions) {
     const state: MemoryState = {
@@ -460,5 +536,7 @@ export class InMemoryLocalStore implements ILocalStore {
     this.projects = new MemoryProjectRepository(state);
     this.assignments = new MemoryAssignmentRepository();
     this.relations = new MemoryRelationRepository(state);
+    this.subtasks = new MemorySubtaskRepository(state);
+    this.settings = new MemoryUserSettingsRepository();
   }
 }

@@ -6,6 +6,7 @@ export * from './domain/category';
 export * from './domain/group';
 export * from './domain/occurrence';
 export * from './domain/task-details';
+export * from './domain/subtask';
 
 export * from './time/zoned-time';
 
@@ -23,6 +24,7 @@ export * from './representative/task-representative';
 export * from './list/task-list-order';
 export * from './list/task-list-filter';
 export * from './matrix/matrix-layout';
+export * from './matrix/matrix-filter';
 export * from './matrix/label-layout';
 
 export * from './schedule';

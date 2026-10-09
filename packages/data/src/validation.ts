@@ -22,9 +22,9 @@ function checkRecurrence(rule: string | null | undefined, dtstart: Date | null |
 
 export function validateNewTask(input: NewTask): NewTask {
   checkRecurrence(input.recurrenceRule, input.recurrenceDtstart ?? null);
-  // 组里不使用重要性、收藏
-  if (input.projectId && ((input.importanceLevel ?? 0) !== 0 || input.isStarred)) {
-    throw new DataError('invalid', '组任务不使用重要性和收藏');
+  // 组任务不能收藏（重要性组任务也有）
+  if (input.projectId && input.isStarred) {
+    throw new DataError('invalid', '组任务不能收藏');
   }
   if (Boolean(input.groupId) !== Boolean(input.projectId)) {
     throw new DataError('invalid', '组任务必须属于一个项目');

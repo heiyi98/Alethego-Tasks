@@ -13,6 +13,8 @@ import type {
   TaskRelation,
   CalendarDate,
   ImportanceLevel,
+  Subtask,
+  SubtaskCheck,
   OccurrenceStatus,
   ReconcileResult,
   RecurrenceOccurrence,
@@ -55,6 +57,8 @@ export interface NewTask {
   assignments?: readonly AssignmentDraft[];
   location?: TaskLocationDraft | null;
   people?: readonly TaskPersonDraft[];
+  /** 和 assignments 一起写入的子任务标题（按顺序） */
+  subtasks?: readonly string[];
 }
 
 export type TaskPatch = Partial<
@@ -181,6 +185,8 @@ export type TaskNotificationField =
   | 'title'
   | 'description'
   | 'deadline'
+  | 'importance'
+  | 'subtasks'
   | 'recurrence'
   | 'deleted'
   | 'restored'
@@ -370,6 +376,31 @@ export interface IRelationRepository {
   listForTasks(taskIds: readonly string[]): Promise<TaskRelation[]>;
   /** 不能形成循环、不能跨组、不能在个人和组之间关联、循环任务不参与（数据库拒绝） */
   setSchedule(taskId: string, input: ScheduleInput): Promise<Task>;
+}
+
+/** 子任务清单的一项：有 id 的是已有的子任务（改标题、换位置），没有的是新加的 */
+export interface SubtaskDraft {
+  id?: string;
+  title: string;
+}
+
+/** 子任务（只有标题和勾选；循环任务每一次各自勾选） */
+export interface ISubtaskRepository {
+  /** 这些任务的子任务（包括已删除的，循环任务的历史要用）和勾选 */
+  listForTasks(
+    taskIds: readonly string[],
+  ): Promise<{ subtasks: Subtask[]; checks: SubtaskCheck[] }>;
+  /** 整组替换子任务清单（和编辑任务一样的权限）；没列出的标记为删除 */
+  setList(taskId: string, items: readonly SubtaskDraft[]): Promise<Subtask[]>;
+  /** 勾选 / 取消；循环任务给出是哪一次，普通任务为 null */
+  setChecked(subtaskId: string, occurrenceDate: Date | null, checked: boolean): Promise<void>;
+}
+
+/** 账号上的设置（存在 taskapp.users 上，换设备也一样） */
+export interface IUserSettingsRepository {
+  /** 矩阵筛选栏上次的勾选；没存过为 null */
+  getMatrixFilter(): Promise<unknown>;
+  setMatrixFilter(filter: unknown): Promise<void>;
 }
 
 /** 任务上的 RACI（开了任务分配的项目） */

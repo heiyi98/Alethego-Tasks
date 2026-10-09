@@ -53,18 +53,18 @@ describe('格子', () => {
 describe('buildMatrixLayout', () => {
   it('按紧迫度列与重要性行放置，并给出象限', () => {
     const tasks = [
-      task('tomorrow-5', { deadlineAt: sh('2026-09-25T09:00:00'), importanceLevel: 5 }),
+      task('tomorrow-3', { deadlineAt: sh('2026-09-25T09:00:00'), importanceLevel: 3 }),
       task('month-1', { deadlineAt: sh('2026-10-24T09:00:00'), importanceLevel: 1 }),
       task('nodeadline-3', { importanceLevel: 3 }),
     ];
     // 今天周四：明天（周五）N = 2 → 短期"2天–1天"那一格；长期"3天"那一格
-    expect(pointOf(tasks, 'tomorrow-5')).toMatchObject({
+    expect(pointOf(tasks, 'tomorrow-3')).toMatchObject({
       slot: cell(4),
-      row: 5,
+      row: 3,
       quadrant: 'important_urgent',
       overdueDays: null,
     });
-    expect(pointOf(tasks, 'tomorrow-5', 'long')).toMatchObject({ slot: cell(5) });
+    expect(pointOf(tasks, 'tomorrow-3', 'long')).toMatchObject({ slot: cell(5) });
     // 10月24日：N = 31 → 短期不画、只进四象限清单；长期 31–90 那一格
     expect(pointOf(tasks, 'month-1')).toMatchObject({
       slot: null,
@@ -127,9 +127,9 @@ describe('buildMatrixLayout', () => {
   it('不上矩阵的任务计入 hidden；已完成 / 已删除的不计入', () => {
     const result = layout([
       task('unprocessed'),
-      task('far', { deadlineAt: sh('2028-01-01T00:00:00'), importanceLevel: 5 }),
-      task('done', { importanceLevel: 5, completedAt: sh('2026-09-20T00:00:00') }),
-      task('deleted', { importanceLevel: 5, deletedAt: sh('2026-09-20T00:00:00') }),
+      task('far', { deadlineAt: sh('2028-01-01T00:00:00'), importanceLevel: 3 }),
+      task('done', { importanceLevel: 3, completedAt: sh('2026-09-20T00:00:00') }),
+      task('deleted', { importanceLevel: 3, deletedAt: sh('2026-09-20T00:00:00') }),
     ]);
     expect(result.points).toEqual([]);
     expect(result.hidden).toEqual({ unprocessed: 1, far_future: 1, overdue_expired: 0 });
@@ -137,19 +137,19 @@ describe('buildMatrixLayout', () => {
 
   it('循环任务以代表实例上矩阵（周三没做，周四显示周五）', () => {
     const recurring = task('gym', {
-      importanceLevel: 4,
+      importanceLevel: 3,
       recurrenceRule: 'FREQ=WEEKLY;BYDAY=MO,WE,FR',
       recurrenceDtstart: sh('2026-09-21T07:00:00'),
     });
     const point = pointOf([recurring], 'gym');
     // 代表实例周五（N = 2）→ "2天–1天"那一格
-    expect(point).toMatchObject({ slot: cell(4), row: 4, quadrant: 'important_urgent' });
+    expect(point).toMatchObject({ slot: cell(4), row: 3, quadrant: 'important_urgent' });
     expect(point?.representative.occurrenceAt).toEqual(sh('2026-09-25T07:00:00'));
   });
 
   it('格内偏移按任务 id 固定：与输入顺序、同格的其他任务无关', () => {
     const tasks = Array.from({ length: 9 }, (_, i) =>
-      task(`same-${i}`, { deadlineAt: sh('2026-09-25T09:00:00'), importanceLevel: 4 }),
+      task(`same-${i}`, { deadlineAt: sh('2026-09-25T09:00:00'), importanceLevel: 3 }),
     );
     const first = layout(tasks).points;
     for (const p of first) {
@@ -167,7 +167,7 @@ describe('buildMatrixLayout', () => {
 describe('组任务不进矩阵', () => {
   it('图和四象限清单里都没有组任务', () => {
     const result = layout([
-      task('mine', { deadlineAt: sh('2026-09-25T09:00:00'), importanceLevel: 4 }),
+      task('mine', { deadlineAt: sh('2026-09-25T09:00:00'), importanceLevel: 3 }),
       task('group', { deadlineAt: sh('2026-09-25T09:00:00'), groupId: 'g1' }),
     ]);
     expect(result.points.map((p) => p.task.id)).toEqual(['mine']);
@@ -176,8 +176,8 @@ describe('组任务不进矩阵', () => {
 
 describe('groupPointsByQuadrant', () => {
   const tasks = [
-    task('a', { deadlineAt: sh('2026-09-27T09:00:00'), importanceLevel: 4 }), // N = 4
-    task('b', { deadlineAt: sh('2026-09-25T09:00:00'), importanceLevel: 5 }), // N = 2
+    task('a', { deadlineAt: sh('2026-09-27T09:00:00'), importanceLevel: 3 }), // N = 4
+    task('b', { deadlineAt: sh('2026-09-25T09:00:00'), importanceLevel: 3 }), // N = 2
     task('c', { importanceLevel: 1, deadlineAt: sh('2026-12-01T09:00:00') }), // N = 69
   ];
 

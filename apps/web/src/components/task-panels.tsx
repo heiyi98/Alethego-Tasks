@@ -4,6 +4,10 @@ import {
   featuresForProject,
   normalizeLocationDraft,
   normalizePeopleDrafts,
+  resolveRepresentativeInstance,
+  seriesFromTask,
+  subtaskProgress,
+  subtasksFor,
   taskPermissions,
   type Category,
   type RecurrenceOccurrence,
@@ -33,6 +37,9 @@ import {
   samePeople,
   sameRaci,
   sameSchedule,
+  sameSubtasks,
+  subtaskDrafts,
+  subtaskRows,
   scheduleFormFrom,
   scheduleInputFrom,
   taskFormFromDetail,
@@ -58,6 +65,7 @@ export function useCreateTask(container: { groupId: string; projectId: string } 
         const withRaci = container !== null && form.raci.length > 0;
         const people = normalizePeopleDrafts(form.people);
         const input = newTaskFromForm(form, timeZone, container);
+        const subtasks = subtaskDrafts(form.subtasks).map((s) => s.title);
         const task = await repositories.tasks.create(
           withRaci
             ? {
@@ -65,11 +73,18 @@ export function useCreateTask(container: { groupId: string; projectId: string } 
                 assignments: form.raci,
                 location: normalizeLocationDraft(form.location),
                 people: people.ok ? people.people : [],
+                subtasks,
               }
             : input,
         );
         if (withRaci) return { created: true };
         try {
+          if (subtasks.length > 0) {
+            await repositories.subtasks.setList(
+              task.id,
+              subtasks.map((title) => ({ title })),
+            );
+          }
           if (!container && form.categoryIds.length > 0) {
             await repositories.categories.setTaskCategories(task.id, form.categoryIds);
           }
@@ -134,7 +149,7 @@ export function EditPanel({
   focusTitle?: boolean;
 }) {
   const repositories = useRepositories();
-  const { data, now, timeZone, reload } = useTaskData();
+  const { data, now, timeZone, reload, toggleSubtask } = useTaskData();
   const { close } = usePanels();
   const { showUndo } = useFeedback();
   const { scopeOf } = useCurrentGroup();
@@ -166,13 +181,14 @@ export function EditPanel({
           setLoadError('任务不存在或已删除。');
           return;
         }
-        // RACI 和关系从数据库重新读（刚保存过时清单的数据可能还没刷新）
-        const [records, assignments, relations] = await Promise.all([
+        // RACI、关系、子任务从数据库重新读（刚保存过时清单的数据可能还没刷新）
+        const [records, assignments, relations, subtasks] = await Promise.all([
           syncOccurrences(repositories.occurrences, detail.task, { now: new Date(), timeZone }),
           detail.task.projectId
             ? repositories.assignments.listForTasks([taskId])
             : Promise.resolve([]),
           repositories.relations.listForTasks([taskId]),
+          repositories.subtasks.listForTasks([taskId]),
         ]);
         if (cancelled) return;
         const raci = assignments.map((a) => ({
@@ -186,7 +202,13 @@ export function EditPanel({
           relations.filter((r) => r.taskId === taskId),
           (predecessorId) => (current ? scopeIdOf(predecessorId, current) : ''),
         );
-        const initial = taskFormFromDetail(detail, timeZone, raci, schedule);
+        const initial = taskFormFromDetail(
+          detail,
+          timeZone,
+          raci,
+          schedule,
+          subtasksFor(subtasks.subtasks, null),
+        );
         formRef.current = initial;
         savedRef.current = initial;
         taskRef.current = detail.task;
@@ -212,6 +234,7 @@ export function EditPanel({
         !sameLocation(current.location, saved.location) ||
         !samePeople(current.people, saved.people);
       const raciChanged = !sameRaci(current.raci, saved.raci);
+      const subtasksChanged = !sameSubtasks(current.subtasks, saved.subtasks);
       // 两行逻辑：只在有"任务关系"、不是循环任务时保存；刚改成循环任务时先去掉它自己的关系
       const eligible = scheduleEligible(task, current, dataRef.current);
       const scheduleChanged =
@@ -227,6 +250,7 @@ export function EditPanel({
         Object.keys(patch).length > 0 ||
         categoriesChanged ||
         raciChanged ||
+        subtasksChanged ||
         scheduleChanged ||
         clearSchedule ||
         extensionsChanged;
@@ -236,6 +260,7 @@ export function EditPanel({
         people,
         extensionsChanged,
         raciChanged,
+        subtasksChanged,
         scheduleChanged,
         clearSchedule,
         any,
@@ -270,6 +295,7 @@ export function EditPanel({
         people,
         extensionsChanged,
         raciChanged,
+        subtasksChanged,
         scheduleChanged,
         clearSchedule,
         any,
@@ -310,6 +336,14 @@ export function EditPanel({
         if (Object.keys(patch).length > 0)
           nextTask = await repositories.tasks.update(task.id, patch);
         if (raciChanged) await repositories.assignments.set(task.id, current.raci);
+        let savedSubtasks = saved.subtasks;
+        if (subtasksChanged) {
+          savedSubtasks = subtaskRows(
+            await repositories.subtasks.setList(task.id, subtaskDrafts(current.subtasks)),
+          );
+          formRef.current = { ...formRef.current!, subtasks: savedSubtasks };
+          setForm((f) => (f ? { ...f, subtasks: savedSubtasks } : f));
+        }
         let savedPeople: PersonRow[] = saved.people;
         let savedLocation = saved.location;
         if (extensionsChanged && people.ok) {
@@ -353,6 +387,7 @@ export function EditPanel({
           recurrence: patch.recurrenceRule !== undefined ? current.recurrence : saved.recurrence,
           categoryIds: current.categoryIds,
           raci: current.raci,
+          subtasks: savedSubtasks,
           location: extensionsChanged && people.ok ? savedLocation : saved.location,
           people: extensionsChanged && people.ok ? savedPeople : saved.people,
         };
@@ -610,6 +645,33 @@ export function EditPanel({
     </IconButton>
   );
   const setTitle = (title: string) => perms.edit && onChange({ title });
+  // 子任务的勾选：普通任务不分次；循环任务是当前代表的那一次。勾了立即生效（不发通知）
+  const series = seriesFromTask(loaded.task);
+  const occurrenceDate = series
+    ? (resolveRepresentativeInstance(series, data?.occurrencesByTask.get(loaded.task.id) ?? [], {
+        now,
+        timeZone,
+      })?.occurrenceAt ?? null)
+    : null;
+  const subtaskChecks =
+    series && !occurrenceDate
+      ? undefined
+      : {
+          isChecked: (subtaskId: string) =>
+            (data?.subtaskChecks ?? []).some(
+              (c) =>
+                c.subtaskId === subtaskId &&
+                (c.occurrenceDate?.getTime() ?? null) === (occurrenceDate?.getTime() ?? null),
+            ),
+          canCheck: loaded.task.groupId === null || (features.raci ? myRaci.includes('R') : true),
+          onToggle: (subtaskId: string, checked: boolean) => {
+            const subtask = data?.subtasksByTask
+              .get(loaded.task.id)
+              ?.find((x) => x.id === subtaskId);
+            if (subtask) void toggleSubtask(subtask, occurrenceDate, checked);
+          },
+        };
+
   // 右侧是 ✓：保存并收起（改动只在这里保存）
   const doneButton = (
     <IconButton
@@ -685,6 +747,12 @@ export function EditPanel({
         onToggle={requestClose}
         onRemovePerson={removePerson}
         titleRow={titleRow}
+        subtaskChecks={subtaskChecks}
+        historyProgress={(date) => {
+          const all = data?.subtasksByTask.get(loaded.task.id) ?? [];
+          const progress = subtaskProgress(all, data?.subtaskChecks ?? [], date);
+          return progress.total > 0 ? `${progress.done}/${progress.total}` : null;
+        }}
       />
       {saveState === 'error' && saveError && (
         <p className="field-error panel-message">保存失败：{saveError}</p>

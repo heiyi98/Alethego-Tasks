@@ -3,11 +3,17 @@
 import {
   dateOfInstant,
   deriveTaskStatus,
+  isSubtaskChecked,
+  resolveRepresentativeInstance,
+  seriesFromTask,
+  subtasksFor,
   taskPermissions,
   type Category,
   type Task,
   type TaskStatus,
 } from '@alethego/core';
+
+import { useState } from 'react';
 
 import { CategoryDot } from './category-dot';
 import { useCurrentGroup } from './current-group';
@@ -43,7 +49,8 @@ export function TaskRow({
   status?: TaskStatus;
 }) {
   const { active, open } = usePanels();
-  const { data, toggleStar } = useTaskData();
+  const { data, toggleStar, toggleSubtask } = useTaskData();
+  const [subtasksOpen, setSubtasksOpen] = useState(false);
   const { scopeOf } = useCurrentGroup();
   // 按任务所属的项目：开了任务分配时只有 R 能标记完成，R 或 A 能取消完成（含待确认）；
   // 没开时项目成员都能标记完成
@@ -56,6 +63,24 @@ export function TaskRow({
     : [];
   const perms = taskPermissions(project, myRaci);
   const done = status === 'completed' || status === 'pending';
+
+  // 子任务：挂在父任务下面，可以展开收起；父任务上显示进度。循环任务看当前代表的那一次
+  const series = seriesFromTask(task);
+  const occurrenceDate = series
+    ? (resolveRepresentativeInstance(series, data?.occurrencesByTask.get(task.id) ?? [], {
+        now,
+        timeZone,
+      })?.occurrenceAt ?? null)
+    : null;
+  const subtasks =
+    series && !occurrenceDate
+      ? []
+      : subtasksFor(data?.subtasksByTask.get(task.id) ?? [], occurrenceDate);
+  const checks = data?.subtaskChecks ?? [];
+  const doneCount = subtasks.filter((s) => isSubtaskChecked(checks, s.id, occurrenceDate)).length;
+  // 谁能勾：个人任务是自己；开了任务分配的项目里是执行人；没开的项目里是项目成员
+  const canCheckSubtasks =
+    task.groupId === null || (scope?.features.raci ? myRaci.includes('R') : true);
   const canToggle = done ? perms.uncomplete : perms.complete;
   // 列表中点击任务：标题所在的这一行留在原位并变为可编辑，面板从它下方展开；再次点击收起
   const expanded =
@@ -117,7 +142,7 @@ export function TaskRow({
         <span className="task-recurrence">↻ {recurrenceLabel(task.recurrenceRule!, timeZone)}</span>
       )}
       {task.importanceLevel > 0 && (
-        <span className="task-importance">重要性 {importanceLabel(task.importanceLevel)}</span>
+        <span className="task-importance">{importanceLabel(task.importanceLevel)}</span>
       )}
       {categories.map((category) => (
         <span key={category.id} className="task-category">
@@ -190,6 +215,19 @@ export function TaskRow({
           <span className="task-title">{task.title}</span>
           {meta}
         </button>
+        {subtasks.length > 0 && (
+          <div className="row-actions">
+            <button
+              type="button"
+              className="subtask-toggle"
+              aria-label={`子任务 ${doneCount}/${subtasks.length}`}
+              aria-expanded={subtasksOpen}
+              onClick={() => setSubtasksOpen((v) => !v)}
+            >
+              {doneCount}/{subtasks.length}
+            </button>
+          </div>
+        )}
         {/* 组任务不使用收藏 */}
         {task.groupId === null && (
           <div className="row-actions">
@@ -197,6 +235,28 @@ export function TaskRow({
           </div>
         )}
       </div>
+      {subtasksOpen && subtasks.length > 0 && (
+        <ul className="subtask-list" aria-label={`「${task.title}」的子任务`}>
+          {subtasks.map((subtask) => {
+            const checked = isSubtaskChecked(checks, subtask.id, occurrenceDate);
+            return (
+              <li key={subtask.id} className={`subtask-row${checked ? ' subtask-done' : ''}`}>
+                <input
+                  type="checkbox"
+                  className="task-check"
+                  aria-label={`完成子任务：${subtask.title}`}
+                  checked={checked}
+                  disabled={!canCheckSubtasks}
+                  onChange={(event) =>
+                    void toggleSubtask(subtask, occurrenceDate, event.target.checked)
+                  }
+                />
+                <span className="subtask-title">{subtask.title}</span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </li>
   );
 }

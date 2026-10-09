@@ -17,11 +17,11 @@ const candidate = (importanceLevel: ImportanceLevel, urgency: Urgency) => ({
 });
 
 describe('classifyQuadrant', () => {
-  it('重要性 3-5 算重要，0-2 算不重要（与模式无关）', () => {
+  it('应该、必须（2-3）算重要，随意、可以（0-1）算不重要（与模式无关）', () => {
     for (const mode of ['short', 'long'] as const) {
-      expect(classifyQuadrant(candidate(2, tomorrow), mode)).toBe('not_important_urgent');
-      expect(classifyQuadrant(candidate(3, tomorrow), mode)).toBe('important_urgent');
-      expect(classifyQuadrant(candidate(5, inAMonth), mode)).toBe('important_not_urgent');
+      expect(classifyQuadrant(candidate(1, tomorrow), mode)).toBe('not_important_urgent');
+      expect(classifyQuadrant(candidate(2, tomorrow), mode)).toBe('important_urgent');
+      expect(classifyQuadrant(candidate(3, inAMonth), mode)).toBe('important_not_urgent');
     }
   });
 
@@ -29,42 +29,42 @@ describe('classifyQuadrant', () => {
     expect(classifyQuadrant(candidate(1, inAMonth), 'long')).toBe('not_important_not_urgent');
   });
 
-  it('重要性为 0 但有截止时间 → 不重要一侧', () => {
+  it('随意但有截止时间 → 不重要一侧', () => {
     expect(classifyQuadrant(candidate(0, tomorrow), 'short')).toBe('not_important_urgent');
   });
 
   it('有重要性但无截止时间 → 不紧急一侧', () => {
-    expect(classifyQuadrant(candidate(4, noDeadline), 'short')).toBe('important_not_urgent');
-    expect(classifyQuadrant(candidate(4, noDeadline), 'long')).toBe('important_not_urgent');
+    expect(classifyQuadrant(candidate(3, noDeadline), 'short')).toBe('important_not_urgent');
+    expect(classifyQuadrant(candidate(3, noDeadline), 'long')).toBe('important_not_urgent');
   });
 
-  it('重要性为 0 且无截止时间 → 无象限', () => {
+  it('随意且无截止时间 → 无象限', () => {
     expect(classifyQuadrant(candidate(0, noDeadline), 'short')).toBeNull();
   });
 
   it('短期：N ≤ 3 紧急，N = 4 不紧急', () => {
-    expect(classifyQuadrant(candidate(4, day(3)), 'short')).toBe('important_urgent');
-    expect(classifyQuadrant(candidate(4, day(4)), 'short')).toBe('important_not_urgent');
+    expect(classifyQuadrant(candidate(3, day(3)), 'short')).toBe('important_urgent');
+    expect(classifyQuadrant(candidate(3, day(4)), 'short')).toBe('important_not_urgent');
   });
 
   it('长期：N ≤ 14 紧急，N = 15 不紧急', () => {
-    expect(classifyQuadrant(candidate(4, day(14)), 'long')).toBe('important_urgent');
-    expect(classifyQuadrant(candidate(4, day(15)), 'long')).toBe('important_not_urgent');
+    expect(classifyQuadrant(candidate(3, day(14)), 'long')).toBe('important_urgent');
+    expect(classifyQuadrant(candidate(3, day(15)), 'long')).toBe('important_not_urgent');
   });
 
   it('同一个任务在两种模式下可以落在不同象限', () => {
-    expect(classifyQuadrant(candidate(4, day(10)), 'short')).toBe('important_not_urgent');
-    expect(classifyQuadrant(candidate(4, day(10)), 'long')).toBe('important_urgent');
+    expect(classifyQuadrant(candidate(3, day(10)), 'short')).toBe('important_not_urgent');
+    expect(classifyQuadrant(candidate(3, day(10)), 'long')).toBe('important_urgent');
   });
 
   it('逾期算紧急', () => {
-    expect(classifyQuadrant(candidate(4, overdue(2)), 'short')).toBe('important_urgent');
-    expect(classifyQuadrant(candidate(4, overdue(2)), 'long')).toBe('important_urgent');
+    expect(classifyQuadrant(candidate(3, overdue(2)), 'short')).toBe('important_urgent');
+    expect(classifyQuadrant(candidate(3, overdue(2)), 'long')).toBe('important_urgent');
   });
 });
 
 describe('placeOnMatrix', () => {
-  it('未处理的任务不进入矩阵', () => {
+  it('没有截止时间的随意任务不进入矩阵', () => {
     expect(placeOnMatrix(candidate(0, noDeadline), 'short')).toEqual({
       visible: false,
       reason: 'unprocessed',
@@ -72,7 +72,7 @@ describe('placeOnMatrix', () => {
   });
 
   it('远期任务即使有重要性也不进入矩阵', () => {
-    expect(placeOnMatrix(candidate(5, far), 'long')).toEqual({
+    expect(placeOnMatrix(candidate(3, far), 'long')).toEqual({
       visible: false,
       reason: 'far_future',
     });
@@ -129,7 +129,7 @@ describe('placeOnMatrix', () => {
   });
 
   it('逾期满 3 天退出矩阵', () => {
-    expect(placeOnMatrix(candidate(5, overdue(3)), 'short')).toEqual({
+    expect(placeOnMatrix(candidate(3, overdue(3)), 'short')).toEqual({
       visible: false,
       reason: 'overdue_expired',
     });

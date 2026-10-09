@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  categoryHref,
   groupHref,
+  isCurrentPage,
   needsCanonicalRedirect,
   parseSelection,
-  personal,
+  scopeHref,
   selectionHref,
-  toggleCategory,
+  withMode,
 } from './selection';
 
 const parse = (path: string) => {
@@ -15,10 +17,11 @@ const parse = (path: string) => {
 };
 const params = (query: string) => new URLSearchParams(query);
 
-describe('选择：范围 + 分类 + 状态', () => {
-  it('默认：清单 · 范围全部 · 所有分类 · 状态未完成', () => {
+describe('清单的侧边栏：单选导航', () => {
+  it('默认：总览 · 清单 · 状态未完成', () => {
     expect(parse('/')).toEqual({
       mode: 'list',
+      listView: 'list',
       groupId: null,
       projectId: null,
       scope: 'all',
@@ -28,59 +31,38 @@ describe('选择：范围 + 分类 + 状态', () => {
     expect(selectionHref(parse('/'))).toBe('/');
   });
 
-  it('都保存在查询参数中，清单与矩阵共用', () => {
-    const selection = parse('/matrix?scope=starred&status=completed&cat=a,b');
-    expect(selection).toEqual({
-      mode: 'matrix',
-      groupId: null,
-      projectId: null,
-      scope: 'starred',
-      status: 'completed',
-      categoryIds: ['a', 'b'],
-    });
-    expect(selectionHref({ ...selection, mode: 'list' })).toBe(
-      '/?scope=starred&status=completed&cat=a%2Cb',
-    );
-  });
-
-  it('矩阵模式下选已完成 / 已错过不再自动切回清单', () => {
-    expect(
-      selectionHref({
-        mode: 'matrix',
-        groupId: null,
-        projectId: null,
-        scope: 'all',
-        status: 'completed',
-        categoryIds: [],
-      }),
-    ).toBe('/matrix?status=completed');
-  });
-
-  it('状态"全部"要写进地址（默认是未完成）', () => {
-    expect(
-      selectionHref({
-        mode: 'list',
-        groupId: null,
-        projectId: null,
-        scope: 'all',
-        status: 'all',
-        categoryIds: [],
-      }),
-    ).toBe('/?status=all');
-  });
-
-  it('旧地址兼容：?status=starred → 范围收藏 + 默认状态', () => {
-    expect(parse('/?status=starred')).toEqual({
-      mode: 'list',
-      groupId: null,
-      projectId: null,
-      scope: 'starred',
-      status: 'todo',
+  it('每一项是一个页面：总览、今日、收藏、分类、组、项目，一次只选一个', () => {
+    expect(parse('/?scope=today')).toMatchObject({ scope: 'today', categoryIds: [] });
+    expect(parse('/?scope=starred')).toMatchObject({ scope: 'starred' });
+    // 分类、组优先：选了分类或组时范围不起作用
+    expect(parse('/?scope=starred&cat=a')).toMatchObject({ scope: 'all', categoryIds: ['a'] });
+    expect(parse('/?group=g&cat=a&scope=today')).toMatchObject({
+      groupId: 'g',
+      scope: 'all',
       categoryIds: [],
     });
-    expect(selectionHref(parse('/?status=starred&cat=a'))).toBe('/?scope=starred&cat=a');
+    const s = parse('/?cat=a&status=all');
+    expect(scopeHref(s, 'today')).toBe('/?scope=today&status=all');
+    expect(categoryHref(s, 'b')).toBe('/?cat=b&status=all');
+    expect(groupHref(s, 'g', 'p')).toBe('/?group=g&project=p&status=all');
+  });
+
+  it('当前页面（整行高亮）只有一项', () => {
+    const s = parse('/?cat=a');
+    expect(isCurrentPage(s, { kind: 'category', id: 'a' })).toBe(true);
+    expect(isCurrentPage(s, { kind: 'scope', scope: 'all' })).toBe(false);
+    expect(isCurrentPage(parse('/?scope=today'), { kind: 'scope', scope: 'today' })).toBe(true);
+    const g = parse('/?group=g&project=p');
+    expect(isCurrentPage(g, { kind: 'project', id: 'p' })).toBe(true);
+    expect(isCurrentPage(g, { kind: 'group', id: 'g' })).toBe(false);
+  });
+
+  it('旧地址兼容：多选的分类只取第一个；?status=starred → 收藏', () => {
+    expect(parse('/?cat=a,b')).toMatchObject({ categoryIds: ['a'] });
+    expect(needsCanonicalRedirect(params('cat=a,b'))).toBe(true);
+    expect(parse('/?status=starred')).toMatchObject({ scope: 'starred', status: 'todo' });
     expect(needsCanonicalRedirect(params('status=starred'))).toBe(true);
-    expect(needsCanonicalRedirect(params('status=todo&scope=starred'))).toBe(false);
+    expect(needsCanonicalRedirect(params('status=todo&scope=today'))).toBe(false);
   });
 
   it('非法值回到默认', () => {
@@ -88,24 +70,23 @@ describe('选择：范围 + 分类 + 状态', () => {
     expect(needsCanonicalRedirect(params('status=overdue'))).toBe(true);
   });
 
-  it('分类开关：再点一次取消', () => {
-    const base = parse('/?cat=a');
-    expect(toggleCategory(base, 'b').categoryIds).toEqual(['a', 'b']);
-    expect(toggleCategory(base, 'a').categoryIds).toEqual([]);
+  it('分类开了任务关系：?cat=id&view=gantt 是甘特图', () => {
+    expect(parse('/?cat=a&view=gantt')).toMatchObject({ mode: 'gantt', categoryIds: ['a'] });
+    expect(parse('/?view=gantt')).toMatchObject({ mode: 'list' });
   });
+});
 
-  it('组：?group=id，只有清单和状态；范围、分类、矩阵在组里不起作用', () => {
-    const inGroup = parse('/matrix?group=g1&status=all&scope=starred&cat=a');
-    expect(inGroup).toMatchObject({ mode: 'list', groupId: 'g1', status: 'all' });
-    expect(selectionHref(inGroup)).toBe('/?group=g1&status=all');
-    expect(groupHref(parse('/matrix?cat=a&status=completed'), 'g2')).toBe(
-      '/?group=g2&status=completed',
+describe('时间管理矩阵：回到进入之前的那个页面', () => {
+  it('进入矩阵时地址带着当前页面，回到清单时回到那个页面（包括看法和状态）', () => {
+    const gantt = parse('/?group=g&project=p&view=gantt&status=all');
+    const matrix = withMode(gantt, 'matrix');
+    expect(selectionHref(matrix)).toBe('/matrix?group=g&project=p&view=gantt&status=all');
+    const back = parse(selectionHref(matrix));
+    expect(back).toMatchObject({ mode: 'matrix', listView: 'gantt', groupId: 'g' });
+    expect(selectionHref(withMode(back, back.listView))).toBe(
+      '/?group=g&project=p&view=gantt&status=all',
     );
-  });
-
-  it('在组里点分类：回到个人总览并选中这个分类', () => {
-    const inGroup = parse('/?group=g1');
-    expect(selectionHref({ ...personal(inGroup), categoryIds: ['a'] })).toBe('/?cat=a');
+    expect(selectionHref(withMode(parse('/?scope=today'), 'matrix'))).toBe('/matrix?scope=today');
   });
 });
 
@@ -123,12 +104,14 @@ describe('项目、责任分配矩阵与待确认', () => {
     const raci = parse('/?group=g1&project=p1&view=raci&status=pending');
     expect(raci).toMatchObject({ mode: 'raci', projectId: 'p1', status: 'pending' });
     expect(selectionHref(raci)).toBe('/?group=g1&project=p1&view=raci&status=pending');
-    expect(selectionHref({ ...raci, mode: 'list' })).toBe('/?group=g1&project=p1&status=pending');
+    expect(selectionHref(withMode(raci, 'list'))).toBe('/?group=g1&project=p1&status=pending');
     expect(parse('/?group=g1&view=raci')).toMatchObject({ mode: 'list' });
   });
 
-  it('回到个人：不带项目、责任分配矩阵和待确认', () => {
+  it('回到个人：不带项目、责任分配矩阵和待确认（今日除外）', () => {
     const raci = parse('/?group=g1&project=p1&view=raci&status=pending');
-    expect(selectionHref(personal(raci))).toBe('/');
+    expect(scopeHref(raci, 'all')).toBe('/');
+    expect(categoryHref(raci, 'c1')).toBe('/?cat=c1');
+    expect(scopeHref(raci, 'today')).toBe('/?scope=today&status=pending');
   });
 });

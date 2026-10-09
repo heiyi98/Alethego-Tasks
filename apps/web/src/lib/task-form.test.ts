@@ -64,7 +64,7 @@ describe('新建', () => {
     });
   });
 
-  it('组任务：写入项目和组，不带重要性和收藏', () => {
+  it('组任务：写入项目和组，带重要性，不带收藏', () => {
     const task = newTaskFromForm(form({ importanceLevel: 3, isStarred: true }), TZ, {
       groupId: 'g1',
       projectId: 'p1',
@@ -72,7 +72,7 @@ describe('新建', () => {
     expect(task).toMatchObject({
       groupId: 'g1',
       projectId: 'p1',
-      importanceLevel: 0,
+      importanceLevel: 3,
       isStarred: false,
     });
     expect(newTaskFromForm(form({}), TZ).projectId).toBeUndefined();
@@ -123,8 +123,8 @@ describe('编辑自动保存的差异', () => {
   });
 
   it('只包含改动的字段', () => {
-    const patch = taskPatchFromForms({ ...saved, importanceLevel: 5 }, saved, TZ);
-    expect(patch).toEqual({ importanceLevel: 5 });
+    const patch = taskPatchFromForms({ ...saved, importanceLevel: 3 }, saved, TZ);
+    expect(patch).toEqual({ importanceLevel: 3 });
     expect(taskPatchFromForms({ ...saved, isStarred: true }, saved, TZ)).toEqual({
       isStarred: true,
     });

@@ -23,11 +23,13 @@ import type { Urgency } from '../urgency/urgency-calculator';
  *
  * 横向（从左到右，越靠右越紧急）：6 个等宽的格子（column 0..5），中线在第 3 格的左边界；
  * 逾期区接在 6 格最右边（1/4 格宽）；没设截止日期的任务贴在图的最左边缘。
- * 纵向（从下到上，越靠上越重要）：0..5 即重要性档位，0 = 未设置。
+ * 纵向（从下到上，越靠上越重要）：0..3 即重要性四档，0 = 随意、3 = 必须。
  */
 
 export const MATRIX_COLUMNS = MATRIX_CELLS;
-export const MATRIX_ROWS = 6;
+export const MATRIX_ROWS = 4;
+/** 纵向的中线："可以"和"应该"之间（第 2 条分界线），上下各两档 */
+export const MATRIX_ROW_MIDLINE = 2;
 /** 中线所在的分界线（第几格的左边界）：6 格正中 */
 export const MATRIX_MIDLINE_BOUNDARY = MATRIX_CELLS - URGENT_CELLS;
 

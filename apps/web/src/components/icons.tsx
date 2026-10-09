@@ -115,6 +115,11 @@ export const PencilIcon = (p: IconProps) => (
     <path d="M15.5 4.5l4 4L8 20H4v-4z" />
   </Svg>
 );
+export const ChecklistIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M4 6.5l1.5 1.5L8.5 5M4 12.5l1.5 1.5 3-3M4 18.5l1.5 1.5 3-3M11.5 7h8.5M11.5 13h8.5M11.5 19h8.5" />
+  </Svg>
+);
 export const PlusIcon = (p: IconProps) => (
   <Svg {...p}>
     <path d="M12 5v14M5 12h14" />

@@ -1262,7 +1262,8 @@ a {
 
 .editor-field > textarea,
 .editor-field .field-pair input,
-.person-row input {
+.person-row input,
+.subtask-edit-row input:not([type='checkbox']) {
   width: 100%;
   min-width: 0;
   padding: 6px 10px;
@@ -2915,4 +2916,108 @@ a {
   font: inherit;
   font-size: 13px;
   cursor: pointer;
+}
+
+/* ---------- 重要性四档 ---------- */
+.importance-picker button {
+  padding: 0 10px;
+  white-space: nowrap;
+}
+
+/* ---------- 子任务 ---------- */
+.subtask-toggle {
+  min-width: 44px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--secondary-label);
+  font: inherit;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.subtask-toggle[aria-expanded='true'] {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.subtask-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0 12px 8px 44px;
+  list-style: none;
+}
+
+.subtask-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 32px;
+  font-size: 14px;
+}
+
+.subtask-done .subtask-title {
+  color: var(--secondary-label);
+  text-decoration: line-through;
+}
+
+.subtask-edit-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.subtask-edit-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.subtask-edit-row input:not([type='checkbox']) {
+  grid-column: 2;
+}
+
+.history-progress {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--secondary-label);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 矩阵的筛选栏：每一行一个勾选框（清单的侧边栏是整行高亮） ---------- */
+.filter-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  color: var(--label);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.filter-row-heading {
+  font-weight: 600;
+}
+
+.filter-check {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--accent);
+  flex: none;
+}
+
+.filter-child .filter-row {
+  padding-left: 28px;
 }

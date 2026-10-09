@@ -5,23 +5,21 @@ import {
   QUADRANT_ORDER,
   buildMatrixLayout,
   groupPointsByQuadrant,
-  matchesCategoryFilter,
-  matchesScope,
+  matrixFilterIncludes,
   type Category,
   type MatrixMode,
 } from '@alethego/core';
-import { useRouter } from 'next/navigation';
 import { Suspense, useEffect, useMemo, useState } from 'react';
 
+import { useCurrentUser } from '@/auth';
+import { useMatrixFilter } from '@/components/matrix-filter';
 import { usePanels } from '@/components/panel-provider';
-import { useSelection } from '@/components/selection';
 import { EditPanel } from '@/components/task-panels';
 import { useTaskData } from '@/components/task-data-provider';
 import { TaskMatrix } from '@/components/task-matrix';
 import { TaskRow } from '@/components/task-row';
-import { TitleBar } from '@/components/title-bar';
 import { QUADRANT_LABELS } from '@/lib/format';
-import { selectionHref } from '@/lib/selection';
+import { relatedGroupTaskPredicate } from '@/lib/related';
 
 /** 记住上次看的是短期还是长期（只是本机的便利设置，读不到就用默认的短期） */
 const MODE_STORAGE_KEY = 'alethego.matrix-mode';
@@ -44,21 +42,16 @@ function storeMode(mode: MatrixMode) {
 }
 
 /**
- * 矩阵模式：没有添加栏和状态行，只受左侧范围（总览 / 收藏）和分类的选择影响。
+ * 矩阵模式：没有标题、添加栏和状态行；显示左边筛选栏所有勾选内容的并集
+ * （个人任务或所选分类的任务，所选项目里和我有关的组任务）。
  * 矩阵本身只显示未完成的任务（逾期 3 天内在最右边的逾期区）。
  * 矩阵上方的文字胶囊显示当前模式（"短期"或"长期"），点击切换到另一个；四象限清单按当前模式判定紧急与否，清单里有哪些任务与模式无关。
  */
 function MatrixPage() {
   const { data, error, now, timeZone, toggleComplete } = useTaskData();
   const { active } = usePanels();
-  const selection = useSelection();
-  const { scope, categoryIds } = selection;
-  // 组里没有矩阵：/matrix?group=… 改成这个组的清单
-  const router = useRouter();
-  const groupHrefTarget = selection.groupId ? selectionHref(selection) : null;
-  useEffect(() => {
-    if (groupHrefTarget) router.replace(groupHrefTarget);
-  }, [groupHrefTarget, router]);
+  const user = useCurrentUser();
+  const { filter, loaded } = useMatrixFilter();
   const [mode, setMode] = useState<MatrixMode>(DEFAULT_MATRIX_MODE);
   useEffect(() => {
     const stored = readStoredMode();
@@ -71,31 +64,49 @@ function MatrixPage() {
   };
 
   const categoriesById = useMemo(() => new Map(data?.categories.map((c) => [c.id, c])), [data]);
-  const categoriesOf = (taskId: string): Category[] =>
-    (data?.categoryIdsByTask.get(taskId) ?? [])
+  const projectsById = useMemo(() => new Map(data?.projects.map((p) => [p.id, p])), [data]);
+  // 圆点的颜色：个人任务用分类的颜色；组任务用项目的颜色
+  const categoriesOf = (taskId: string): Category[] => {
+    const task = data?.tasks.find((t) => t.id === taskId);
+    const project = task?.projectId ? projectsById.get(task.projectId) : undefined;
+    if (project) {
+      return [
+        {
+          id: project.id,
+          ownerId: '',
+          name: project.name,
+          color: project.color,
+          description: '',
+          tools: [],
+          createdAt: project.createdAt,
+        } as Category,
+      ];
+    }
+    return (data?.categoryIdsByTask.get(taskId) ?? [])
       .map((id) => categoriesById.get(id))
       .filter((c) => c !== undefined);
+  };
 
   const layout = useMemo(() => {
-    if (!data) return null;
-    const tasks = data.tasks.filter(
-      (task) =>
-        matchesScope(task, scope) &&
-        matchesCategoryFilter(data.categoryIdsByTask.get(task.id) ?? [], categoryIds),
+    if (!data || !loaded) return null;
+    const isRelated = relatedGroupTaskPredicate(data, user.id);
+    const tasks = data.tasks.filter((task) =>
+      matrixFilterIncludes(task, filter, {
+        categoryIdsOf: (id) => data.categoryIdsByTask.get(id) ?? [],
+        isRelatedGroupTask: isRelated,
+      }),
     );
     return buildMatrixLayout(
       { tasks, occurrencesByTask: data.occurrencesByTask },
       { now, timeZone },
       mode,
     );
-  }, [data, categoryIds, scope, now, timeZone, mode]);
+  }, [data, loaded, filter, user.id, now, timeZone, mode]);
 
   const groups = useMemo(() => (layout ? groupPointsByQuadrant(layout.points) : null), [layout]);
 
   return (
     <main className="page page-wide">
-      <TitleBar />
-
       {error && <p className="notice notice-error">加载失败：{error}</p>}
       {!data && !error && <p className="muted">加载中…</p>}
 

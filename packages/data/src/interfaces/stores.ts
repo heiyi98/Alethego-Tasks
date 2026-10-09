@@ -8,6 +8,8 @@ import type {
   ITaskLocationRepository,
   ITaskPeopleRepository,
   ITaskRepository,
+  ISubtaskRepository,
+  IUserSettingsRepository,
 } from './repositories';
 
 /** 一组数据存取能力。本地与远程存储各自实现同一形状。 */
@@ -26,6 +28,10 @@ export interface DataStore {
   relations: IRelationRepository;
   /** 任务上的 RACI（开了任务分配的项目） */
   assignments: IAssignmentRepository;
+  /** 子任务 */
+  subtasks: ISubtaskRepository;
+  /** 账号上的设置（矩阵筛选栏的勾选） */
+  settings: IUserSettingsRepository;
 }
 
 /** 只管与 Supabase 通信。 */

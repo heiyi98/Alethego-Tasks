@@ -11,7 +11,9 @@ import { useSelection } from './selection';
 import { useTaskData } from './task-data-provider';
 import { EditPanel } from './task-panels';
 import { TitleBar } from './title-bar';
+import { useCurrentUser } from '@/auth';
 import { STATUS_LABELS, statusOrderFor } from '@/lib/format';
+import { relatedGroupTaskPredicate } from '@/lib/related';
 import { groupHref, selectionHref } from '@/lib/selection';
 
 /**
@@ -80,7 +82,11 @@ export function ViewFrame({ wide = false, children }: { wide?: boolean; children
             projectId={projectId}
           />
         ) : (
-          <QuickAdd categories={selectedCategories} starred={scope === 'starred'} />
+          <QuickAdd
+            categories={selectedCategories}
+            starred={scope === 'starred'}
+            dueToday={scope === 'today'}
+          />
         )}
       </div>
 
@@ -110,8 +116,10 @@ function StatusBar() {
   const router = useRouter();
   const { features } = useCurrentGroup();
   const { data, now, timeZone } = useTaskData();
+  const user = useCurrentUser();
+  const today = !selection.groupId && selection.scope === 'today';
   const pendingCount = useMemo(() => {
-    if (!data || !features.confirmation || !selection.groupId) return 0;
+    if (!data || !features.confirmation || (!selection.groupId && !today)) return 0;
     return buildTaskList(
       {
         tasks: data.tasks,
@@ -123,10 +131,21 @@ function StatusBar() {
         categoryIds: [],
         groupId: selection.groupId,
         projectId: selection.projectId,
+        scope: today ? 'today' : 'all',
+        isRelatedGroupTask: relatedGroupTaskPredicate(data, user.id),
       },
       { now, timeZone },
     ).length;
-  }, [data, features.confirmation, selection.groupId, selection.projectId, now, timeZone]);
+  }, [
+    data,
+    features.confirmation,
+    selection.groupId,
+    selection.projectId,
+    today,
+    user.id,
+    now,
+    timeZone,
+  ]);
   return (
     <div className="segmented-control status-bar" role="group" aria-label="状态">
       {statusOrderFor(features).map((status) => (

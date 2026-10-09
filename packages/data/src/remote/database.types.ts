@@ -143,6 +143,30 @@ export interface Database {
         Update: NoWrite;
         Relationships: [];
       };
+      task_subtasks: {
+        Row: {
+          id: string;
+          task_id: string;
+          title: string;
+          position: number;
+          created_at: string;
+          deleted_at: string | null;
+        };
+        Insert: NoWrite;
+        Update: NoWrite;
+        Relationships: [];
+      };
+      task_subtask_checks: {
+        Row: {
+          subtask_id: string;
+          occurrence_date: string | null;
+          checked_at: string;
+          checked_by: string | null;
+        };
+        Insert: NoWrite;
+        Update: NoWrite;
+        Relationships: [];
+      };
       task_relations: {
         Row: {
           id: string;
@@ -194,6 +218,7 @@ export interface Database {
           email: string | null;
           display_name: string;
           notifications_seen_at: string | null;
+          matrix_filter: Json | null;
           created_at: string;
           updated_at: string;
         };
@@ -210,6 +235,7 @@ export interface Database {
           email?: string | null;
           display_name?: string;
           notifications_seen_at?: string | null;
+          matrix_filter?: Json | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -478,6 +504,14 @@ export interface Database {
         Returns: Database['taskapp']['Tables']['groups']['Row'];
       };
       set_task_raci: { Args: { p_task_id: string; p_assignments: Json }; Returns: undefined };
+      set_task_subtasks: {
+        Args: { p_task_id: string; p_items: Json };
+        Returns: Database['taskapp']['Tables']['task_subtasks']['Row'][];
+      };
+      set_subtask_checked: {
+        Args: { p_subtask_id: string; p_occurrence_date: string | null; p_checked: boolean };
+        Returns: undefined;
+      };
       set_task_schedule: {
         Args: {
           p_task_id: string;
@@ -631,6 +665,8 @@ export interface Database {
           p_assignments: Json;
           p_location: Json | null;
           p_people: Json;
+          p_importance_level?: number;
+          p_subtasks?: Json;
         };
         Returns: Database['taskapp']['Tables']['tasks']['Row'];
       };

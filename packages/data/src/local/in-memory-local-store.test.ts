@@ -28,8 +28,8 @@ describe('InMemoryLocalStore', () => {
     // 之后在详情中补充字段
     const deadline = new Date('2026-09-30T10:00:00Z');
     expect(
-      await store.tasks.update(task.id, { deadlineAt: deadline, importanceLevel: 4 }),
-    ).toMatchObject({ deadlineAt: deadline, importanceLevel: 4 });
+      await store.tasks.update(task.id, { deadlineAt: deadline, importanceLevel: 3 }),
+    ).toMatchObject({ deadlineAt: deadline, importanceLevel: 3 });
   });
 
   it('空白标题不能创建或更新', async () => {
@@ -197,7 +197,7 @@ describe('分类编辑', () => {
 });
 
 describe('组（本地只有自己一人）', () => {
-  it('建组、建项目；组任务必须属于项目；组任务不能用重要性和收藏；删除组连同项目和任务一起删除', async () => {
+  it('建组、建项目；组任务必须属于项目；组任务有重要性、不能收藏；删除组连同项目和任务一起删除', async () => {
     const store = new InMemoryLocalStore({ ownerId: OWNER });
     const group = await store.groups.create({ name: '  小组  ', kind: 'cooperative', color: null });
     expect(group).toMatchObject({ name: '小组', kind: 'cooperative', createdBy: OWNER });
@@ -216,8 +216,8 @@ describe('组（本地只有自己一人）', () => {
     const task = await store.tasks.create({ title: '组任务', ...fields });
     expect(task).toMatchObject({ groupId: group.id, projectId: project.id });
     await expect(
-      store.tasks.create({ title: 'x', ...fields, importanceLevel: 3 }),
-    ).rejects.toMatchObject({ code: 'invalid' });
+      (await store.tasks.create({ title: 'x', ...fields, importanceLevel: 3 })).importanceLevel,
+    ).toBe(3);
     await expect(
       store.tasks.create({ title: 'x', ...fields, isStarred: true }),
     ).rejects.toMatchObject({ code: 'invalid' });
@@ -273,5 +273,36 @@ describe('任务关系（本地）', () => {
         dateZone: zone,
       }),
     ).rejects.toMatchObject({ code: 'invalid' });
+  });
+});
+
+describe('子任务（本地存储）', () => {
+  it('整组替换：改标题、加新的、没列出的标记删除；勾选按每一次各自记', async () => {
+    let clock = new Date('2026-10-01T00:00:00Z');
+    const store = new InMemoryLocalStore({ ownerId: 'u', now: () => clock });
+    const task = await store.tasks.create({ title: '父任务' });
+    const [a, b] = await store.subtasks.setList(task.id, [{ title: 'a' }, { title: 'b' }]);
+    clock = new Date('2026-10-02T00:00:00Z');
+    const next = await store.subtasks.setList(task.id, [
+      { id: b!.id, title: 'b2' },
+      { title: 'c' },
+    ]);
+    expect(next.map((s) => s.title)).toEqual(['b2', 'c']);
+    const all = await store.subtasks.listForTasks([task.id]);
+    expect(all.subtasks.find((s) => s.id === a!.id)!.deletedAt).not.toBeNull();
+    const d1 = new Date('2026-10-03T01:00:00Z');
+    await store.subtasks.setChecked(b!.id, d1, true);
+    await store.subtasks.setChecked(b!.id, null, true);
+    await store.subtasks.setChecked(b!.id, null, false);
+    expect((await store.subtasks.listForTasks([task.id])).checks).toEqual([
+      { subtaskId: b!.id, occurrenceDate: d1 },
+    ]);
+  });
+
+  it('矩阵筛选存在账号设置里', async () => {
+    const store = new InMemoryLocalStore({ ownerId: 'u' });
+    expect(await store.settings.getMatrixFilter()).toBeNull();
+    await store.settings.setMatrixFilter({ personal: false });
+    expect(await store.settings.getMatrixFilter()).toEqual({ personal: false });
   });
 });

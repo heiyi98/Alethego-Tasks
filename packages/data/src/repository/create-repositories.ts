@@ -23,5 +23,7 @@ export function createRepositories({ remote }: RepositoryDependencies): DataStor
     projects: remote.projects,
     assignments: remote.assignments,
     relations: remote.relations,
+    subtasks: remote.subtasks,
+    settings: remote.settings,
   };
 }

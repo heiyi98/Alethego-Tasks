@@ -2,8 +2,11 @@
 --
 -- 由 2026-09-25 至 2026-10-05 的 14 份迁移合并而成：去掉了过渡和兼容的内容，命名统一，行为与合并前完全一致。
 --
--- 硬规定：从这份初始结构起，数据库的任何改动都必须是一份新的迁移，在现有结构上修改，保留现有数据；
--- 不允许清空数据、删库重建。需要改变现有数据的形状时，迁移里要带上数据转换。
+-- 数据库的工作规则：
+-- - 上线前：数据库的改动直接改进这份初始结构，不新增迁移文件；同步重新生成完整建库脚本
+--   （node supabase/scripts/build-full-schema.mjs）。测试数据可以随时清空。
+-- - 上线后：只能新增迁移，保留现有数据。
+-- - 指导意见（不是规则）：设计时保持模块化，让以后改结构不至于被迫清空数据。
 --
 -- 账号由 Alethego 签发（Third-Party Auth），auth.uid() 是 Alethego 的用户 id；
 -- 本 schema 只建在 taskapp 里，不碰 public、auth 或其他 schema。
@@ -57,7 +60,10 @@ create table taskapp.users (
   created_at            timestamptz not null default now(),
   updated_at            timestamptz not null default now(),
   -- 通知：上次打开通知的时间，之后出现的通知算未读
-  notifications_seen_at timestamptz
+  notifications_seen_at timestamptz,
+  -- 时间管理矩阵的筛选栏上次的勾选（存在账号上，换设备也一样）；null = 还没进过矩阵（默认只勾"个人"）
+  -- {"personal": 全部个人任务, "categories": [分类], "groups": [整组勾选的组], "projects": [单独勾选的项目]}
+  matrix_filter         jsonb
 );
 
 create table taskapp.groups (
@@ -95,7 +101,7 @@ create table taskapp.tasks (
   description        text not null default '',
   deadline_at        timestamptz,
   importance_level   smallint not null default 0
-                     constraint tasks_importance_level_range check (importance_level between 0 and 5),
+                     constraint tasks_importance_level_range check (importance_level between 0 and 3),
   recurrence_rule    text,
   recurrence_dtstart timestamptz,
   completed_at       timestamptz,
@@ -114,16 +120,16 @@ create table taskapp.tasks (
 
   constraint tasks_confirmed_requires_completed
     check (confirmed_at is null or completed_at is not null),
-  -- 组里不使用重要性和收藏
+  -- 组任务不能收藏（重要性组任务也有，全组共用）
   constraint tasks_group_fields
-    check ( group_id is null or (importance_level = 0 and not is_starred) ),
+    check (group_id is null or not is_starred),
   constraint tasks_project_container
     check ((group_id is null) = (project_id is null)),
   -- 循环开关打开时必须有起始时间；关闭（清空规则）时可保留起始时间
   constraint tasks_recurrence_requires_dtstart
     check (recurrence_rule is null or recurrence_dtstart is not null)
 );
-comment on column taskapp.tasks.importance_level is '重要性 0-5：0 = 未设置，1-5 为用户设置的档位';
+comment on column taskapp.tasks.importance_level is '重要性四档：0 = 随意（默认）、1 = 可以、2 = 应该、3 = 必须';
 comment on column taskapp.tasks.recurrence_rule is 'RFC 5545 RRULE；非空即为循环任务';
 comment on column taskapp.tasks.is_starred is '标星（书签），默认 false';
 comment on column taskapp.tasks.confirmed_at is '已确认的时间。个人任务、合作组任务完成即确认；管理组任务由 A 确认（completed_at 有值而它为空 = 待确认）';
@@ -357,6 +363,27 @@ create table taskapp.task_relations (
     unique (task_id, side, predecessor_id, anchor)
 );
 
+-- 子任务：对一个任务内容的拆分，只有标题和勾选；只有一层。
+-- 删除只做标记（deleted_at）：循环任务过去各次的勾选记录保持原样。
+create table taskapp.task_subtasks (
+  id         uuid primary key default gen_random_uuid(),
+  task_id    uuid not null references taskapp.tasks (id) on delete cascade,
+  title      text not null
+             constraint task_subtasks_title_not_blank check (btrim(title) <> ''),
+  position   integer not null default 0,
+  created_at timestamptz not null default taskapp.clock_now(),
+  deleted_at timestamptz
+);
+
+-- 子任务的勾选：有一行 = 勾上了。普通任务 occurrence_date 为空；
+-- 循环任务每一次各有自己的勾选（occurrence_date = 那一次的时刻），各次互不相关。
+create table taskapp.task_subtask_checks (
+  subtask_id      uuid not null references taskapp.task_subtasks (id) on delete cascade,
+  occurrence_date timestamptz,
+  checked_at      timestamptz not null default taskapp.clock_now(),
+  checked_by      uuid references taskapp.users (id)
+);
+
 -- 3. 索引 -------------------------------------------------------------------------------------
 
 create index group_invitations_email_idx on taskapp.group_invitations (email);
@@ -386,6 +413,15 @@ create index task_notifications_user_idx
 create index task_people_task_id_idx on taskapp.task_people (task_id);
 
 create index task_relations_predecessor_idx on taskapp.task_relations (predecessor_id);
+
+create index task_subtasks_task_id_idx on taskapp.task_subtasks (task_id);
+
+-- 同一个子任务：普通任务只有一个勾选，循环任务每一次一个
+create unique index task_subtask_checks_once_key
+  on taskapp.task_subtask_checks (subtask_id) where occurrence_date is null;
+
+create unique index task_subtask_checks_occurrence_key
+  on taskapp.task_subtask_checks (subtask_id, occurrence_date) where occurrence_date is not null;
 
 create index tasks_group_id_idx on taskapp.tasks (group_id) where group_id is not null;
 
@@ -899,10 +935,10 @@ begin
   end if;
 
   if (new.title, new.description, new.deadline_at, new.recurrence_rule, new.recurrence_dtstart,
-      new.deleted_at, new.owner_id, new.start_on, new.end_after_days)
+      new.deleted_at, new.owner_id, new.start_on, new.end_after_days, new.importance_level)
      is distinct from
      (old.title, old.description, old.deadline_at, old.recurrence_rule, old.recurrence_dtstart,
-      old.deleted_at, old.owner_id, old.start_on, old.end_after_days)
+      old.deleted_at, old.owner_id, old.start_on, old.end_after_days, old.importance_level)
      and not taskapp.is_project_admin(new.project_id) then
     raise exception '只有项目管理员可以编辑任务' using errcode = 'insufficient_privilege';
   end if;
@@ -987,6 +1023,7 @@ begin
     case when new.title is distinct from old.title then 'title' end,
     case when new.description is distinct from old.description then 'description' end,
     case when new.deadline_at is distinct from old.deadline_at then 'deadline' end,
+    case when new.importance_level is distinct from old.importance_level then 'importance' end,
     case when (new.recurrence_rule, new.recurrence_dtstart)
               is distinct from (old.recurrence_rule, old.recurrence_dtstart) then 'recurrence' end,
     case when old.deleted_at is null and new.deleted_at is not null then 'deleted'
@@ -1354,8 +1391,8 @@ language sql
 immutable
 set search_path = ''
 as $$
-  select array['title', 'description', 'deadline', 'recurrence', 'deleted', 'restored',
-               'R', 'A', 'C', 'I', 'people', 'location'];
+  select array['title', 'description', 'deadline', 'importance', 'recurrence', 'deleted', 'restored',
+               'R', 'A', 'C', 'I', 'people', 'location', 'subtasks'];
 $$;
 
 -- 任务通知只发给这个项目的成员
@@ -1556,7 +1593,7 @@ begin
 end;
 $$;
 
-create function taskapp.create_task_with_raci(p_project_id uuid, p_title text, p_description text, p_deadline_at timestamptz, p_recurrence_rule text, p_recurrence_dtstart timestamptz, p_assignments jsonb, p_location jsonb default null, p_people jsonb default '[]')
+create function taskapp.create_task_with_raci(p_project_id uuid, p_title text, p_description text, p_deadline_at timestamptz, p_recurrence_rule text, p_recurrence_dtstart timestamptz, p_assignments jsonb, p_location jsonb default null, p_people jsonb default '[]', p_importance_level smallint default 0, p_subtasks jsonb default '[]')
 returns taskapp.tasks
 language plpgsql
 security definer
@@ -1569,10 +1606,11 @@ begin
     raise exception '只有项目管理员可以建任务' using errcode = 'insufficient_privilege';
   end if;
   insert into taskapp.tasks
-    (owner_id, project_id, title, description, deadline_at, recurrence_rule, recurrence_dtstart)
+    (owner_id, project_id, title, description, deadline_at, recurrence_rule, recurrence_dtstart,
+     importance_level)
   values
     (auth.uid(), p_project_id, btrim(p_title), coalesce(p_description, ''), p_deadline_at,
-     p_recurrence_rule, p_recurrence_dtstart)
+     p_recurrence_rule, p_recurrence_dtstart, coalesce(p_importance_level, 0))
   returning * into v_task;
   perform set_config('taskapp.creating_task', v_task.id::text, true);
   perform taskapp.apply_task_raci(v_task.id, p_assignments, true);
@@ -1583,6 +1621,10 @@ begin
   insert into taskapp.task_people (task_id, name, relation)
   select v_task.id, p ->> 'name', coalesce(p ->> 'relation', '')
   from jsonb_array_elements(coalesce(p_people, '[]'::jsonb)) p;
+  insert into taskapp.task_subtasks (task_id, title, position)
+  select v_task.id, btrim(s.value ->> 'title'), s.ordinality - 1
+  from jsonb_array_elements(coalesce(p_subtasks, '[]'::jsonb)) with ordinality s
+  where btrim(coalesce(s.value ->> 'title', '')) <> '';
   perform set_config('taskapp.creating_task', '', true);
   return v_task;
 end;
@@ -2401,7 +2443,173 @@ begin
 end;
 $$;
 
--- 11. 触发器 ----------------------------------------------------------------------------------
+-- 11. 函数：子任务 --------------------------------------------------------------------------------
+
+-- 某个子任务算不算某一次（循环任务）里的：那一次之前就有、那一次之后才删的
+create function taskapp.subtask_applies(p_subtask taskapp.task_subtasks, p_occurrence_date timestamptz)
+returns boolean
+language sql
+immutable
+set search_path = ''
+as $$
+  select case
+    when p_occurrence_date is null then p_subtask.deleted_at is null
+    else p_subtask.created_at <= p_occurrence_date
+         and (p_subtask.deleted_at is null or p_subtask.deleted_at > p_occurrence_date)
+  end;
+$$;
+
+-- 一次设定一条任务的子任务清单（整组替换）：p_items = [{id?, title}]，按顺序。
+-- 和编辑任务一样：个人任务是自己，项目里是项目管理员。没列出的子任务标记为删除。
+-- 清单有变化时按"修改"通知（字段：子任务）；勾选不在这里。
+create function taskapp.set_task_subtasks(p_task_id uuid, p_items jsonb)
+returns setof taskapp.task_subtasks
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_task taskapp.tasks;
+  v_item jsonb;
+  v_pos integer := 0;
+  v_keep uuid[] := '{}';
+  v_id uuid;
+  v_changed boolean := false;
+  v_count integer;
+begin
+  select * into v_task from taskapp.tasks where id = p_task_id;
+  if v_task.id is null or not taskapp.can_edit_task(p_task_id) then
+    raise exception '没有权限修改这个任务的子任务' using errcode = 'insufficient_privilege';
+  end if;
+
+  for v_item in select * from jsonb_array_elements(coalesce(p_items, '[]'::jsonb)) loop
+    if btrim(coalesce(v_item ->> 'title', '')) = '' then
+      continue;
+    end if;
+    v_id := nullif(v_item ->> 'id', '')::uuid;
+    if v_id is not null then
+      update taskapp.task_subtasks
+      set title = btrim(v_item ->> 'title'), position = v_pos
+      where id = v_id and task_id = p_task_id and deleted_at is null
+        and (title, position) is distinct from (btrim(v_item ->> 'title'), v_pos);
+      get diagnostics v_count = row_count;
+      v_changed := v_changed or v_count > 0;
+      if not exists (select 1 from taskapp.task_subtasks where id = v_id and task_id = p_task_id and deleted_at is null) then
+        v_id := null;
+      end if;
+    end if;
+    if v_id is null then
+      insert into taskapp.task_subtasks (task_id, title, position)
+      values (p_task_id, btrim(v_item ->> 'title'), v_pos)
+      returning id into v_id;
+      v_changed := true;
+    end if;
+    v_keep := v_keep || v_id;
+    v_pos := v_pos + 1;
+  end loop;
+
+  update taskapp.task_subtasks
+  set deleted_at = taskapp.clock_now()
+  where task_id = p_task_id and deleted_at is null and not (id = any (v_keep));
+  get diagnostics v_count = row_count;
+  v_changed := v_changed or v_count > 0;
+
+  if v_changed and v_task.project_id is not null
+     and taskapp.project_has_tool(v_task.project_id, 'assignment')
+     and not taskapp.is_creating_task(p_task_id) then
+    perform taskapp.notify_task_roles(p_task_id, array['R', 'I'], 'modified', null, array['subtasks']);
+  end if;
+
+  return query
+    select * from taskapp.task_subtasks
+    where task_id = p_task_id and deleted_at is null
+    order by position, created_at;
+end;
+$$;
+
+-- 勾选 / 取消勾选一个子任务。循环任务要给出是哪一次（p_occurrence_date），普通任务为空。
+-- 谁能勾：个人任务是自己；开了任务分配的项目里是父任务的执行人；没开的项目里是项目成员。不发通知。
+create function taskapp.set_subtask_checked(p_subtask_id uuid, p_occurrence_date timestamptz, p_checked boolean)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_subtask taskapp.task_subtasks;
+  v_task taskapp.tasks;
+begin
+  select * into v_subtask from taskapp.task_subtasks where id = p_subtask_id;
+  select * into v_task from taskapp.tasks where id = v_subtask.task_id;
+  if v_task.id is null or v_task.deleted_at is not null then
+    raise exception '任务不存在' using errcode = 'no_data_found';
+  end if;
+  if not (
+    (v_task.group_id is null and v_task.owner_id = auth.uid())
+    or (v_task.project_id is not null and (
+      case when taskapp.project_has_tool(v_task.project_id, 'assignment')
+           then taskapp.has_task_role(v_task.id, 'R')
+           else taskapp.is_project_member(v_task.project_id) end))
+  ) then
+    raise exception '没有权限勾选这个子任务' using errcode = 'insufficient_privilege';
+  end if;
+  if (v_task.recurrence_rule is null) <> (p_occurrence_date is null) then
+    raise exception '循环任务的子任务按每一次勾选，普通任务不分次' using errcode = 'check_violation';
+  end if;
+  if not taskapp.subtask_applies(v_subtask, p_occurrence_date) then
+    raise exception '这一次没有这个子任务' using errcode = 'check_violation';
+  end if;
+
+  if p_checked then
+    insert into taskapp.task_subtask_checks (subtask_id, occurrence_date, checked_by)
+    values (p_subtask_id, p_occurrence_date, auth.uid())
+    on conflict do nothing;
+  else
+    delete from taskapp.task_subtask_checks
+    where subtask_id = p_subtask_id and occurrence_date is not distinct from p_occurrence_date;
+  end if;
+end;
+$$;
+
+-- 父任务直接勾完成时，没勾的子任务一起勾上（勾完全部子任务不会让父任务自动完成）
+create function taskapp.tasks_check_subtasks()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if old.completed_at is null and new.completed_at is not null and new.recurrence_rule is null then
+    insert into taskapp.task_subtask_checks (subtask_id, occurrence_date, checked_by)
+    select s.id, null, auth.uid()
+    from taskapp.task_subtasks s
+    where s.task_id = new.id and s.deleted_at is null
+    on conflict do nothing;
+  end if;
+  return null;
+end;
+$$;
+
+-- 循环任务的某一次标记完成时，这一次没勾的子任务一起勾上
+create function taskapp.occurrence_check_subtasks()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if new.status = 'completed' and (tg_op = 'INSERT' or old.status is distinct from 'completed') then
+    insert into taskapp.task_subtask_checks (subtask_id, occurrence_date, checked_by)
+    select s.id, new.occurrence_date, auth.uid()
+    from taskapp.task_subtasks s
+    where s.task_id = new.task_id and taskapp.subtask_applies(s, new.occurrence_date)
+    on conflict do nothing;
+  end if;
+  return null;
+end;
+$$;
+
+-- 12. 触发器 ----------------------------------------------------------------------------------
 
 create trigger categories_tools_immutable
   before update on taskapp.categories
@@ -2488,11 +2696,19 @@ create trigger tasks_set_updated_at
   before update on taskapp.tasks
   for each row execute function taskapp.set_updated_at();
 
+create trigger tasks_check_subtasks
+  after update of completed_at on taskapp.tasks
+  for each row execute function taskapp.tasks_check_subtasks();
+
+create trigger occurrence_check_subtasks
+  after insert or update of status on taskapp.recurrence_occurrences
+  for each row execute function taskapp.occurrence_check_subtasks();
+
 create trigger users_set_updated_at
   before update on taskapp.users
   for each row execute function taskapp.set_updated_at();
 
--- 12. 行级安全（RLS） -------------------------------------------------------------------------
+-- 13. 行级安全（RLS） -------------------------------------------------------------------------
 
 alter table taskapp.categories enable row level security;
 alter table taskapp.group_deletion_requests enable row level security;
@@ -2515,6 +2731,8 @@ alter table taskapp.task_locations enable row level security;
 alter table taskapp.task_notifications enable row level security;
 alter table taskapp.task_people enable row level security;
 alter table taskapp.task_relations enable row level security;
+alter table taskapp.task_subtask_checks enable row level security;
+alter table taskapp.task_subtasks enable row level security;
 alter table taskapp.tasks enable row level security;
 alter table taskapp.users enable row level security;
 
@@ -2650,6 +2868,16 @@ create policy "task_people_update" on taskapp.task_people
 create policy "task_relations_select" on taskapp.task_relations
   for select to authenticated using (taskapp.can_access_task(task_id));
 
+create policy "task_subtask_checks_select" on taskapp.task_subtask_checks
+  for select to authenticated
+  using (exists (
+    select 1 from taskapp.task_subtasks s
+    where s.id = subtask_id and taskapp.can_access_task(s.task_id)
+  ));
+
+create policy "task_subtasks_select" on taskapp.task_subtasks
+  for select to authenticated using (taskapp.can_access_task(task_id));
+
 create policy "tasks_insert" on taskapp.tasks
   for insert to authenticated
   with check (
@@ -2688,7 +2916,7 @@ create policy "users_update_own" on taskapp.users
   using (id = (select taskapp.current_owner_id()))
   with check (id = (select taskapp.current_owner_id()));
 
--- 13. 授权 ------------------------------------------------------------------------------------
+-- 14. 授权 ------------------------------------------------------------------------------------
 
 -- Data API（PostgREST）用这三个角色访问 taskapp；能看到哪些行由上面的 RLS 决定
 grant usage on schema taskapp to anon, authenticated, service_role;
@@ -2699,7 +2927,7 @@ alter default privileges in schema taskapp
 alter default privileges in schema taskapp
   grant execute on functions to anon, authenticated, service_role;
 
--- 组、项目、RACI、通知、任务关系相关的表：前端只能读，写都经过函数（在函数里检查身份）
+-- 组、项目、RACI、通知、任务关系、子任务相关的表：前端只能读，写都经过函数（在函数里检查身份）
 revoke insert, update, delete on taskapp.group_deletion_requests from anon, authenticated;
 revoke insert, update, delete on taskapp.group_deletion_votes from anon, authenticated;
 revoke insert, update, delete on taskapp.group_invitations from anon, authenticated;
@@ -2716,6 +2944,8 @@ revoke insert, update, delete on taskapp.projects from anon, authenticated;
 revoke insert, update, delete on taskapp.task_assignments from anon, authenticated;
 revoke insert, update, delete on taskapp.task_notifications from anon, authenticated;
 revoke insert, update, delete on taskapp.task_relations from anon, authenticated;
+revoke insert, update, delete on taskapp.task_subtask_checks from anon, authenticated;
+revoke insert, update, delete on taskapp.task_subtasks from anon, authenticated;
 
 -- 例外：组员可以直接改自己在组里的昵称（RLS 限定只能改自己那一行）
 grant update (nickname) on taskapp.group_members to authenticated;
@@ -2732,6 +2962,8 @@ revoke all on function taskapp.notify_task_roles(uuid, text[], text, uuid, text[
 revoke all on function taskapp.recompute_task_schedule(uuid) from public, anon, authenticated;
 revoke all on function taskapp.remove_member_now(uuid, uuid) from public, anon, authenticated;
 revoke all on function taskapp.remove_project_member_now(uuid, uuid) from public, anon, authenticated;
+revoke all on function taskapp.occurrence_check_subtasks() from public, anon, authenticated;
 revoke all on function taskapp.task_relations_after_delete() from public, anon, authenticated;
+revoke all on function taskapp.tasks_check_subtasks() from public, anon, authenticated;
 revoke all on function taskapp.tasks_schedule_cascade() from public, anon, authenticated;
 revoke all on function taskapp.tasks_schedule_compute() from public, anon, authenticated;

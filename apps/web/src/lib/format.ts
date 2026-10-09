@@ -9,14 +9,19 @@ import {
   weekdayName,
   weekdayOf,
   type ContainerFeatures,
+  IMPORTANCE_KEYS,
+  IMPORTANCE_LEVELS_STRONG_FIRST,
   type ImportanceLevel,
   type ListScope,
   type Quadrant,
   type StatusFilter,
 } from '@alethego/core';
 
+import { messages } from '@/i18n';
+
 export const SCOPE_LABELS: Record<ListScope, string> = {
   all: '总览',
+  today: '今日',
   starred: '收藏',
 };
 
@@ -77,10 +82,12 @@ export const TIER_BOUNDARY_LABELS: Record<number, string> = {
   180: '半年',
 };
 
-export const IMPORTANCE_LEVELS: readonly ImportanceLevel[] = [0, 1, 2, 3, 4, 5];
+/** 重要性的选项：由强到弱（必须、应该、可以、随意） */
+export const IMPORTANCE_LEVELS: readonly ImportanceLevel[] = IMPORTANCE_LEVELS_STRONG_FIRST;
 
+/** 重要性的名字（文案集中在 i18n） */
 export function importanceLabel(level: ImportanceLevel): string {
-  return level === 0 ? '未设置' : String(level);
+  return messages.importance[IMPORTANCE_KEYS[level]];
 }
 
 /** 浏览器所在时区 */

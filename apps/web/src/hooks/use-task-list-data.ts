@@ -6,6 +6,8 @@ import {
   type Group,
   type Project,
   type RecurrenceOccurrence,
+  type Subtask,
+  type SubtaskCheck,
   type Task,
   type TaskAssignment,
   type TaskRelation,
@@ -30,6 +32,10 @@ export interface TaskListData {
   assignmentsByTask: Map<string, TaskAssignment[]>;
   /** 任务关系：taskId → 这个任务的开始 / 结束挂着的关系 */
   relationsByTask: Map<string, TaskRelation[]>;
+  /** 子任务：taskId → 这个任务的子任务（包括已删除的，循环任务过去各次要用） */
+  subtasksByTask: Map<string, Subtask[]>;
+  /** 子任务的勾选（普通任务 occurrenceDate 为 null；循环任务每一次各自勾选） */
+  subtaskChecks: SubtaskCheck[];
   /** 应用内通知与上次打开通知的时间 */
   notifications: GroupNotification[];
   notificationsSeenAt: Date | null;
@@ -68,7 +74,7 @@ export function useTaskListData() {
       const raciTaskIds = tasks
         .filter((task) => task.projectId && raciProjects.has(task.projectId))
         .map((task) => task.id);
-      const [categoryIdsByTask, occurrences, assignments, relations] = await Promise.all([
+      const [categoryIdsByTask, occurrences, assignments, relations, subtasks] = await Promise.all([
         repositories.categories.listCategoryIdsByTask(tasks.map((task) => task.id)),
         // 读取时顺带执行归档（生成已出现实例的记录、把被取代的 pending 标为 missed）
         Promise.all(
@@ -83,7 +89,15 @@ export function useTaskListData() {
         repositories.relations.listForTasks(
           tasks.filter((task) => !task.recurrenceRule).map((task) => task.id),
         ),
+        repositories.subtasks.listForTasks(tasks.map((task) => task.id)),
       ]);
+      const subtasksByTask = new Map<string, Subtask[]>();
+      for (const subtask of subtasks.subtasks) {
+        subtasksByTask.set(subtask.taskId, [
+          ...(subtasksByTask.get(subtask.taskId) ?? []),
+          subtask,
+        ]);
+      }
       const relationsByTask = new Map<string, TaskRelation[]>();
       for (const relation of relations) {
         relationsByTask.set(relation.taskId, [
@@ -110,6 +124,8 @@ export function useTaskListData() {
         occurrencesByTask,
         assignmentsByTask,
         relationsByTask,
+        subtasksByTask,
+        subtaskChecks: subtasks.checks,
         groups,
         projects,
         notifications: notifications.items,
@@ -150,5 +166,24 @@ export function useTaskListData() {
     });
   }, []);
 
-  return { data, error, reload, replaceTask, upsertOccurrence };
+  /** 本地勾选 / 取消一个子任务（乐观更新） */
+  const setSubtaskCheck = useCallback(
+    (subtaskId: string, occurrenceDate: Date | null, checked: boolean) => {
+      localVersion.current++;
+      setData((current) => {
+        if (!current) return current;
+        const same = (c: SubtaskCheck) =>
+          c.subtaskId === subtaskId &&
+          (c.occurrenceDate?.getTime() ?? null) === (occurrenceDate?.getTime() ?? null);
+        const rest = current.subtaskChecks.filter((c) => !same(c));
+        return {
+          ...current,
+          subtaskChecks: checked ? [...rest, { subtaskId, occurrenceDate }] : rest,
+        };
+      });
+    },
+    [],
+  );
+
+  return { data, error, reload, replaceTask, upsertOccurrence, setSubtaskCheck };
 }
