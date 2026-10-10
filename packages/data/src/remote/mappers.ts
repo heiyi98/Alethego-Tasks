@@ -22,7 +22,7 @@ export function taskFromRow(row: TableRow<'tasks'>): Task {
   if (!isImportanceLevel(row.importance_level)) {
     throw new DataError(
       'invalid',
-      `任务 ${row.id} 的 importance_level 超出 0-5：${row.importance_level}`,
+      `任务 ${row.id} 的 importance_level 超出 0-3：${row.importance_level}`,
     );
   }
   return {
