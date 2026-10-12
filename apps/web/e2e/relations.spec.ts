@@ -70,7 +70,7 @@ async function open(page: Page, title: string) {
 const startRow = (page: Page) => editPanel(page).getByRole('group', { name: '开始', exact: true });
 const endRow = (page: Page) => editPanel(page).getByRole('group', { name: '结束', exact: true });
 
-test('开始和结束：固定日期、开始后 N 天、关系（多个取最晚、偏移）；结束写进截止日期；里程碑', async ({
+test('开始和结束：固定日期、开始后 N 天、关系（多个取最晚、偏移）；结束写进截止时间；里程碑', async ({
   browser,
 }) => {
   test.setTimeout(120_000);
@@ -90,19 +90,19 @@ test('开始和结束：固定日期、开始后 N 天、关系（多个取最�
   await expect(time.getByRole('group', { name: '开始', exact: true })).toBeVisible();
   await expect(time.getByRole('switch', { name: '重复' })).toHaveCount(0);
   // 组任务：第一个模块显示组名和项目名
-  await expect(panel.getByRole('group', { name: '所属' })).toContainText(`${id}项目`);
+  await expect(panel.locator('.editor-container')).toContainText(`${id}项目`);
   await expect(panel.getByRole('group', { name: '分类' })).toHaveCount(0);
   // 结束是固定日期：第二行的截止日期可以点
   const second = panel.locator('.quick-options');
   await expect(dateButton(second)).not.toHaveAttribute('aria-disabled', 'true');
-  await pickDate(startRow(page), localDate(2), '开始日期');
+  await pickDate(startRow(page), localDate(2), '开始时间');
   await endRow(page).getByRole('radio', { name: '开始后' }).click();
   await endRow(page).getByLabel('开始后的天数').fill('3');
   // 结束是"开始后 N 天"：第二行只显示算出来的日期，不能点
   await expectDate(second, localDate(5));
   await expect(dateButton(second)).toHaveAttribute('aria-disabled', 'true');
   await dateButton(second).click({ force: true });
-  await expect(page.getByRole('dialog', { name: '选择日期' })).toHaveCount(0);
+  await expect(page.getByRole('dialog', { name: '选择时间' })).toHaveCount(0);
   await waitSaved(page);
   await expect(taskItem(page, `${id} 甲`).locator('.task-deadline')).toContainText(
     dayLabel(localDate(5)).split(' ')[0]!,
@@ -343,7 +343,7 @@ test('不能形成循环：保存时拒绝', async ({ browser }) => {
   await page.context().close();
 });
 
-test('前置改日期后，依赖它的任务自动重算；开了任务分配的项目里通知执行人"修改了截止日期"，操作者是改前置的人', async ({
+test('前置改日期后，依赖它的任务自动重算；开了任务分配的项目里通知执行人"修改了截止时间"，操作者是改前置的人', async ({
   browser,
 }) => {
   test.setTimeout(120_000);
@@ -375,7 +375,7 @@ test('前置改日期后，依赖它的任务自动重算；开了任务分配�
   );
   // 前置的开始往后挪 3 天
   await open(page, `${id} 前置`);
-  await pickDate(startRow(page), localDate(4), '开始日期');
+  await pickDate(startRow(page), localDate(4), '开始时间');
   await waitSaved(page);
   await expect(taskItem(page, `${id} 后续`).locator('.task-deadline')).toContainText(
     dayLabel(localDate(8)).split(' ')[0]!,
@@ -389,7 +389,7 @@ test('前置改日期后，依赖它的任务自动重算；开了任务分配�
     notificationList(pr)
       .locator('.notification-text')
       .filter({ hasText: `${id} 后续` }),
-  ).toHaveText(`${id}组长修改了${id} 后续的截止日期`);
+  ).toHaveText(`${id}组长修改了${id} 后续的截止时间`);
   await Promise.all([page, pr].map((p) => p.context().close()));
 });
 

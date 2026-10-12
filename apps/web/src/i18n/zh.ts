@@ -92,18 +92,17 @@ function zhDescribe(spec: RecurrenceRuleSpec): string {
         text =
           head +
           [...groups.entries()]
-            .map(
-              ([key, weeks]) => `第 ${weeks.join('、')} 周${zhDays(key.split(',') as Weekday[])}`,
-            )
+            .map(([key, weeks]) => {
+              const days = zhDays(key.split(',') as Weekday[]);
+              const numbers = weeks.filter((w) => w !== -1);
+              const parts = numbers.length > 0 ? [`第 ${numbers.join('、')} 周${days}`] : [];
+              if (weeks.includes(-1)) parts.push(`最后一周${days}`);
+              return parts.join('、');
+            })
             .join('，');
       }
       break;
     }
-  }
-  if (spec.end.kind === 'count') text += `，共 ${spec.end.count} 次`;
-  if (spec.end.kind === 'until') {
-    const [y, m, d] = spec.end.until.split('-').map(Number);
-    text += `，到 ${y}年${m}月${d}日为止`;
   }
   return text;
 }
@@ -125,7 +124,7 @@ export const zh: Messages = {
   fields: {
     title: '标题',
     description: '描述',
-    deadline: '截止日期',
+    deadline: '截止时间',
     importance: '重要性',
     recurrence: '循环',
     deleted: '删除',
@@ -147,7 +146,7 @@ export const zh: Messages = {
       4: '第 4 个',
       [-1]: '最后一个',
     } as Record<Ordinal, string>,
-    weekNumber: (week) => `第 ${week} 周`,
+    weekNumber: (week) => (week === -1 ? '最后一周' : `第 ${week} 周`),
     months: ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'],
     lastDay: '最后一天',
     monthModes: { day: '日', weekday: '周' },

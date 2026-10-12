@@ -2625,6 +2625,55 @@ begin
 end;
 $$;
 
+-- 关掉循环（循环任务没有结束条件，这是唯一的结束方式）：
+-- - 当前这一次（p_current_date：按用户本地日期算出的、最早一个还没完成、日期还没过去的那一次）变成普通任务，
+--   保留它的日期和子任务的勾选；
+-- - 以后的各次消失（包括提前勾了完成的）；
+-- - 过去各次的历史记录保留，只是不再增加。
+create function taskapp.stop_recurrence(p_task_id uuid, p_current_date date)
+returns taskapp.tasks
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_task taskapp.tasks;
+begin
+  if not taskapp.can_edit_task(p_task_id) then
+    raise exception '没有编辑这个任务的权限' using errcode = 'insufficient_privilege';
+  end if;
+  if p_current_date is null then
+    raise exception '缺少当前这一次的日期' using errcode = 'check_violation';
+  end if;
+  select * into v_task from taskapp.tasks where id = p_task_id;
+  if v_task.recurrence_rule is null then
+    return v_task;
+  end if;
+
+  delete from taskapp.recurrence_occurrences
+  where task_id = p_task_id and occurrence_date >= p_current_date;
+
+  -- 子任务的勾选：以前作为普通任务留下的勾选、以后各次的勾选清掉；当前这一次的勾选变成普通任务的勾选
+  delete from taskapp.task_subtask_checks c
+  using taskapp.task_subtasks s
+  where s.id = c.subtask_id and s.task_id = p_task_id
+    and (c.occurrence_date is null or c.occurrence_date > p_current_date);
+  update taskapp.task_subtask_checks c
+  set occurrence_date = null
+  from taskapp.task_subtasks s
+  where s.id = c.subtask_id and s.task_id = p_task_id and c.occurrence_date = p_current_date;
+
+  update taskapp.tasks
+  set recurrence_rule = null,
+      recurrence_start_on = null,
+      deadline_on = p_current_date,
+      completed_at = null
+  where id = p_task_id
+  returning * into v_task;
+  return v_task;
+end;
+$$;
+
 -- 12. 触发器 ----------------------------------------------------------------------------------
 
 create trigger categories_tools_immutable

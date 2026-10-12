@@ -469,6 +469,10 @@ export interface Database {
         Args: { p_subtask_id: string; p_occurrence_date: string | null; p_checked: boolean };
         Returns: undefined;
       };
+      stop_recurrence: {
+        Args: { p_task_id: string; p_current_date: string };
+        Returns: Database['taskapp']['Tables']['tasks']['Row'];
+      };
       set_task_schedule: {
         Args: {
           p_task_id: string;

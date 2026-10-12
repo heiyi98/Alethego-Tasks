@@ -209,5 +209,30 @@ test('循环任务的子任务：清单属于任务本身，勾选属于每一�
       .filter({ has: page.getByRole('checkbox', { checked: true }) })
       .locator('.history-progress'),
   ).toContainText(['2/2']);
+  // 不限制只能勾当前这一次：别的某一次（这里是明天那一次）也能勾；
+  // "改清单只影响以后、过去各次保持原样"仍然成立：加入清单之前就已经过去的那一次没有这个子任务
+  // （数据库前后各宽限一天，这里用四天前）
+  const [sleep] = await select<{ id: string }>(
+    me,
+    `task_subtasks?select=id&task_id=eq.${task!.id}&title=eq.${encodeURIComponent('早睡')}`,
+  );
+  await rpc(me, 'set_subtask_checked', {
+    p_subtask_id: sleep!.id,
+    p_occurrence_date: localDate(1),
+    p_checked: true,
+  });
+  expect(
+    await select<{ occurrence_date: string }>(
+      me,
+      `task_subtask_checks?select=occurrence_date&subtask_id=eq.${sleep!.id}`,
+    ),
+  ).toEqual([{ occurrence_date: localDate(1) }]);
+  await expect(
+    rpc(me, 'set_subtask_checked', {
+      p_subtask_id: sleep!.id,
+      p_occurrence_date: localDate(-4),
+      p_checked: true,
+    }),
+  ).rejects.toThrow(/这一次没有这个子任务/);
   await page.context().close();
 });

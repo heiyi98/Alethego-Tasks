@@ -7,7 +7,8 @@ import { ALL_STATUSES, DEFAULT_STATUS } from './format';
  * - 总览（我所有的个人任务）/ 今日 / 收藏：?scope=today、?scope=starred（总览省略）
  * - 某个个人分类：?cat=id
  * - 某个组（组里我能看到的所有项目的任务）：?group=id；组里的某个项目：?group=id&project=id
- * - 状态（清单页面内、添加栏下面一行，单选）：?status=…（默认"未完成"时省略）
+ * - 状态（清单页面内、添加栏下面一行，单选）：?status=…（是这一页的默认值时省略：今日默认"全部"，
+ *   其他页面默认"未完成"）。换页面时，选过的状态带过去；用的是默认值时换成新页面的默认值
  * - 看法：清单 / 责任分配矩阵（?view=raci）/ 甘特图（?view=gantt）
  * 时间管理矩阵是 /matrix，用自己的筛选栏（勾选存在账号上），不看这些；但地址里保留进入矩阵之前
  * 所在的页面（同样的查询参数），从矩阵回到清单时回到那个页面。
@@ -36,6 +37,19 @@ export interface Selection {
   /** 选中的个人分类：最多一个 */
   categoryIds: string[];
 }
+
+/** 这一页的状态行默认选哪一个：今日是"全部"，其他页面是"未完成" */
+export function defaultStatusOf(
+  selection: Pick<Selection, 'groupId' | 'categoryIds' | 'scope'>,
+): StatusFilter {
+  return !selection.groupId && selection.categoryIds.length === 0 && selection.scope === 'today'
+    ? 'all'
+    : DEFAULT_STATUS;
+}
+
+/** 换页面时带过去的状态：用的是默认值时为 null（用新页面的默认值） */
+const chosenStatus = (selection: Selection): StatusFilter | null =>
+  selection.status === defaultStatusOf(selection) ? null : selection.status;
 
 export function isStatusFilter(value: string | null | undefined): value is StatusFilter {
   return ALL_STATUSES.some((status) => status === value);
@@ -73,14 +87,17 @@ export function parseSelection(pathname: string, params: URLSearchParams): Selec
         : isListScope(rawScope)
           ? rawScope
           : DEFAULT_LIST_SCOPE;
+  const categoryIds = category ? [category] : [];
   return {
     mode: modeOfPath(pathname) === 'matrix' ? 'matrix' : listView,
     listView,
     groupId,
     projectId,
     scope,
-    status: isStatusFilter(rawStatus) ? rawStatus : DEFAULT_STATUS,
-    categoryIds: category ? [category] : [],
+    status: isStatusFilter(rawStatus)
+      ? rawStatus
+      : defaultStatusOf({ groupId, categoryIds, scope }),
+    categoryIds,
   };
 }
 
@@ -98,7 +115,7 @@ export function selectionHref(selection: Selection): string {
   } else if (selection.scope !== DEFAULT_LIST_SCOPE) {
     params.set('scope', selection.scope);
   }
-  if (selection.status !== DEFAULT_STATUS) params.set('status', selection.status);
+  if (selection.status !== defaultStatusOf(selection)) params.set('status', selection.status);
   const query = params.toString();
   const path = selection.mode === 'matrix' ? '/matrix' : '/';
   return query ? `${path}?${query}` : path;
@@ -121,7 +138,7 @@ export function needsCanonicalRedirect(params: URLSearchParams): boolean {
 }
 
 /** 个人的页面没有"待确认"（今日除外：今日里有开了任务分配的项目的任务） */
-const personalStatus = (status: StatusFilter) => (status === 'pending' ? DEFAULT_STATUS : status);
+const personalStatus = (status: StatusFilter | null) => (status === 'pending' ? null : status);
 
 /** 侧边栏上一项对应的页面（清单），状态行保持当前选择 */
 export function scopeHref(selection: Selection, scope: ListScope): string {
@@ -132,7 +149,9 @@ export function scopeHref(selection: Selection, scope: ListScope): string {
     projectId: null,
     scope,
     categoryIds: [],
-    status: scope === 'today' ? selection.status : personalStatus(selection.status),
+    status:
+      (scope === 'today' ? chosenStatus(selection) : personalStatus(chosenStatus(selection))) ??
+      defaultStatusOf({ groupId: null, categoryIds: [], scope }),
   });
 }
 
@@ -144,7 +163,7 @@ export function categoryHref(selection: Selection, categoryId: string): string {
     projectId: null,
     scope: DEFAULT_LIST_SCOPE,
     categoryIds: [categoryId],
-    status: personalStatus(selection.status),
+    status: personalStatus(chosenStatus(selection)) ?? DEFAULT_STATUS,
   });
 }
 
@@ -161,7 +180,7 @@ export function groupHref(
     projectId,
     scope: DEFAULT_LIST_SCOPE,
     categoryIds: [],
-    status: selection.status,
+    status: chosenStatus(selection) ?? DEFAULT_STATUS,
   });
 }
 

@@ -59,19 +59,19 @@ export async function pickImportance(scope: Locator, level: number) {
   await importanceButton(scope, level).click();
 }
 
-/** 选日子的按钮（第二行的截止日期，或其他日期）；它的 data-value 是选中的日期 YYYY-MM-DD */
-export const dateButton = (scope: Locator, label = '截止日期') =>
+/** 选日子的按钮（第二行的截止时间，或其他日期）；它的 data-value 是选中的日期 YYYY-MM-DD */
+export const dateButton = (scope: Locator, label = '截止时间') =>
   scope.getByRole('button', { name: label, exact: true });
 
 /** 断言选中的日期（空字符串 = 没选） */
-export async function expectDate(scope: Locator, date: string, label = '截止日期') {
+export async function expectDate(scope: Locator, date: string, label = '截止时间') {
   await expect(dateButton(scope, label)).toHaveAttribute('data-value', date);
 }
 
 /** 点开日历，翻到那个月，点那一天（YYYY-MM-DD） */
-export async function pickDate(scope: Locator, date: string, label = '截止日期') {
+export async function pickDate(scope: Locator, date: string, label = '截止时间') {
   await dateButton(scope, label).click();
-  const popover = scope.page().getByRole('dialog', { name: '选择日期' });
+  const popover = scope.page().getByRole('dialog', { name: '选择时间' });
   const [y, m, d] = date.split('-').map(Number) as [number, number, number];
   const target = y * 12 + m;
   for (let i = 0; i < 240; i++) {

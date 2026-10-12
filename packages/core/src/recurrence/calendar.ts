@@ -129,6 +129,8 @@ export const gregorian: CalendarSystem = {
   dateOfWeek(weekYear, week, wd) {
     const monday = firstMondayOfWeekYear(weekYear);
     const weeks = (firstMondayOfWeekYear(weekYear + 1) - monday) / 7;
+    // -1 = 最后一周（这一年有 52 周就是第 52 周，有 53 周就是第 53 周）
+    if (week === -1) week = weeks;
     if (week < 1 || week > weeks) return null;
     return fromDayNumber(monday + (week - 1) * 7 + wd);
   },

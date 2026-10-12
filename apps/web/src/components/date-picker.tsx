@@ -93,7 +93,7 @@ export function DatePicker({
         </IconButton>
       )}
       {open && (
-        <div className="date-popover" role="dialog" aria-label="选择日期">
+        <div className="date-popover" role="dialog" aria-label="选择时间">
           <div className="date-popover-header">
             <IconButton
               label="上个月"

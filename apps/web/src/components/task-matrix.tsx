@@ -127,7 +127,7 @@ function Marker({ colors, r = DOT_R }: { colors: readonly string[]; r?: number }
 function describeDeadline(point: MatrixPoint, now: Date, timeZone: string): string {
   if (point.urgency.kind === 'overdue') return `逾期 ${point.overdueDays} 天`;
   const shown = point.representative.occurrenceDate ?? point.task.deadlineOn;
-  if (!shown) return '无截止日期';
+  if (!shown) return '无截止时间';
   const text = formatDeadline(shown, todayOf({ now, timeZone }));
   return point.representative.occurrenceDate ? `本次 ${text}` : text;
 }

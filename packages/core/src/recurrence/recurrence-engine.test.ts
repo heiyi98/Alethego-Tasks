@@ -22,7 +22,7 @@ function first(
   start: string,
   n: number,
 ) {
-  const full: RecurrenceRuleSpec = { interval: 1, end: { kind: 'never' }, ...spec };
+  const full: RecurrenceRuleSpec = { interval: 1, ...spec };
   const result: string[] = [];
   for (const date of iterateOccurrences(full, start)) {
     result.push(date);
@@ -62,6 +62,9 @@ describe('历法模块（公历）', () => {
     expect(gregorian.dateOfWeek(2026, 42, 0)).toBe('2026-10-12');
     expect(gregorian.dateOfWeek(2026, 53, 0)).toBe('2026-12-28'); // 2026 年有 53 周
     expect(gregorian.dateOfWeek(2027, 53, 0)).toBeNull();
+    // -1 = 最后一周：有 53 周的年份是第 53 周，否则是第 52 周
+    expect(gregorian.dateOfWeek(2026, -1, 0)).toBe('2026-12-28');
+    expect(gregorian.dateOfWeek(2027, -1, 0)).toBe('2027-12-27');
     expect(gregorian.weekYearOf('2027-01-01')).toBe(2026);
     expect(gregorian.weekYearOf('2025-12-29')).toBe(2026);
     expect(gregorian.weekOf('2026-10-12')).toBe(42);
@@ -166,7 +169,7 @@ describe('年', () => {
     ).toEqual(['2027-03-08', '2027-05-28', '2028-03-13']);
   });
 
-  it('年周（ISO 8601）：第 42 周周一；第 53 周只在有 53 周的年份出现', () => {
+  it('年周（ISO 8601）：第 42 周周一；最后一周（有 53 周的年份是第 53 周，否则第 52 周）', () => {
     expect(
       first(
         { pattern: { period: 'year', by: 'weekNumber', rows: [{ week: 42, weekdays: ['MO'] }] } },
@@ -176,11 +179,11 @@ describe('年', () => {
     ).toEqual(['2026-10-12', '2027-10-18', '2028-10-16']);
     expect(
       first(
-        { pattern: { period: 'year', by: 'weekNumber', rows: [{ week: 53, weekdays: ['TH'] }] } },
+        { pattern: { period: 'year', by: 'weekNumber', rows: [{ week: -1, weekdays: ['TH'] }] } },
         '2026-01-01',
-        2,
+        3,
       ),
-    ).toEqual(['2026-12-31', '2032-12-30']);
+    ).toEqual(['2026-12-31', '2027-12-30', '2028-12-28']);
     // 第 1 周可以从上一年的 12 月开始
     expect(
       first(
@@ -202,27 +205,11 @@ describe('年', () => {
   });
 });
 
-describe('结束条件', () => {
-  it('次数、截止日期（含）', () => {
-    expect(
-      first({ pattern: { period: 'day' }, end: { kind: 'count', count: 2 } }, '2026-10-01', 5),
-    ).toEqual(['2026-10-01', '2026-10-02']);
-    expect(
-      first(
-        { pattern: { period: 'day' }, end: { kind: 'until', until: '2026-10-03' } },
-        '2026-10-01',
-        5,
-      ),
-    ).toEqual(['2026-10-01', '2026-10-02', '2026-10-03']);
-  });
-});
-
 describe('存成 RRULE 后照样推算（多行 RRULE 取并集）', () => {
   it('年的月日写成几行，推算结果不变', () => {
     const rule = buildRecurrenceRule({
       pattern: { period: 'year', by: 'monthDay', days: { 1: [15], 4: [15], 6: [1] } },
       interval: 1,
-      end: { kind: 'never' },
     });
     expect(rule.split('\n')).toHaveLength(2);
     expect(occurrencesBetween({ rule, start: '2026-01-01' }, '2026-01-01', '2026-12-31')).toEqual([

@@ -37,8 +37,8 @@ describe('recurrenceLabel：简介行里的一句话', () => {
     ['FREQ=YEARLY;BYMONTH=1,4,7,10;BYMONTHDAY=15', '每年 1、4、7、10 月 15 日'],
     ['FREQ=YEARLY;WKST=MO;BYWEEKNO=42;BYDAY=MO', '每年第 42 周周一'],
     ['FREQ=YEARLY;BYMONTH=3;BYDAY=2MO', '每年 3 月第 2 个周一'],
-    ['FREQ=DAILY;COUNT=10', '每天，共 10 次'],
-    ['FREQ=DAILY;UNTIL=20261231', '每天，到 2026年12月31日为止'],
+    ['FREQ=YEARLY;WKST=MO;BYWEEKNO=-1;BYDAY=MO', '每年最后一周周一'],
+    ['FREQ=YEARLY;WKST=MO;BYWEEKNO=1,-1;BYDAY=SU', '每年第 1 周周日、最后一周周日'],
   ])('%s → %s', (rule, text) => {
     expect(recurrenceLabel(rule)).toBe(text);
   });

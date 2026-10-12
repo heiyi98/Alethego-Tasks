@@ -156,7 +156,7 @@ test('截止日期只到哪一天：当天过完才算错过；存的是日期�
   // 日历：一个月一页，每周从周一开始；今天标出来；能翻月；切换历法的位置留着、现在没有按钮
   const bar = quickAddBar(page);
   await dateButton(bar).click();
-  const popover = page.getByRole('dialog', { name: '选择日期' });
+  const popover = page.getByRole('dialog', { name: '选择时间' });
   const [y, m, d] = localDate(0).split('-').map(Number) as [number, number, number];
   await expect(popover.locator('.date-popover-title')).toHaveText(`${y}年${m}月`);
   await expect(popover.locator('.date-grid-weekday').first()).toHaveText('一');
@@ -172,7 +172,7 @@ test('截止日期只到哪一天：当天过完才算错过；存的是日期�
   await expect(popover).toHaveCount(0);
   await expectDate(bar, `${ny}-${String(nm).padStart(2, '0')}-01`);
   // 清除
-  await bar.getByRole('button', { name: '清除截止日期' }).click();
+  await bar.getByRole('button', { name: '清除截止时间' }).click();
   await expectDate(bar, '');
 });
 

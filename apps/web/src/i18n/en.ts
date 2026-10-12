@@ -103,15 +103,13 @@ function enDescribe(spec: RecurrenceRuleSpec): string {
         text = `${every('year')} ${list(
           [...groups.entries()].map(
             ([key, weeks]) =>
-              `in week ${list(weeks.map(String))} on ${enDays(key.split(',') as Weekday[])}`,
+              `in ${list(weeks.map((w) => (w === -1 ? 'the last week' : `week ${w}`)))} on ${enDays(key.split(',') as Weekday[])}`,
           ),
         )}`;
       }
       break;
     }
   }
-  if (spec.end.kind === 'count') text += `, ${spec.end.count} times`;
-  if (spec.end.kind === 'until') text += `, until ${spec.end.until}`;
   return text;
 }
 
@@ -149,7 +147,7 @@ export const en: Messages = {
     periods: { day: 'Day', week: 'Week', month: 'Month', year: 'Year' },
     weekdays: EN_WEEKDAYS,
     ordinals: { 1: '1st', 2: '2nd', 3: '3rd', 4: '4th', [-1]: 'Last' } as Record<Ordinal, string>,
-    weekNumber: (week) => `Week ${week}`,
+    weekNumber: (week) => (week === -1 ? 'Last week' : `Week ${week}`),
     months: EN_MONTHS,
     lastDay: 'Last day',
     monthModes: { day: 'Day', weekday: 'Week' },

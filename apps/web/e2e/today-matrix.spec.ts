@@ -194,16 +194,18 @@ test('组任务的重要性（管理员设定、全组共用、快捷添加栏�
       .locator('.task-list .task-title')
       .allTextContents()
       .then((all) => all.filter((t) => t.startsWith(id)).sort());
-  // 状态行默认"未完成"：今天截止、还没到时间的
+  // 今日的状态行默认"全部"：今天截止的，加上逾期不满三天的；逾期满三天、明天截止的都不在
   await expect(
-    pm.getByRole('group', { name: '状态' }).getByRole('button', { name: '未完成' }),
+    pm.getByRole('group', { name: '状态' }).getByRole('button', { name: '全部' }),
   ).toHaveAttribute('aria-pressed', 'true');
-  await expect.poll(titles).toEqual([`${id} 个人今天`, `${id} 我执行`].sort());
-  // 全部：再加上逾期不满三天的；逾期满三天、明天截止的都不在
-  await selectStatus(pm, '全部');
+  await expect(pm).not.toHaveURL(/status=/);
   await expect
     .poll(titles)
     .toEqual([`${id} 个人今天`, `${id} 个人逾期两天`, `${id} 我执行`, `${id} 普通项目`].sort());
+  // 未完成：今天截止、还没过去的
+  await selectStatus(pm, '未完成');
+  await expect.poll(titles).toEqual([`${id} 个人今天`, `${id} 我执行`].sort());
+  await expect(pm).toHaveURL(/status=todo/);
   await selectStatus(pm, '已错过');
   await expect.poll(titles).toEqual([`${id} 个人逾期两天`, `${id} 普通项目`].sort());
   await selectStatus(pm, '全部');

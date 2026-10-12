@@ -448,7 +448,7 @@ test('组页面的快速添加：先选项目（只列出我能建任务的项�
   // 第二行：项目选择在最前面，然后是重要性、截止日期；执行人和负责人在第三行
   const pickerBox = (await picker.boundingBox())!;
   const importanceBox = (await bar.getByRole('group', { name: '重要性' }).boundingBox())!;
-  const dateBox = (await bar.getByRole('button', { name: '截止日期', exact: true }).boundingBox())!;
+  const dateBox = (await bar.getByRole('button', { name: '截止时间', exact: true }).boundingBox())!;
   expect(pickerBox.x).toBeLessThan(importanceBox.x);
   expect(importanceBox.x).toBeLessThan(dateBox.x);
   expect(

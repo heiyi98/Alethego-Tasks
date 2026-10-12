@@ -21,6 +21,7 @@ import type {
 import { toDateValue } from './format';
 import {
   defaultRecurrenceForm,
+  isRecurring,
   recurrenceFormFromTask,
   recurrencePatch,
   sameRecurrence,
@@ -30,7 +31,8 @@ import {
 /**
  * 任务面板的表单值：新建与编辑共用同一份结构与同一个组件（TaskEditor）。
  * 截止日期只到"哪一天"（YYYY-MM-DD），那一天过完才算已错过。
- * 循环任务：第二行的日期就是开始日期；建好后显示当前这一次的日期，改它就从这天起重新排以后的各次。
+ * 循环任务：第二行的日期就是开始日期；建好后只显示当前这一次的日期，不能改。要换起点就关掉循环重新设。
+ * 关掉循环：当前这一次变成普通任务（保留日期和子任务勾选），以后的各次消失，过去的历史保留。
  */
 
 export interface PersonRow {
@@ -145,7 +147,7 @@ export function emptyTaskForm(categoryIds: string[] = []): TaskFormValue {
     categoryIds,
     completed: false,
     isStarred: false,
-    recurrence: defaultRecurrenceForm(toDateValue(new Date())),
+    recurrence: defaultRecurrenceForm(),
     people: [],
     raci: [],
     schedule: null,
@@ -177,7 +179,7 @@ export function peopleRows(people: readonly TaskPerson[]): PersonRow[] {
 
 /**
  * 已保存的任务 → 表单。currentDate：循环任务当前这一次的日期（第二行显示它）；
- * 序列已结束时为 null，显示开始日期。
+ * 规则里一个日子都没有时为 null，显示开始日期。
  */
 export function taskFormFromDetail(
   detail: TaskDetail,
@@ -199,10 +201,7 @@ export function taskFormFromDetail(
     categoryIds: detail.categoryIds,
     completed: task.completedAt !== null,
     isStarred: task.isStarred,
-    recurrence: recurrenceFormFromTask(
-      task,
-      task.recurrenceStartOn ?? (deadline || toDateValue(new Date())),
-    ),
+    recurrence: recurrenceFormFromTask(task),
     people: peopleRows(detail.people),
     raci: [...raci],
     schedule,
@@ -236,7 +235,7 @@ export function isDraftDirty(
     form.deadline !== '' ||
     form.importanceLevel !== IMPORTANCE_DEFAULT ||
     form.isStarred !== defaults.isStarred ||
-    form.recurrence.enabled ||
+    isRecurring(form.recurrence) ||
     form.people.some((p) => p.name.trim() || p.note.trim()) ||
     form.subtasks.some((s) => s.title.trim()) ||
     [...form.categoryIds].sort().join() !== [...defaultCategoryIds].sort().join() ||
@@ -255,7 +254,6 @@ export function validateTaskForm(form: TaskFormValue): FormErrors {
   if (!normalizeTaskTitle(form.title)) errors.title = '标题不能为空';
   const recurrence = recurrencePatch(form.recurrence);
   if (!recurrence.ok) errors.recurrence = recurrence.error;
-  else if (form.recurrence.enabled && !form.deadline) errors.recurrence = '请选择开始日期';
   const people = normalizePeopleDrafts(form.people);
   if (!people.ok) errors.people = `第 ${people.index + 1} 个人物缺少姓名`;
   return errors;
@@ -272,6 +270,8 @@ export function newTaskFromForm(
   const groupId = container?.groupId ?? null;
   const recurrence = recurrencePatch(form.recurrence);
   const recurring = recurrence.ok && recurrence.recurrenceRule !== null;
+  // 循环任务没选开始日期：从今天开始
+  const start = form.deadline || toDateValue(new Date());
   return {
     title: normalizeTaskTitle(form.title) ?? form.title,
     description: form.description.trim(),
@@ -280,16 +280,26 @@ export function newTaskFromForm(
     deadlineOn: recurring ? null : form.deadline || null,
     isStarred: groupId ? false : form.isStarred,
     recurrenceRule: recurrence.ok ? recurrence.recurrenceRule : null,
-    recurrenceStartOn: recurring ? form.deadline || null : null,
+    recurrenceStartOn: recurring ? start : null,
     ...(container ? { groupId: container.groupId, projectId: container.projectId } : {}),
   };
+}
+
+export interface TaskChanges {
+  /**
+   * 先关掉循环：当前这一次（这个日期）变成普通任务，以后的各次消失，过去的历史保留。
+   * 原来是循环任务、现在关掉了（或者什么都没选），或者关掉又打开（重新设）时有值
+   */
+  stopRecurrenceAt: string | null;
+  /** 然后写入的字段 */
+  patch: TaskPatch;
 }
 
 /**
  * 编辑：比较当前表单与上次保存的表单，只生成有变化且合法的字段。
  * 标题为空、循环规则不合法时跳过对应字段（界面提示错误，等用户改好后再保存）。
  */
-export function taskPatchFromForms(current: TaskFormValue, saved: TaskFormValue): TaskPatch {
+export function taskChangesFromForms(current: TaskFormValue, saved: TaskFormValue): TaskChanges {
   const patch: TaskPatch = {};
   const title = normalizeTaskTitle(current.title);
   if (title && current.title !== saved.title) patch.title = title;
@@ -299,22 +309,35 @@ export function taskPatchFromForms(current: TaskFormValue, saved: TaskFormValue)
   }
   if (current.isStarred !== saved.isStarred) patch.isStarred = current.isStarred;
 
-  const recurrenceChanged = !sameRecurrence(current.recurrence, saved.recurrence);
   const recurrence = recurrencePatch(current.recurrence);
-  if (recurrenceChanged && recurrence.ok) patch.recurrenceRule = recurrence.recurrenceRule;
-  const dateChanged = current.deadline !== saved.deadline;
-  const switched = current.recurrence.enabled !== saved.recurrence.enabled;
-  if (current.recurrence.enabled) {
-    // 循环任务：改第二行的日期 = 从这天起重新排以后的各次（换开始日期）；过去的历史不变
-    if ((dateChanged || switched) && current.deadline) patch.recurrenceStartOn = current.deadline;
-  } else {
-    // 普通任务的截止日期与完成状态（循环任务由规则和每一次决定）
-    if (dateChanged || switched) patch.deadlineOn = current.deadline || null;
-    if (current.completed !== saved.completed) {
-      patch.completedAt = current.completed ? new Date() : null;
+  if (!recurrence.ok) return { stopRecurrenceAt: null, patch };
+  const wasRecurring = isRecurring(saved.recurrence);
+  const nowRecurring = recurrence.recurrenceRule !== null;
+  const restarted = wasRecurring && nowRecurring && current.recurrence.restarted;
+  // 已保存的循环任务：第二行显示的是当前这一次的日期
+  const stopRecurrenceAt =
+    wasRecurring && (!nowRecurring || restarted) ? saved.deadline || null : null;
+
+  if (nowRecurring) {
+    if (!wasRecurring || restarted) {
+      // 开始循环（或者关掉后重新设）：第二行的日期是开始日期，没选就是今天
+      patch.recurrenceRule = recurrence.recurrenceRule;
+      patch.recurrenceStartOn = current.deadline || toDateValue(new Date());
+    } else if (!sameRecurrence(current.recurrence, saved.recurrence)) {
+      // 只改规则：开始日期不变，过去的历史不变
+      patch.recurrenceRule = recurrence.recurrenceRule;
     }
+    return { stopRecurrenceAt, patch };
   }
-  return patch;
+
+  // 普通任务（包括刚关掉循环的）：截止日期与完成状态
+  const baseDeadline = wasRecurring ? (stopRecurrenceAt ?? '') : saved.deadline;
+  if (current.deadline !== baseDeadline) patch.deadlineOn = current.deadline || null;
+  const baseCompleted = wasRecurring ? false : saved.completed;
+  if (current.completed !== baseCompleted) {
+    patch.completedAt = current.completed ? new Date() : null;
+  }
+  return { stopRecurrenceAt, patch };
 }
 
 export function peopleDrafts(rows: readonly PersonRow[]): TaskPersonDraft[] {

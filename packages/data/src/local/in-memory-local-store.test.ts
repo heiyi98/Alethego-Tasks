@@ -154,6 +154,46 @@ describe('InMemoryLocalStore', () => {
     await store.tasks.delete(task.id);
     expect(await store.occurrences.listByTask(task.id)).toHaveLength(3);
   });
+  it('关掉循环：当前这一次变成普通任务（日期、子任务勾选保留），以后的消失，历史保留', async () => {
+    const store = new InMemoryLocalStore({ ownerId: OWNER });
+    const task = await store.tasks.create({
+      title: '每天喝水',
+      recurrenceRule: 'FREQ=DAILY',
+      recurrenceStartOn: '2026-10-01',
+    });
+    const [drink] = await store.subtasks.setList(task.id, [{ title: '一杯' }]);
+    // 过去：10/1 完成、10/2 没做；以后：10/5 提前完成
+    const today = { now: new Date('2026-10-03T10:00:00+08:00'), timeZone: 'Asia/Shanghai' };
+    await store.occurrences.applyReconcile(
+      task.id,
+      reconcileOccurrences(seriesFromTask(task)!, [], today),
+    );
+    await store.occurrences.setStatusByDate(task.id, '2026-10-01', 'completed', today.now);
+    await store.occurrences.setStatusByDate(task.id, '2026-10-05', 'completed', today.now);
+    await store.subtasks.setChecked(drink!.id, '2026-10-01', true);
+    await store.subtasks.setChecked(drink!.id, '2026-10-03', true);
+    await store.subtasks.setChecked(drink!.id, '2026-10-05', true);
+
+    const stopped = await store.tasks.stopRecurrence(task.id, '2026-10-03');
+    expect(stopped).toMatchObject({
+      recurrenceRule: null,
+      recurrenceStartOn: null,
+      deadlineOn: '2026-10-03',
+      completedAt: null,
+    });
+    expect(
+      (await store.occurrences.listByTask(task.id)).map((o) => [o.occurrenceDate, o.status]),
+    ).toEqual([
+      ['2026-10-01', 'completed'],
+      ['2026-10-02', 'missed'],
+    ]);
+    const { checks } = await store.subtasks.listForTasks([task.id]);
+    expect(checks.map((c) => c.occurrenceDate).sort()).toEqual(['2026-10-01', null].sort());
+    // 不是循环任务时什么都不做
+    expect(await store.tasks.stopRecurrence(task.id, '2026-10-09')).toMatchObject({
+      deadlineOn: '2026-10-03',
+    });
+  });
 });
 
 describe('分类编辑', () => {

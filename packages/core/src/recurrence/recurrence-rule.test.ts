@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildRecurrenceRule,
+  isEmptyPattern,
   isValidRecurrenceRule,
   normalizePattern,
   parseRecurrenceRule,
@@ -9,11 +10,9 @@ import {
   type RecurrenceRuleSpec,
 } from './recurrence-rule';
 
-const never = { kind: 'never' } as const;
 const spec = (pattern: RecurrenceRuleSpec['pattern'], interval = 1): RecurrenceRuleSpec => ({
   pattern,
   interval,
-  end: never,
 });
 
 describe('结构 ⇄ RRULE（RFC 5545）', () => {
@@ -61,6 +60,18 @@ describe('结构 ⇄ RRULE（RFC 5545）', () => {
       spec({ period: 'year', by: 'weekNumber', rows: [{ week: 42, weekdays: ['MO'] }] }),
       'FREQ=YEARLY;WKST=MO;BYWEEKNO=42;BYDAY=MO',
     ],
+    [
+      '每年最后一周周日（和"最后一天""最后一个"同一套写法：-1）',
+      spec({
+        period: 'year',
+        by: 'weekNumber',
+        rows: [
+          { week: -1, weekdays: ['SU'] },
+          { week: 1, weekdays: ['SU'] },
+        ],
+      }),
+      'FREQ=YEARLY;WKST=MO;BYWEEKNO=1,-1;BYDAY=SU',
+    ],
   ];
   it.each(cases)('%s', (_, value, rule) => {
     expect(buildRecurrenceRule(value)).toBe(rule);
@@ -105,15 +116,11 @@ describe('结构 ⇄ RRULE（RFC 5545）', () => {
     });
   });
 
-  it('结束条件：次数、截止日期', () => {
-    const rule = buildRecurrenceRule({
-      pattern: { period: 'day' },
-      interval: 1,
-      end: { kind: 'until', until: '2026-12-31' },
-    });
-    expect(rule).toBe('FREQ=DAILY;UNTIL=20261231');
-    expect(parseRecurrenceRule(rule)?.end).toEqual({ kind: 'until', until: '2026-12-31' });
-    expect(parseRecurrenceRule('FREQ=DAILY;COUNT=5')?.end).toEqual({ kind: 'count', count: 5 });
+  it('没有结束条件：COUNT、UNTIL 不认；没有第 53 周（用"最后一周"）', () => {
+    expect(isValidRecurrenceRule('FREQ=DAILY;COUNT=5')).toBe(false);
+    expect(isValidRecurrenceRule('FREQ=DAILY;UNTIL=20261231')).toBe(false);
+    expect(isValidRecurrenceRule('FREQ=YEARLY;WKST=MO;BYWEEKNO=53;BYDAY=MO')).toBe(false);
+    expect(buildRecurrenceRule(spec({ period: 'day' }))).toBe('FREQ=DAILY');
   });
 
   it('不认识的规则返回 null', () => {
@@ -130,19 +137,33 @@ describe('结构 ⇄ RRULE（RFC 5545）', () => {
   });
 });
 
-describe('validateRecurrenceSpec', () => {
-  it('必须选了日子', () => {
-    expect(validateRecurrenceSpec(spec({ period: 'week', weekdays: [] }))).toBe('no_weekday');
-    expect(validateRecurrenceSpec(spec({ period: 'month', by: 'day', days: [] }))).toBe('no_day');
-    expect(
-      validateRecurrenceSpec(
-        spec({ period: 'month', by: 'weekday', rows: [{ ordinal: 1, weekdays: [] }] }),
-      ),
-    ).toBe('no_condition');
-    expect(validateRecurrenceSpec(spec({ period: 'year', by: 'monthDay', days: {} }))).toBe(
-      'no_day',
-    );
+describe('validateRecurrenceSpec / isEmptyPattern', () => {
+  it('间隔必须是正整数', () => {
     expect(validateRecurrenceSpec(spec({ period: 'day' }, 0))).toBe('bad_interval');
     expect(validateRecurrenceSpec(spec({ period: 'day' }, 2))).toBeNull();
+  });
+
+  it('一个位置都没选 = 空（等同于没有开启循环）；"日"没有位置可选，不算空', () => {
+    expect(isEmptyPattern({ period: 'day' })).toBe(false);
+    expect(isEmptyPattern({ period: 'week', weekdays: [] })).toBe(true);
+    expect(isEmptyPattern({ period: 'month', by: 'day', days: [] })).toBe(true);
+    expect(
+      isEmptyPattern({ period: 'month', by: 'weekday', rows: [{ ordinal: 1, weekdays: [] }] }),
+    ).toBe(true);
+    expect(isEmptyPattern({ period: 'year', by: 'monthDay', days: { 3: [] } })).toBe(true);
+    expect(
+      isEmptyPattern({ period: 'year', by: 'weekNumber', rows: [{ week: 1, weekdays: [] }] }),
+    ).toBe(true);
+    expect(isEmptyPattern({ period: 'week', weekdays: ['MO'] })).toBe(false);
+    expect(
+      isEmptyPattern({
+        period: 'year',
+        by: 'monthWeekday',
+        rows: [
+          { month: 1, ordinal: 1, weekdays: [] },
+          { month: 2, ordinal: 1, weekdays: ['MO'] },
+        ],
+      }),
+    ).toBe(false);
   });
 });

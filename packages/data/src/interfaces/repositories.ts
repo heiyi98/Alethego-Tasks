@@ -92,6 +92,11 @@ export interface ITaskRepository {
   delete(id: string): Promise<void>;
   /** 撤销软删除 */
   restore(id: string): Promise<Task>;
+  /**
+   * 关掉循环：currentDate（当前这一次，按用户本地日期算出的代表实例）变成普通任务的截止日期，
+   * 保留这一次的子任务勾选；以后的各次消失；过去各次的历史记录保留。不是循环任务时什么都不做。
+   */
+  stopRecurrence(id: string, currentDate: string): Promise<Task>;
 }
 
 export interface NewCategory {

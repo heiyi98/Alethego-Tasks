@@ -65,6 +65,8 @@ interface MemoryState {
   occurrences: Map<string, RecurrenceOccurrence>;
   people: Map<string, TaskPerson>;
   projects: Map<string, Project>;
+  subtasks: Subtask[];
+  checks: SubtaskCheck[];
 }
 
 const linkKey = (taskId: string, categoryId: string) => `${taskId}:${categoryId}`;
@@ -152,6 +154,34 @@ class MemoryTaskRepository implements ITaskRepository {
     const restored: Task = { ...task, deletedAt: null, updatedAt: this.state.now() };
     this.state.tasks.set(id, restored);
     return restored;
+  }
+
+  async stopRecurrence(id: string, currentDate: string) {
+    const task = this.active(id);
+    if (!task.recurrenceRule) return task;
+    // 以后的各次（包括当前这一次的记录）消失；过去各次的历史保留
+    for (const [key, o] of this.state.occurrences) {
+      if (o.taskId === id && o.occurrenceDate >= currentDate) this.state.occurrences.delete(key);
+    }
+    // 子任务勾选：当前这一次的变成普通任务的勾选；以前作为普通任务的、以后各次的清掉
+    const mine = new Set(this.state.subtasks.filter((s) => s.taskId === id).map((s) => s.id));
+    this.state.checks = this.state.checks.flatMap((c) => {
+      if (!mine.has(c.subtaskId)) return [c];
+      if (c.occurrenceDate === currentDate) return [{ ...c, occurrenceDate: null }];
+      if (c.occurrenceDate === null || c.occurrenceDate > currentDate) return [];
+      return [c];
+    });
+    const stopped: Task = {
+      ...task,
+      recurrenceRule: null,
+      recurrenceStartOn: null,
+      deadlineOn: currentDate,
+      completedAt: null,
+      confirmedAt: null,
+      updatedAt: this.state.now(),
+    };
+    this.state.tasks.set(id, stopped);
+    return stopped;
   }
 }
 
@@ -400,15 +430,16 @@ class MemoryRelationRepository implements IRelationRepository {
 
 /** 本地存储里的子任务（只有一个人，权限不检查） */
 class MemorySubtaskRepository implements ISubtaskRepository {
-  private subtasks: Subtask[] = [];
-  private checks: SubtaskCheck[] = [];
-
   constructor(private readonly state: MemoryState) {}
+
+  private get subtasks() {
+    return this.state.subtasks;
+  }
 
   async listForTasks(taskIds: readonly string[]) {
     const subtasks = this.subtasks.filter((s) => taskIds.includes(s.taskId));
     const ids = new Set(subtasks.map((s) => s.id));
-    return { subtasks, checks: this.checks.filter((c) => ids.has(c.subtaskId)) };
+    return { subtasks, checks: this.state.checks.filter((c) => ids.has(c.subtaskId)) };
   }
 
   async setList(taskId: string, items: readonly SubtaskDraft[]) {
@@ -448,8 +479,8 @@ class MemorySubtaskRepository implements ISubtaskRepository {
   async setChecked(subtaskId: string, occurrenceDate: string | null, checked: boolean) {
     const same = (c: SubtaskCheck) =>
       c.subtaskId === subtaskId && c.occurrenceDate === occurrenceDate;
-    this.checks = this.checks.filter((c) => !same(c));
-    if (checked) this.checks.push({ subtaskId, occurrenceDate });
+    this.state.checks = this.state.checks.filter((c) => !same(c));
+    if (checked) this.state.checks.push({ subtaskId, occurrenceDate });
   }
 }
 
@@ -490,6 +521,8 @@ export class InMemoryLocalStore implements ILocalStore {
       occurrences: new Map(),
       people: new Map(),
       projects: new Map(),
+      subtasks: [],
+      checks: [],
     };
     this.tasks = new MemoryTaskRepository(state);
     this.categories = new MemoryCategoryRepository(state);

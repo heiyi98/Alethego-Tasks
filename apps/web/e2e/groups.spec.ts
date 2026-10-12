@@ -68,11 +68,13 @@ test('建组、建项目、邀请（接受 / 拒绝）、昵称；合作组里�
   await bar.getByRole('button', { name: '展开完整选项' }).click();
   await expect(bar.getByRole('group', { name: '分类' })).toHaveCount(0);
   await expect(bar.getByRole('button', { name: '标星' })).toHaveCount(0);
-  // 组任务第一个模块：组名和项目名，只显示
-  const owner = bar.getByRole('group', { name: '所属' });
+  // 组任务第一个模块：只显示组名和项目名，没有"所属"这几个字，不能改
+  const owner = bar.locator('.editor-container');
   await expect(owner.locator('.editor-container-group')).toHaveText(groupName);
   await expect(owner.locator('.editor-container-project')).toHaveText(`${id}项目一`);
   await expect(owner.locator('input, select, button, textarea')).toHaveCount(0);
+  await expect(bar.getByRole('region', { name: '描述' })).not.toContainText('所属');
+  await expect(bar.getByLabel('所属')).toHaveCount(0);
   await expect(bar.getByRole('group', { name: '人物' })).toBeVisible();
   await bar.getByRole('button', { name: '收起' }).click();
   await quickAdd(pa, `${id} 甲建的组任务`);
@@ -81,7 +83,7 @@ test('建组、建项目、邀请（接受 / 拒绝）、昵称；合作组里�
   // 展开的面板里有重要性，没有分类、收藏
   await row.locator('.task-main').click();
   const panel = pa.getByRole('form', { name: '编辑任务' });
-  await expect(panel.getByRole('group', { name: '所属' })).toContainText(`${id}项目一`);
+  await expect(panel.locator('.editor-container')).toContainText(`${id}项目一`);
   await expect(panel.getByRole('group', { name: '重要性' })).toHaveCount(1);
   await expect(panel.getByRole('group', { name: '分类' })).toHaveCount(0);
   await expect(panel.getByRole('button', { name: '标星' })).toHaveCount(0);

@@ -62,7 +62,7 @@ export function QuickOptionsRow({
   leading,
   assignees,
   computedDeadline,
-  deadlineMin,
+  deadlineLocked = false,
 }: {
   value: Pick<TaskFormValue, 'importanceLevel' | 'deadline' | 'recurrence'> &
     Partial<Pick<TaskFormValue, 'raci'>>;
@@ -85,8 +85,8 @@ export function QuickOptionsRow({
    * undefined = 截止日期可以选。
    */
   computedDeadline?: string | null;
-  /** 截止日期不能早于这一天（循环任务改日期时） */
-  deadlineMin?: string;
+  /** 已建好的循环任务：第二行只显示当前这一次的日期，不能点（要改起点就关掉循环重新设） */
+  deadlineLocked?: boolean;
 }) {
   const computed = computedDeadline !== undefined;
   return (
@@ -114,12 +114,11 @@ export function QuickOptionsRow({
 
           <div className="option">
             <DatePicker
-              label="截止日期"
+              label="截止时间"
               value={computed ? (computedDeadline ?? '') : value.deadline}
-              readOnly={computed || readOnly}
+              readOnly={computed || readOnly || deadlineLocked}
               // 循环任务：这一天是开始日期，不能清空
               clearable={!value.recurrence.enabled}
-              min={deadlineMin}
               onChange={(deadline) => onChange({ deadline })}
             />
           </div>
@@ -254,7 +253,7 @@ export function TaskEditor({
   schedule,
   subtaskChecks,
   historyProgress,
-  deadlineMin,
+  wasRecurring = false,
 }: {
   value: TaskFormValue;
   onChange: (patch: Partial<TaskFormValue>) => void;
@@ -299,8 +298,8 @@ export function TaskEditor({
     defaultScopeId: string;
     computed: { start: CalendarDate | null; end: CalendarDate | null };
   };
-  /** 第二行的日期不能早于这一天（已有的循环任务改日期：从这天起重新排以后的各次） */
-  deadlineMin?: string;
+  /** 已保存的是循环任务（第二行的日期只显示当前这一次；关掉又打开 = 重新设） */
+  wasRecurring?: boolean;
   /** 删除第 index 个人物（由控制器负责撤销提示） */
   onRemovePerson: (index: number) => void;
 }) {
@@ -340,10 +339,10 @@ export function TaskEditor({
         readOnly={readOnly}
         leading={optionsLeading}
         computedDeadline={computedDeadline}
-        deadlineMin={value.recurrence.enabled ? deadlineMin : undefined}
+        deadlineLocked={wasRecurring && value.recurrence.enabled && !value.recurrence.restarted}
       />
 
-      {/* 1. 描述 + 分类（组任务：组名和项目名） */}
+      {/* 1. 描述 + 分类（组任务：只显示组名和项目名） */}
       <section className="editor-module" aria-label="描述">
         <fieldset className="editor-fieldset" disabled={readOnly}>
           <div className="editor-field">
@@ -359,10 +358,9 @@ export function TaskEditor({
             />
           </div>
           {container ? (
-            <div className="editor-field" role="group" aria-label="所属">
-              <FieldIcon label="所属">
-                <TagIcon />
-              </FieldIcon>
+            <div className="editor-field">
+              {/* 只显示组名和项目名（和上面的描述对齐） */}
+              <span className="field-icon" aria-hidden />
               <span className="editor-container">
                 <span className="editor-container-group">{container.groupName}</span>
                 <span className="editor-container-project">{container.projectName}</span>
@@ -417,7 +415,8 @@ export function TaskEditor({
                 <RecurrenceEditor
                   value={value.recurrence}
                   start={value.deadline}
-                  onChange={(recurrence, patch) => onChange({ recurrence, ...patch })}
+                  wasRecurring={wasRecurring}
+                  onChange={(recurrence) => onChange({ recurrence })}
                   records={records}
                   onToggleRecord={onToggleRecord}
                   historyProgress={historyProgress}

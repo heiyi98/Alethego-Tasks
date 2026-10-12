@@ -185,6 +185,17 @@ export class SupabaseTaskRepository implements ITaskRepository {
       ),
     );
   }
+
+  async stopRecurrence(id: string, currentDate: string): Promise<Task> {
+    return taskFromRow(
+      unwrap(
+        await this.client
+          .rpc('stop_recurrence', { p_task_id: id, p_current_date: currentDate })
+          .single(),
+        '关掉循环',
+      ),
+    );
+  }
 }
 
 export class SupabaseCategoryRepository implements ICategoryRepository {

@@ -125,7 +125,7 @@ function datesInPeriod(
       } else if (pattern.by === 'monthWeekday') {
         dates = pattern.rows.flatMap((row) => ordinalWeekdays(calendar, year, row.month, [row]));
       } else {
-        // 年周：按 ISO 8601 周年；这一年没有第 53 周时跳过
+        // 年周：按 ISO 8601 周年；-1 = 这一年的最后一周
         dates = pattern.rows.flatMap((row) =>
           row.weekdays
             .map((d) => calendar.dateOfWeek(year, row.week, weekdayIndex(d)))
@@ -145,8 +145,8 @@ function startPeriod(calendar: CalendarSystem, pattern: RecurrencePattern, start
 }
 
 /**
- * 从开始日期起依次给出每一次的日期。from：只要这一天及以后的（没有次数限制时直接跳到附近的周期，
- * 不从头数）。
+ * 从开始日期起依次给出每一次的日期，一直重复下去（没有结束条件）。
+ * from：只要这一天及以后的（直接跳到附近的周期，不从头数）。
  */
 export function* iterateOccurrences(
   spec: RecurrenceRuleSpec,
@@ -158,11 +158,10 @@ export function* iterateOccurrences(
   const interval = Math.max(1, Math.floor(spec.interval));
   const p0 = startPeriod(calendar, pattern, start);
   let k = 0;
-  if (spec.end.kind !== 'count' && from > start) {
+  if (from > start) {
     const target = startPeriod(calendar, pattern, from);
     k = Math.max(0, Math.floor((target - p0) / interval) - 1);
   }
-  let emitted = 0;
   let empty = 0;
   for (; empty < MAX_EMPTY_PERIODS; k++) {
     const dates = datesInPeriod(calendar, pattern, p0 + k * interval).filter((d) => d >= start);
@@ -172,9 +171,6 @@ export function* iterateOccurrences(
     }
     empty = 0;
     for (const date of dates) {
-      if (spec.end.kind === 'until' && date > spec.end.until) return;
-      if (spec.end.kind === 'count' && emitted >= spec.end.count) return;
-      emitted++;
       if (date >= from) yield date;
     }
   }
@@ -200,7 +196,7 @@ export function occurrencesBetween(
   return result;
 }
 
-/** 某天及以后（inclusive = false 时为之后）的第一次；序列结束时为 null */
+/** 某天及以后（inclusive = false 时为之后）的第一次；规则里一个日子都没有时为 null */
 export function nextOccurrence(
   series: RecurrenceSeries,
   after: CalendarDate,
@@ -216,7 +212,7 @@ export function nextOccurrence(
 
 /**
  * 代表实例 = 最早一个还没完成、日期还没过去（不早于今天）的那一次。
- * 已完成的（包括提前完成的）被跳过。循环任务因此永远不会逾期。序列结束时为 null。
+ * 已完成的（包括提前完成的）被跳过。循环任务因此永远不会逾期。规则里一个日子都没有时为 null。
  */
 export function resolveRepresentativeInstance(
   series: RecurrenceSeries,

@@ -27,7 +27,7 @@ import { EditorTitleRow, StarButton, TaskEditor } from './task-editor';
 import { useTaskData } from './task-data-provider';
 import { isSaveEnter, useUnsaved, useUnsavedChanges } from './unsaved-changes';
 import { errorMessage, toDateValue } from '@/lib/format';
-import { sameRecurrence } from '@/lib/recurrence-form';
+import { isRecurring, sameRecurrence } from '@/lib/recurrence-form';
 import { previewDates, relationScopes, scheduleEligible, scopeIdOf } from '@/lib/schedule';
 import {
   newTaskFromForm,
@@ -42,7 +42,7 @@ import {
   scheduleFormFrom,
   scheduleInputFrom,
   taskFormFromDetail,
-  taskPatchFromForms,
+  taskChangesFromForms,
   validateTaskForm,
   type FormErrors,
   type PersonRow,
@@ -225,7 +225,7 @@ export function EditPanel({
 
   /** 当前表单与上次保存的差异 */
   const changesOf = useCallback((current: TaskFormValue, saved: TaskFormValue, task: Task) => {
-    const patch = taskPatchFromForms(current, saved);
+    const { patch, stopRecurrenceAt } = taskChangesFromForms(current, saved);
     const categoriesChanged =
       [...current.categoryIds].sort().join() !== [...saved.categoryIds].sort().join();
     const people = normalizePeopleDrafts(current.people);
@@ -235,13 +235,16 @@ export function EditPanel({
     // 两行逻辑：只在有"任务关系"、不是循环任务时保存；刚改成循环任务时先去掉它自己的关系
     const eligible = scheduleEligible(task, current, dataRef.current);
     const scheduleChanged =
-      eligible && !current.recurrence.enabled && !sameSchedule(current.schedule, saved.schedule);
+      eligible &&
+      !isRecurring(current.recurrence) &&
+      !sameSchedule(current.schedule, saved.schedule);
     const clearSchedule =
-      current.recurrence.enabled &&
-      !saved.recurrence.enabled &&
+      isRecurring(current.recurrence) &&
+      !isRecurring(saved.recurrence) &&
       saved.schedule !== null &&
       (saved.schedule.startRelations.length > 0 || saved.schedule.endRelations.length > 0);
     const any =
+      stopRecurrenceAt !== null ||
       Object.keys(patch).length > 0 ||
       categoriesChanged ||
       raciChanged ||
@@ -251,6 +254,7 @@ export function EditPanel({
       extensionsChanged;
     return {
       patch,
+      stopRecurrenceAt,
       categoriesChanged,
       people,
       extensionsChanged,
@@ -284,6 +288,7 @@ export function EditPanel({
       }
       const {
         patch,
+        stopRecurrenceAt,
         categoriesChanged,
         people,
         extensionsChanged,
@@ -316,6 +321,10 @@ export function EditPanel({
             // 结束是算出来的：表单里的截止日期跟着服务器的值走
             deadlineFromServer = { deadline: nextTask.deadlineOn ?? '' };
           }
+        }
+        // 关掉循环：当前这一次变成普通任务、以后的消失、历史保留（关掉又打开时，之后再按新的规则开始）
+        if (stopRecurrenceAt) {
+          nextTask = await repositories.tasks.stopRecurrence(task.id, stopRecurrenceAt);
         }
         if (Object.keys(patch).length > 0)
           nextTask = await repositories.tasks.update(task.id, patch);
@@ -359,11 +368,12 @@ export function EditPanel({
           deadline: deadlineFromServer?.deadline ?? current.deadline,
           isStarred: current.isStarred,
           importanceLevel: current.importanceLevel,
-          completed: current.recurrence.enabled ? saved.completed : current.completed,
+          completed: isRecurring(current.recurrence) ? saved.completed : current.completed,
           recurrence:
             patch.recurrenceRule !== undefined ||
+            stopRecurrenceAt !== null ||
             sameRecurrence(current.recurrence, saved.recurrence)
-              ? current.recurrence
+              ? { ...current.recurrence, restarted: false }
               : saved.recurrence,
           categoryIds: current.categoryIds,
           raci: current.raci,
@@ -382,7 +392,16 @@ export function EditPanel({
           });
         }
 
-        if (patch.recurrenceRule !== undefined || patch.recurrenceStartOn !== undefined) {
+        if (current.recurrence.restarted) {
+          const settled = { ...formRef.current!.recurrence, restarted: false };
+          formRef.current = { ...formRef.current!, recurrence: settled };
+          setForm((f) => (f ? { ...f, recurrence: settled } : f));
+        }
+        if (
+          stopRecurrenceAt !== null ||
+          patch.recurrenceRule !== undefined ||
+          patch.recurrenceStartOn !== undefined
+        ) {
           // 开始日期改了：从新的开始日期补齐缺的记录（已有记录不动）；只改规则时新规则只管以后的日子
           const startChanged =
             nextTask.recurrenceStartOn !== null &&
@@ -738,7 +757,7 @@ export function EditPanel({
         onToggleRecord={toggleRecord}
         now={now}
         timeZone={timeZone}
-        deadlineMin={loaded.task.recurrenceRule ? toDateValue(now) : undefined}
+        wasRecurring={loaded.task.recurrenceRule !== null}
         onToggle={requestClose}
         onRemovePerson={removePerson}
         titleRow={titleRow}

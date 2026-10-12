@@ -1,7 +1,6 @@
-import type { CalendarDate } from '../schedule/calendar-date';
-
 /**
- * 循环规则的结构：周期（日、周、月、年）+ 间隔 + 周期里的位置 + 结束条件。和历法无关：
+ * 循环规则的结构：周期（日、周、月、年）+ 间隔 + 周期里的位置。没有结束条件：循环任务一直重复，
+ * 唯一的结束方式是关掉循环。和历法无关：
  * "某月""第几周"是什么日子由历法模块（calendar.ts）决定。
  *
  * 存储用 RFC 5545 的 RRULE（见 buildRecurrenceRule / parseRecurrenceRule）：
@@ -32,6 +31,13 @@ export interface OrdinalWeekdays {
 export interface MonthOrdinalWeekdays extends OrdinalWeekdays {
   month: number;
 }
+/** 年周的周数：1–52，-1 = 最后一周（52 或 53，按 ISO 8601） */
+export const LAST_WEEK = -1;
+export const WEEK_NUMBERS: readonly number[] = [
+  ...Array.from({ length: 52 }, (_, i) => i + 1),
+  LAST_WEEK,
+];
+
 export interface WeekNumberWeekdays {
   week: number;
   weekdays: Weekday[];
@@ -49,23 +55,17 @@ export type RecurrencePattern =
   /** 年周：ISO 8601 周数 */
   | { period: 'year'; by: 'weekNumber'; rows: WeekNumberWeekdays[] };
 
-export type RecurrenceEnd =
-  | { kind: 'never' }
-  | { kind: 'count'; count: number }
-  /** 到这一天为止（含） */
-  | { kind: 'until'; until: CalendarDate };
-
 export interface RecurrenceRuleSpec {
   pattern: RecurrencePattern;
   /** 每隔几个周期，≥ 1 */
   interval: number;
-  end: RecurrenceEnd;
 }
 
 const sortWeekdays = (days: readonly Weekday[]): Weekday[] =>
   WEEKDAYS.filter((day) => days.includes(day));
 
 const ordinalRank = (o: Ordinal) => (o === -1 ? 5 : o);
+const weekRank = (w: number) => (w === LAST_WEEK ? 99 : w);
 
 const sortMonthDays = (days: readonly MonthDay[]): MonthDay[] => {
   const numbers = [...new Set(days.filter((d): d is number => d !== 'last'))].sort((a, b) => a - b);
@@ -111,7 +111,7 @@ export function normalizePattern(pattern: RecurrencePattern): RecurrencePattern 
       }
       const rows = [...byWeek.entries()]
         .filter(([, set]) => set.size > 0)
-        .sort(([a], [b]) => a - b)
+        .sort(([a], [b]) => weekRank(a) - weekRank(b))
         .map(([week, set]) => ({ week, weekdays: sortWeekdays([...set]) }));
       return { ...pattern, rows };
     }
@@ -140,8 +140,6 @@ const FREQ: Record<RecurrencePeriod, string> = {
   year: 'YEARLY',
 };
 
-const formatUntil = (date: CalendarDate) => date.replaceAll('-', '');
-
 /** 选了 29、30、31 日：没有这一天的月份落到当月最后一天 */
 const needsSkipBackward = (days: readonly MonthDay[]) =>
   days.some((d) => typeof d === 'number' && d >= 29);
@@ -158,10 +156,7 @@ export function buildRecurrenceRule(spec: RecurrenceRuleSpec): string {
     if (spec.interval > 1) head.push(`INTERVAL=${Math.floor(spec.interval)}`);
     return head;
   };
-  const tail: string[] = [];
-  if (spec.end.kind === 'count') tail.push(`COUNT=${Math.floor(spec.end.count)}`);
-  if (spec.end.kind === 'until') tail.push(`UNTIL=${formatUntil(spec.end.until)}`);
-  const line = (parts: string[]) => [...parts, ...tail].join(';');
+  const line = (parts: string[]) => parts.join(';');
 
   const lines: string[] = [];
   switch (pattern.period) {
@@ -239,7 +234,6 @@ export function buildRecurrenceRule(spec: RecurrenceRuleSpec): string {
 interface ParsedLine {
   period: RecurrencePeriod;
   interval: number;
-  end: RecurrenceEnd;
   byDay: string[];
   byMonthDay: number[];
   byMonth: number[];
@@ -262,7 +256,6 @@ function parseLine(text: string): ParsedLine | null {
   const parsed: ParsedLine = {
     period,
     interval: 1,
-    end: { kind: 'never' },
     byDay: list('BYDAY'),
     byMonthDay: ints('BYMONTHDAY'),
     byMonth: ints('BYMONTH'),
@@ -289,18 +282,6 @@ function parseLine(text: string): ParsedLine | null {
         const n = Number(value);
         if (!Number.isInteger(n) || n < 1) return null;
         parsed.interval = n;
-        break;
-      }
-      case 'COUNT': {
-        const n = Number(value);
-        if (!Number.isInteger(n) || n < 1 || parsed.end.kind !== 'never') return null;
-        parsed.end = { kind: 'count', count: n };
-        break;
-      }
-      case 'UNTIL': {
-        const m = /^(\d{4})(\d{2})(\d{2})(T\d{6}Z?)?$/.exec(value);
-        if (!m || parsed.end.kind !== 'never') return null;
-        parsed.end = { kind: 'until', until: `${m[1]}-${m[2]}-${m[3]}` };
         break;
       }
       default:
@@ -347,18 +328,11 @@ export function parseRecurrenceRule(rule: string): RecurrenceRuleSpec | null {
   if (lines.some((l) => l === null)) return null;
   const parsed = lines as ParsedLine[];
   const first = parsed[0]!;
-  // 各行的周期、间隔、结束必须一致
-  if (
-    parsed.some(
-      (l) =>
-        l.period !== first.period ||
-        l.interval !== first.interval ||
-        JSON.stringify(l.end) !== JSON.stringify(first.end),
-    )
-  ) {
+  // 各行的周期、间隔必须一致（没有结束条件：COUNT、UNTIL 不认）
+  if (parsed.some((l) => l.period !== first.period || l.interval !== first.interval)) {
     return null;
   }
-  const base = { interval: first.interval, end: first.end };
+  const base = { interval: first.interval };
 
   if (first.period === 'day' || first.period === 'week' || first.period === 'month') {
     if (parsed.length !== 1 || first.byMonth.length > 0 || first.byWeekNo.length > 0) return null;
@@ -395,7 +369,7 @@ export function parseRecurrenceRule(rule: string): RecurrenceRuleSpec | null {
           const days = l.byDay.map(plainWeekday);
           if (l.byMonth.length > 0 || l.byMonthDay.length > 0) return null;
           if (days.length === 0 || days.some((d) => d === null)) return null;
-          if (l.byWeekNo.some((w) => w < 1 || w > 53)) return null;
+          if (l.byWeekNo.some((w) => w !== LAST_WEEK && (w < 1 || w > 52))) return null;
           for (const week of l.byWeekNo) rows.push({ week, weekdays: days as Weekday[] });
         }
         return { ...base, pattern: normalizePattern({ period: 'year', by: 'weekNumber', rows }) };
@@ -430,30 +404,33 @@ export function isValidRecurrenceRule(rule: string): boolean {
   return parseRecurrenceRule(rule) !== null;
 }
 
-export type RecurrenceSpecError =
-  'bad_interval' | 'bad_count' | 'no_weekday' | 'no_day' | 'no_condition';
+export type RecurrenceSpecError = 'bad_interval';
 
 /** 保存前的校验；返回 null 表示合法 */
 export function validateRecurrenceSpec(spec: RecurrenceRuleSpec): RecurrenceSpecError | null {
   if (!Number.isInteger(spec.interval) || spec.interval < 1 || spec.interval > 999) {
     return 'bad_interval';
   }
-  if (spec.end.kind === 'count' && (!Number.isInteger(spec.end.count) || spec.end.count < 1)) {
-    return 'bad_count';
-  }
-  const pattern = normalizePattern(spec.pattern);
-  switch (pattern.period) {
+  return null;
+}
+
+/**
+ * 周期里一个位置都没选（周没选星期、月没选日子或条件、年没选月日或条件）。
+ * 什么都没选就保存，等同于没有开启循环。"日"没有位置可选，不算空。
+ */
+export function isEmptyPattern(pattern: RecurrencePattern): boolean {
+  const normalized = normalizePattern(pattern);
+  switch (normalized.period) {
     case 'day':
-      return null;
+      return false;
     case 'week':
-      return pattern.weekdays.length === 0 ? 'no_weekday' : null;
+      return normalized.weekdays.length === 0;
     case 'month':
-      if (pattern.by === 'day') return pattern.days.length === 0 ? 'no_day' : null;
-      return pattern.rows.length === 0 ? 'no_condition' : null;
+      return normalized.by === 'day' ? normalized.days.length === 0 : normalized.rows.length === 0;
     case 'year':
-      if (pattern.by === 'monthDay')
-        return Object.keys(pattern.days).length === 0 ? 'no_day' : null;
-      return pattern.rows.length === 0 ? 'no_condition' : null;
+      return normalized.by === 'monthDay'
+        ? Object.keys(normalized.days).length === 0
+        : normalized.rows.length === 0;
   }
 }
 

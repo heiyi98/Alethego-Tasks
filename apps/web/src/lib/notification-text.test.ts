@@ -40,7 +40,7 @@ describe('通知拼成一句话', () => {
     const modified = { action: 'modified' as const, actorName: '乙', taskTitle: '任务二' };
     expect(text({ ...modified, fields: ['description'] })).toBe('乙修改了任务二的描述');
     expect(text({ ...modified, fields: ['deadline', 'A'] })).toBe(
-      '乙修改了任务二的截止日期和负责人（A）',
+      '乙修改了任务二的截止时间和负责人（A）',
     );
     expect(text({ ...modified, fields: ['title', 'description', 'people'] })).toBe(
       '乙修改了任务二的标题、描述和人物',

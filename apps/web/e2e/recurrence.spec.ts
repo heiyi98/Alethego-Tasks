@@ -5,6 +5,7 @@ import {
   dateButton,
   editPanel,
   expectDate,
+  localDate,
   openTask,
   pickDate,
   pickImportance,
@@ -15,7 +16,6 @@ import {
   switchMode,
   taskItem,
   waitSaved,
-  clickSave,
   matrixAllPersonal,
 } from './helpers';
 import { accessTokenFor } from './auth';
@@ -63,6 +63,62 @@ async function patchTask(request: APIRequestContext, taskId: string, body: objec
   expect(response.ok()).toBe(true);
 }
 
+const WEEKDAY_NAMES = ['日', '一', '二', '三', '四', '五', '六'];
+
+/** "YYYY-MM-DD" → "10月12日 周一"（和历史里的写法一样，今年的不写年份） */
+function dayLabel(date: string): string {
+  const [y, m, d] = date.split('-').map(Number) as [number, number, number];
+  const year = y === Number(localDate(0).slice(0, 4)) ? '' : `${y}年`;
+  return `${year}${m}月${d}日 周${WEEKDAY_NAMES[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]}`;
+}
+
+async function rpcAsMain<T = unknown>(
+  request: APIRequestContext,
+  fn: string,
+  body: object,
+): Promise<T> {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+  const response = await request.post(`${url}/rest/v1/rpc/${fn}`, {
+    headers: {
+      apikey: key,
+      Authorization: `Bearer ${await accessTokenFor()}`,
+      'Content-Profile': 'taskapp',
+      'Content-Type': 'application/json',
+    },
+    data: body,
+  });
+  expect(response.ok(), await response.text()).toBe(true);
+  const text = await response.text();
+  return (text ? JSON.parse(text) : null) as T;
+}
+
+/** 直接写一条已完成的循环记录（例如提前完成以后的某一次） */
+async function insertOccurrence(request: APIRequestContext, taskId: string, date: string) {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const response = await request.post(`${url}/rest/v1/recurrence_occurrences`, {
+    headers: {
+      apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      Authorization: `Bearer ${await accessTokenFor()}`,
+      'Content-Profile': 'taskapp',
+      'Content-Type': 'application/json',
+    },
+    data: {
+      task_id: taskId,
+      occurrence_date: date,
+      status: 'completed',
+      completed_at: new Date().toISOString(),
+    },
+  });
+  expect(response.ok(), await response.text()).toBe(true);
+}
+
+const recordsOf = (request: APIRequestContext, taskId: string) =>
+  queryRest<{ occurrence_date: string; status: string }[]>(
+    request,
+    `recurrence_occurrences?task_id=eq.${taskId}&order=occurrence_date&select=occurrence_date,status`,
+  );
+
 async function savedRule(request: APIRequestContext, taskId: string) {
   const [row] = await queryRest<{ recurrence_rule: string; recurrence_start_on: string }[]>(
     request,
@@ -84,12 +140,18 @@ test('循环任务：开关右边是日周月年；开始日期就是第二行�
   const taskId = await openTask(page, title);
   const panel = editPanel(page);
 
-  // 打开开关：开关右边同一行是"日、周、月、年"；第二行的日期留着，作为开始日期，不能清空
+  // 打开开关：开关右边同一行是"日、周、月、年"，一个都不默认选中；第二行的日期留着，作为开始日期，不能清空
   await expect(panel.getByRole('radiogroup', { name: '重复周期' })).toHaveCount(0);
   const toggle = panel.getByRole('switch', { name: '重复' });
   await toggle.check();
   const periods = panel.getByRole('radiogroup', { name: '重复周期' });
   await expect(periods.getByRole('radio')).toHaveText(['日', '周', '月', '年']);
+  for (const radioButton of await periods.getByRole('radio').all()) {
+    await expect(radioButton).toHaveAttribute('aria-checked', 'false');
+  }
+  await expect(rule(page)).toHaveCount(0);
+  // 没有结束条件
+  await expect(panel.getByLabel('结束方式')).toHaveCount(0);
   const switchBox = (await panel.locator('.recurrence-head .switch').boundingBox())!;
   const periodsBox = (await periods.boundingBox())!;
   expect(
@@ -97,7 +159,7 @@ test('循环任务：开关右边是日周月年；开始日期就是第二行�
   ).toBeLessThan(4);
   expect(periodsBox.x).toBeGreaterThan(switchBox.x + switchBox.width - 1);
   await expectDate(secondRow(page), '2026-10-02');
-  await expect(secondRow(page).getByRole('button', { name: '清除截止日期' })).toHaveCount(0);
+  await expect(secondRow(page).getByRole('button', { name: '清除截止时间' })).toHaveCount(0);
 
   await period(page, '日').click();
   await expect(rule(page).getByLabel('重复间隔')).toHaveValue('1');
@@ -183,16 +245,21 @@ test('循环任务：开关右边是日周月年；开始日期就是第二行�
   );
   expect(taskRow!.completed_at).toBeNull();
 
-  // 关闭循环：任务恢复为普通任务，历史记录保留
+  // 关闭循环：当前这一次（10/6）变成普通任务，历史记录保留
   await openTask(page, title);
   await panel.getByRole('switch', { name: '重复' }).uncheck();
-  await expect(secondRow(page).getByRole('button', { name: '清除截止日期' })).toBeVisible();
+  await expect(secondRow(page).getByRole('button', { name: '清除截止时间' })).toBeVisible();
   await waitSaved(page);
   const records = await queryRest<unknown[]>(
     request,
     `recurrence_occurrences?task_id=eq.${taskId}`,
   );
   expect(records).toHaveLength(4);
+  expect(await savedRule(request, taskId)).toEqual({
+    recurrence_rule: null,
+    recurrence_start_on: null,
+  });
+  await expectDate(secondRow(page), '2026-10-06');
 });
 
 test('循环任务：这一天过完才算过去——当天晚上还是"今天"，过了午夜换成下一次，上一次记为未完成', async ({
@@ -244,34 +311,28 @@ test('重复规则：日 / 周 / 月（日、周）/ 年（月日、月周、年
   const taskId = await openTask(page, title);
   const panel = editPanel(page);
 
-  // 还没选日期时打开：开始日期是今天；默认每周、今天是星期几
+  // 打开：不选模式；选了"周"以后星期全部空着，间隔是 1；不提示错误
   await panel.getByRole('switch', { name: '重复' }).check();
-  await expectDate(secondRow(page), '2026-10-05');
-  await expect(period(page, '周')).toHaveAttribute('aria-checked', 'true');
+  await expectDate(secondRow(page), '');
+  await period(page, '周').click();
+  await expect(rule(page).getByLabel('重复间隔')).toHaveValue('1');
   const weekdays = rule(page).getByRole('group', { name: '星期' });
   await expect(weekdays.getByRole('button')).toHaveText(['一', '二', '三', '四', '五', '六', '日']);
-  await expect(weekdays.getByRole('button', { name: '周一' })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  );
+  for (const button of await weekdays.getByRole('button').all()) {
+    await expect(button).toHaveAttribute('aria-pressed', 'false');
+  }
+  await expect(panel.locator('.field-error')).toHaveCount(0);
 
-  // 每周：清空所有星期 → 提示错误，不保存
-  await pressOnly(weekdays, []);
-  await expect(panel).toContainText('请至少选择一个星期几');
-  await clickSave(page);
-  await expect(panel).toHaveAttribute('data-save-state', 'invalid');
-
-  // 每 2 周的一、三、五，共 5 次
+  // 每 2 周的一、三、五；没选日期：从今天开始
   await pressOnly(weekdays, ['周一', '周三', '周五']);
   await rule(page).getByLabel('重复间隔').fill('2');
-  await rule(page).getByLabel('结束方式').selectOption('count');
-  await rule(page).getByLabel('重复次数').fill('5');
   await waitSaved(page);
-  expect((await savedRule(request, taskId)).recurrence_rule).toBe(
-    'FREQ=WEEKLY;INTERVAL=2;WKST=MO;BYDAY=MO,WE,FR;COUNT=5',
-  );
+  expect(await savedRule(request, taskId)).toEqual({
+    recurrence_rule: 'FREQ=WEEKLY;INTERVAL=2;WKST=MO;BYDAY=MO,WE,FR',
+    recurrence_start_on: '2026-10-05',
+  });
   await collapse(page);
-  await expect(taskItem(page, title)).toContainText('↻ 每 2 周的周一、三、五，共 5 次');
+  await expect(taskItem(page, title)).toContainText('↻ 每 2 周的周一、三、五');
 
   // 刷新后重新展开，规则能被正确读回
   await page.reload();
@@ -283,16 +344,16 @@ test('重复规则：日 / 周 / 月（日、周）/ 年（月日、月周、年
     'true',
   );
   await rule(page).getByLabel('重复间隔').fill('1');
-  await rule(page).getByLabel('结束方式').selectOption('never');
 
-  // 月 · 日：1 到 31 外加"最后一天"，可多选
+  // 月 · 日：1 到 31 外加"最后一天"，可多选；"日 / 周"和日子都不默认选
   await period(page, '月').click();
-  await expect(radio(rule(page), '按月的方式', '日')).toHaveAttribute('aria-checked', 'true');
+  await expect(radio(rule(page), '按月的方式', '日')).toHaveAttribute('aria-checked', 'false');
+  await expect(radio(rule(page), '按月的方式', '周')).toHaveAttribute('aria-checked', 'false');
+  await radio(rule(page), '按月的方式', '日').click();
   const days = rule(page).getByRole('group', { name: '日子' });
   await expect(days.getByRole('button')).toHaveCount(32);
   await expect(days.getByRole('button').last()).toHaveText('最后一天');
-  await pressOnly(days, []);
-  await expect(panel).toContainText('请至少选择一天');
+  await expect(days.locator('[aria-pressed="true"]')).toHaveCount(0);
   await pressOnly(days, ['1日', '15日']);
   await waitSaved(page);
   expect((await savedRule(request, taskId)).recurrence_rule).toBe('FREQ=MONTHLY;BYMONTHDAY=1,15');
@@ -309,7 +370,11 @@ test('重复规则：日 / 周 / 月（日、周）/ 年（月日、月周、年
   // 月 · 周：一行一个条件"第［ ］个：一 … 日"，点"＋"再加一行
   await radio(rule(page), '按月的方式', '周').click();
   const row1 = rule(page).getByRole('group', { name: '第 1 行条件' });
+  // "第［ ］个"和星期都空着
+  await expect(row1.getByLabel('第几个')).toHaveValue('');
+  await expect(row1.locator('[aria-pressed="true"]')).toHaveCount(0);
   await expect(row1.getByLabel('第几个').locator('option')).toHaveText([
+    '',
     '第 1 个',
     '第 2 个',
     '第 3 个',
@@ -331,8 +396,10 @@ test('重复规则：日 / 周 / 月（日、周）/ 年（月日、月周、年
 
   // 年 · 月日：12 个月同时展开，每个月只排 1 到 31，不按星期对齐
   await period(page, '年').click();
-  await expect(radio(rule(page), '按年的方式', '月日')).toHaveAttribute('aria-checked', 'true');
+  await expect(radio(rule(page), '按年的方式', '月日')).toHaveAttribute('aria-checked', 'false');
+  await radio(rule(page), '按年的方式', '月日').click();
   const months = rule(page).locator('.year-month');
+  await expect(rule(page).locator('.year-days [aria-pressed="true"]')).toHaveCount(0);
   await expect(months).toHaveCount(12);
   for (const month of ['1月', '2月', '12月']) {
     await expect(
@@ -352,6 +419,8 @@ test('重复规则：日 / 周 / 月（日、周）/ 年（月日、月周、年
   // 年 · 月周："［ ］月 第［ ］个：一 … 日"
   await radio(rule(page), '按年的方式', '月周').click();
   const ym = rule(page).getByRole('group', { name: '第 1 行条件' });
+  await expect(ym.getByLabel('月份')).toHaveValue('');
+  await expect(ym.getByLabel('第几个')).toHaveValue('');
   await ym.getByLabel('月份').selectOption('3');
   await ym.getByLabel('第几个').selectOption('2');
   await pressOnly(ym.getByRole('group', { name: '星期' }), ['周一']);
@@ -364,6 +433,12 @@ test('重复规则：日 / 周 / 月（日、周）/ 年（月日、月周、年
   // 年 · 年周："第［ ］周：一 … 日"，按 ISO 8601 周数
   await radio(rule(page), '按年的方式', '年周').click();
   const yw = rule(page).getByRole('group', { name: '第 1 行条件' });
+  await expect(yw.getByLabel('第几周')).toHaveValue('');
+  // 没有"第 53 周"，最后一项是"最后一周"
+  const weekOptions = yw.getByLabel('第几周').locator('option');
+  await expect(weekOptions).toHaveCount(54);
+  await expect(weekOptions.nth(52)).toHaveText('第 52 周');
+  await expect(weekOptions.last()).toHaveText('最后一周');
   await yw.getByLabel('第几周').selectOption('42');
   await pressOnly(yw.getByRole('group', { name: '星期' }), ['周一']);
   await waitSaved(page);
@@ -374,6 +449,20 @@ test('重复规则：日 / 周 / 月（日、周）/ 年（月日、月周、年
   await expectDate(secondRow(page), '2026-10-12');
   await collapse(page);
   await expect(taskItem(page, title)).toContainText('↻ 每年第 42 周周一');
+
+  // 最后一周：2026 年有 53 周，最后一周的周一是 12 月 28 日
+  await openTask(page, title);
+  await rule(page)
+    .getByRole('group', { name: '第 1 行条件' })
+    .getByLabel('第几周')
+    .selectOption({ label: '最后一周' });
+  await waitSaved(page);
+  expect((await savedRule(request, taskId)).recurrence_rule).toBe(
+    'FREQ=YEARLY;WKST=MO;BYWEEKNO=-1;BYDAY=MO',
+  );
+  await expectDate(secondRow(page), '2026-12-28');
+  await collapse(page);
+  await expect(taskItem(page, title)).toContainText('↻ 每年最后一周周一');
 
   // 每 N 日
   await openTask(page, title);
@@ -387,7 +476,7 @@ test('重复规则：日 / 周 / 月（日、周）/ 年（月日、月周、年
   expect((await savedRule(request, taskId)).recurrence_start_on).toBe('2026-10-05');
 });
 
-test('改第二行的日期：从这天起重新排以后的各次，过去的历史不变；不能改到今天以前', async ({
+test('循环任务建好后第二行只显示当前这一次，不能点；关掉再打开 = 重新设，从新的日期开始', async ({
   page,
   request,
 }) => {
@@ -399,47 +488,203 @@ test('改第二行的日期：从这天起重新排以后的各次，过去的�
   await quickAdd(page, title, { deadline: '2026-09-28' });
   const taskId = await openTask(page, title);
   await editPanel(page).getByRole('switch', { name: '重复' }).check();
-  // 每周、9/28 是周一
-  await expect(period(page, '周')).toHaveAttribute('aria-checked', 'true');
+  await period(page, '周').click();
+  await pressOnly(rule(page).getByRole('group', { name: '星期' }), ['周一']);
   await waitSaved(page);
+  await expect(historyRows(page)).toHaveText(['9月28日 周一']);
+
+  // 第二行：当前这一次（10/5），不能点
   await expectDate(secondRow(page), '2026-10-05');
-  await expect(historyRows(page)).toHaveText(['9月28日 周一']);
-
-  // 今天以前的日子不能选
-  await dateButton(secondRow(page)).click();
-  const popover = page.getByRole('dialog', { name: '选择日期' });
-  await expect(popover.getByRole('button', { name: '2026年10月4日' })).toBeDisabled();
-  await expect(popover.getByRole('button', { name: '2026年10月5日' })).toBeEnabled();
-  await page.keyboard.press('Escape');
-
-  // 改成 10/14（周三）：以后的各次从这天起重排 → 第一次是 10/19（周一）
-  await pickDate(secondRow(page), '2026-10-14');
+  await expect(dateButton(secondRow(page))).toHaveAttribute('aria-disabled', 'true');
+  await dateButton(secondRow(page)).click({ force: true });
+  await expect(page.getByRole('dialog', { name: '选择时间' })).toHaveCount(0);
+  // 只改规则：第二行仍然不能点，开始日期不变
+  await pressOnly(rule(page).getByRole('group', { name: '星期' }), ['周一', '周三']);
+  await expect(dateButton(secondRow(page))).toHaveAttribute('aria-disabled', 'true');
   await waitSaved(page);
-  expect(await savedRule(request, taskId)).toMatchObject({ recurrence_start_on: '2026-10-14' });
-  await expectDate(secondRow(page), '2026-10-19');
-  await expect(historyRows(page)).toHaveText(['9月28日 周一']);
+  expect(await savedRule(request, taskId)).toEqual({
+    recurrence_rule: 'FREQ=WEEKLY;WKST=MO;BYDAY=MO,WE',
+    recurrence_start_on: '2026-09-28',
+  });
+
+  // 关掉再打开：重新设。什么都不选，第二行可以点
+  const toggle = editPanel(page).getByRole('switch', { name: '重复' });
+  await toggle.uncheck();
+  await toggle.check();
+  await expect(period(page, '周')).toHaveAttribute('aria-checked', 'false');
+  await expect(dateButton(secondRow(page))).not.toHaveAttribute('aria-disabled', 'true');
+  await pickDate(secondRow(page), '2026-10-14');
+  await period(page, '周').click();
+  await pressOnly(rule(page).getByRole('group', { name: '星期' }), ['周五']);
+  await waitSaved(page);
+  expect(await savedRule(request, taskId)).toEqual({
+    recurrence_rule: 'FREQ=WEEKLY;WKST=MO;BYDAY=FR',
+    recurrence_start_on: '2026-10-14',
+  });
+  // 第一次是 10/14 起的第一个周五；过去的历史保留（改成周一、三时补上了 9/30）
+  await expectDate(secondRow(page), '2026-10-16');
+  await expect(historyRows(page)).toHaveText(['9月30日 周三', '9月28日 周一']);
   await collapse(page);
   await expect(taskItem(page, title).locator('.task-deadline')).toHaveText(
-    '本次 10月19日 周一 · 还剩14天',
+    '本次 10月16日 周五 · 还剩11天',
   );
+});
 
-  // 10/20：只补 10/19；10/5、10/12 不在新的排法里
-  await page.clock.setFixedTime(new Date('2026-10-20T10:00:00+08:00'));
-  await page.reload();
-  await expect(taskItem(page, title)).toBeVisible();
-  await expect
-    .poll(async () =>
-      (
-        await queryRest<{ occurrence_date: string }[]>(
-          request,
-          `recurrence_occurrences?task_id=eq.${taskId}&order=occurrence_date&select=occurrence_date`,
-        )
-      ).map((r) => r.occurrence_date),
-    )
-    .toEqual(['2026-09-28', '2026-10-19']);
-  await expect(taskItem(page, title).locator('.task-deadline')).toHaveText(
-    '本次 10月26日 周一 · 还剩6天',
+test('关掉循环：当前这一次变成普通任务（日期、子任务勾选保留），以后的消失，历史保留并能修改', async ({
+  page,
+  request,
+}) => {
+  // 子任务按数据库的时间记下加入的时刻，这里不固定浏览器时钟，用今天前后的日子
+  const id = runId();
+  const title = `${id} 每天跑步`;
+  const [d3, d2, d1, today, d2after] = [-3, -2, -1, 0, 2].map((n) => localDate(n)) as [
+    string,
+    string,
+    string,
+    string,
+    string,
+  ];
+  await page.goto('/');
+  await selectStatus(page, '全部');
+  await quickAdd(page, title, { deadline: d3 });
+  const taskId = await openTask(page, title);
+  await editPanel(page).getByRole('switch', { name: '重复' }).check();
+  await period(page, '日').click();
+  await waitSaved(page);
+  // 子任务：今天这一次勾了"热身"；后天那一次勾了"拉伸"、并且提前完成
+  const [warm, stretch] = await rpcAsMain<{ id: string; title: string }[]>(
+    request,
+    'set_task_subtasks',
+    { p_task_id: taskId, p_items: [{ title: '热身' }, { title: '拉伸' }] },
   );
+  await rpcAsMain(request, 'set_subtask_checked', {
+    p_subtask_id: warm!.id,
+    p_occurrence_date: today,
+    p_checked: true,
+  });
+  await rpcAsMain(request, 'set_subtask_checked', {
+    p_subtask_id: stretch!.id,
+    p_occurrence_date: d2after,
+    p_checked: true,
+  });
+  await insertOccurrence(request, taskId, d2after);
+  await page.reload();
+  await openTask(page, title);
+  await history(page).getByRole('button', { name: '展开历史' }).click();
+  await history(page)
+    .getByRole('checkbox', { name: `完成：${dayLabel(d2)}` })
+    .click();
+  await expect
+    .poll(async () => (await recordsOf(request, taskId)).map((r) => r.status))
+    .toEqual(['missed', 'completed', 'missed', 'completed']);
+
+  // 关掉：第二行是当前这一次（今天），可以点；历史照样显示（以后的那一次不在里面）
+  await editPanel(page).getByRole('switch', { name: '重复' }).uncheck();
+  await expectDate(secondRow(page), today);
+  await expect(dateButton(secondRow(page))).not.toHaveAttribute('aria-disabled', 'true');
+  await expect(historyRows(page)).toHaveCount(3);
+  await waitSaved(page);
+
+  // 1) 当前这一次变成普通任务：日期、子任务勾选保留
+  const [task] = await queryRest<Record<string, unknown>[]>(
+    request,
+    `tasks?id=eq.${taskId}&select=recurrence_rule,recurrence_start_on,deadline_on,completed_at`,
+  );
+  expect(task).toEqual({
+    recurrence_rule: null,
+    recurrence_start_on: null,
+    deadline_on: today,
+    completed_at: null,
+  });
+  const checks = await queryRest<{ subtask_id: string; occurrence_date: string | null }[]>(
+    request,
+    `task_subtask_checks?subtask_id=in.(${warm!.id},${stretch!.id})&select=subtask_id,occurrence_date`,
+  );
+  // 今天这一次的勾选变成普通任务的；以后那一次的消失；过去各次的（补登记完成时一起勾上的）保留
+  const key = (c: { subtask_id: string; occurrence_date: string | null }) =>
+    `${c.subtask_id}:${c.occurrence_date ?? ''}`;
+  expect(checks.map(key).sort()).toEqual(
+    [
+      key({ subtask_id: warm!.id, occurrence_date: null }),
+      key({ subtask_id: warm!.id, occurrence_date: d2 }),
+      key({ subtask_id: stretch!.id, occurrence_date: d2 }),
+    ].sort(),
+  );
+  await collapse(page);
+  const row = taskItem(page, title);
+  await expect(row.locator('.task-deadline')).toHaveText('今天');
+  await expect(row.locator('.subtask-toggle')).toHaveText('1/2');
+  await expect(row).not.toContainText('↻');
+
+  // 2) 以后的各次消失（包括提前完成的那一次）；3) 过去的历史保留
+  expect((await recordsOf(request, taskId)).map((r) => [r.occurrence_date, r.status])).toEqual([
+    [d3, 'missed'],
+    [d2, 'completed'],
+    [d1, 'missed'],
+  ]);
+  // 历史在这个任务里仍然能看到、能修改；不再增加
+  await page.clock.setFixedTime(new Date(Date.now() + 4 * 86_400_000));
+  await page.reload();
+  await openTask(page, title);
+  await expect(editPanel(page).getByRole('switch', { name: '重复' })).not.toBeChecked();
+  await history(page).getByRole('button', { name: '展开历史' }).click();
+  await expect(historyRows(page)).toHaveText([dayLabel(d1), dayLabel(d2), dayLabel(d3)]);
+  await history(page)
+    .getByRole('checkbox', { name: `完成：${dayLabel(d3)}` })
+    .click();
+  await expect
+    .poll(async () => (await recordsOf(request, taskId)).map((r) => r.status))
+    .toEqual(['completed', 'completed', 'missed']);
+});
+
+test('什么都没选就保存 = 没有开启循环；循环任务改成什么都不选 = 关掉循环', async ({
+  page,
+  request,
+}) => {
+  await page.clock.setFixedTime(MONDAY_1554);
+  const id = runId();
+  const title = `${id} 什么都没选`;
+  await page.goto('/');
+  await selectStatus(page, '全部');
+  await quickAdd(page, title, { deadline: '2026-10-08' });
+  const taskId = await openTask(page, title);
+  const toggle = editPanel(page).getByRole('switch', { name: '重复' });
+
+  // 打开开关、不选模式，保存：还是普通任务
+  await toggle.check();
+  await waitSaved(page);
+  expect(await savedRule(request, taskId)).toEqual({
+    recurrence_rule: null,
+    recurrence_start_on: null,
+  });
+  await expect(toggle).not.toBeChecked();
+  // 选了"月"、"日"但一天都没选：也一样
+  await toggle.check();
+  await period(page, '月').click();
+  await radio(rule(page), '按月的方式', '日').click();
+  await waitSaved(page);
+  expect((await savedRule(request, taskId)).recurrence_rule).toBeNull();
+  await expectDate(secondRow(page), '2026-10-08');
+
+  // 做成循环任务（每天，从 10/3 起），再把规则改成什么都不选
+  await patchTask(request, taskId, {
+    recurrence_rule: 'FREQ=DAILY',
+    recurrence_start_on: '2026-10-03',
+  });
+  await page.reload();
+  await openTask(page, title);
+  await expect(toggle).toBeChecked();
+  await period(page, '周').click();
+  await waitSaved(page);
+  const [task] = await queryRest<Record<string, unknown>[]>(
+    request,
+    `tasks?id=eq.${taskId}&select=recurrence_rule,deadline_on`,
+  );
+  expect(task).toEqual({ recurrence_rule: null, deadline_on: '2026-10-05' });
+  expect((await recordsOf(request, taskId)).map((r) => r.occurrence_date)).toEqual([
+    '2026-10-03',
+    '2026-10-04',
+  ]);
 });
 
 test('循环任务历史：几百条记录时展开五行高、可滚动看到最早的一条', async ({ page, request }) => {

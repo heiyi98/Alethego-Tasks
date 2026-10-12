@@ -47,7 +47,7 @@ export function ScheduleField({
             label="开始的方式"
             value={value.startMode}
             options={[
-              ['date', '日期'],
+              ['date', '时间'],
               ['relations', '关系'],
             ]}
             onChange={(startMode) => set({ startMode })}
@@ -57,7 +57,7 @@ export function ScheduleField({
         <div className="schedule-content">
           {value.startMode === 'date' ? (
             <DateInput
-              label="开始日期"
+              label="开始时间"
               value={value.startOn}
               onChange={(startOn) => set({ startOn })}
             />
@@ -80,7 +80,7 @@ export function ScheduleField({
             label="结束的方式"
             value={value.endMode}
             options={[
-              ['date', '日期'],
+              ['date', '时间'],
               ['relations', '关系'],
               ['after_start', '开始后'],
             ]}
