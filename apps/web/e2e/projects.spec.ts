@@ -120,7 +120,9 @@ test('项目的任务只有项目成员看得到；用邮箱加人：组员直�
   // 组员只在项目一里：侧边栏只有项目一，组页面只有项目一的任务，查表也查不到项目二
   const pm = await openAs(browser, M);
   await groupLink(pm, groupName).click();
+  // 默认项目（组名）在最前面，全组成员都在里面
   await expect(groupSection(pm).locator('.sidebar-projects').getByRole('link')).toHaveText([
+    new RegExp(groupName),
     new RegExp(`${id}项目一`),
   ]);
   await expect(taskItem(pm, `${id} 一的任务`)).toBeVisible();
@@ -443,6 +445,17 @@ test('组页面的快速添加：先选项目（只列出我能建任务的项�
   await pa.getByLabel('快速添加任务').fill(`${id} 分配任务`);
   const quickR = bar.getByRole('combobox', { name: '执行人（R）' });
   await expect(bar.getByRole('combobox', { name: '负责人（A）' })).toHaveValue(await userId(A));
+  // 第二行：项目选择在最前面，然后是重要性、截止日期；执行人和负责人在第三行
+  const pickerBox = (await picker.boundingBox())!;
+  const importanceBox = (await bar.getByRole('group', { name: '重要性' }).boundingBox())!;
+  const dateBox = (await bar.getByRole('button', { name: '截止日期', exact: true }).boundingBox())!;
+  expect(pickerBox.x).toBeLessThan(importanceBox.x);
+  expect(importanceBox.x).toBeLessThan(dateBox.x);
+  expect(
+    Math.abs(pickerBox.y + pickerBox.height / 2 - (dateBox.y + dateBox.height / 2)),
+  ).toBeLessThan(6);
+  expect((await quickR.boundingBox())!.y).toBeGreaterThan(pickerBox.y + pickerBox.height - 1);
+  await expect(bar.locator('.quick-options-raci').getByRole('combobox')).toHaveCount(2);
   await expect(bar.getByRole('button', { name: '创建', exact: true })).toBeDisabled();
   await quickR.selectOption({ label: `${id}组员` });
   await bar.getByRole('button', { name: '创建', exact: true }).click();
@@ -455,6 +468,17 @@ test('组页面的快速添加：先选项目（只列出我能建任务的项�
     `tasks?select=id,project_id&title=eq.${id} 分配任务`,
   );
   expect(created!.project_id).toBe(assign);
+  // 开了任务分配的项目：人物模块换成 RACI
+  await taskItem(pa, `${id} 分配任务`).locator('.task-title').click();
+  const editor = pa.getByRole('form', { name: '编辑任务' });
+  await expect(editor.locator('section.editor-module')).toHaveCount(4);
+  expect(
+    await editor
+      .locator('section.editor-module')
+      .evaluateAll((els) => els.map((e) => e.getAttribute('aria-label'))),
+  ).toEqual(['描述', '时间', 'RACI', '子任务清单']);
+  await expect(editor.getByRole('button', { name: '添加人物' })).toHaveCount(0);
+  await editor.getByRole('button', { name: '收起', exact: true }).click();
 
   // 在项目页面：默认就是这个项目，没有项目选择
   await projectLink(pa, `${id}普通`).click();

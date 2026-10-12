@@ -96,6 +96,7 @@ export interface Database {
           created_by: string;
           created_at: string;
           updated_at: string;
+          is_default: boolean;
         };
         Insert: NoWrite;
         Update: NoWrite;
@@ -249,13 +250,12 @@ export interface Database {
           project_id: string | null;
           start_on: string | null;
           end_after_days: number | null;
-          date_zone: string | null;
           title: string;
           description: string;
-          deadline_at: string | null;
+          deadline_on: string | null;
           importance_level: number;
           recurrence_rule: string | null;
-          recurrence_dtstart: string | null;
+          recurrence_start_on: string | null;
           completed_at: string | null;
           confirmed_at: string | null;
           is_starred: boolean;
@@ -270,13 +270,12 @@ export interface Database {
           project_id?: string | null;
           start_on?: string | null;
           end_after_days?: number | null;
-          date_zone?: string | null;
           title: string;
           description?: string;
-          deadline_at?: string | null;
+          deadline_on?: string | null;
           importance_level?: number;
           recurrence_rule?: string | null;
-          recurrence_dtstart?: string | null;
+          recurrence_start_on?: string | null;
           completed_at?: string | null;
           confirmed_at?: string | null;
           is_starred?: boolean;
@@ -291,13 +290,12 @@ export interface Database {
           project_id?: string | null;
           start_on?: string | null;
           end_after_days?: number | null;
-          date_zone?: string | null;
           title?: string;
           description?: string;
-          deadline_at?: string | null;
+          deadline_on?: string | null;
           importance_level?: number;
           recurrence_rule?: string | null;
-          recurrence_dtstart?: string | null;
+          recurrence_start_on?: string | null;
           completed_at?: string | null;
           confirmed_at?: string | null;
           is_starred?: boolean;
@@ -404,53 +402,12 @@ export interface Database {
           },
         ];
       };
-      task_locations: {
-        Row: {
-          task_id: string;
-          name: string;
-          address: string;
-          place_id: string | null;
-          lat: number | null;
-          lng: number | null;
-          created_at: string;
-          updated_at: string;
-        };
-        Insert: {
-          task_id: string;
-          name?: string;
-          address?: string;
-          place_id?: string | null;
-          lat?: number | null;
-          lng?: number | null;
-          created_at?: string;
-          updated_at?: string;
-        };
-        Update: {
-          task_id?: string;
-          name?: string;
-          address?: string;
-          place_id?: string | null;
-          lat?: number | null;
-          lng?: number | null;
-          created_at?: string;
-          updated_at?: string;
-        };
-        Relationships: [
-          {
-            foreignKeyName: 'task_locations_task_id_fkey';
-            columns: ['task_id'];
-            isOneToOne: true;
-            referencedRelation: 'tasks';
-            referencedColumns: ['id'];
-          },
-        ];
-      };
       task_people: {
         Row: {
           id: string;
           task_id: string;
           name: string;
-          relation: string;
+          note: string;
           contact_id: string | null;
           created_at: string;
         };
@@ -458,7 +415,7 @@ export interface Database {
           id?: string;
           task_id: string;
           name: string;
-          relation?: string;
+          note?: string;
           contact_id?: string | null;
           created_at?: string;
         };
@@ -466,7 +423,7 @@ export interface Database {
           id?: string;
           task_id?: string;
           name?: string;
-          relation?: string;
+          note?: string;
           contact_id?: string | null;
           created_at?: string;
         };
@@ -519,7 +476,6 @@ export interface Database {
           p_start_relations: Json;
           p_end_after_days: number | null;
           p_end_relations: Json;
-          p_date_zone: string | null;
         };
         Returns: Database['taskapp']['Tables']['tasks']['Row'];
       };
@@ -659,11 +615,10 @@ export interface Database {
           p_project_id: string;
           p_title: string;
           p_description: string;
-          p_deadline_at: string | null;
+          p_deadline_on: string | null;
           p_recurrence_rule: string | null;
-          p_recurrence_dtstart: string | null;
+          p_recurrence_start_on: string | null;
           p_assignments: Json;
-          p_location: Json | null;
           p_people: Json;
           p_importance_level?: number;
           p_subtasks?: Json;

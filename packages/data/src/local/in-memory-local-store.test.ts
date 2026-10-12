@@ -14,7 +14,7 @@ describe('InMemoryLocalStore', () => {
       ownerId: OWNER,
       title: '买牛奶',
       description: '',
-      deadlineAt: null,
+      deadlineOn: null,
       importanceLevel: 0,
       recurrenceRule: null,
       isStarred: false,
@@ -26,10 +26,9 @@ describe('InMemoryLocalStore', () => {
     expect((await store.tasks.getById(task.id))!.isStarred).toBe(true);
 
     // 之后在详情中补充字段
-    const deadline = new Date('2026-09-30T10:00:00Z');
     expect(
-      await store.tasks.update(task.id, { deadlineAt: deadline, importanceLevel: 3 }),
-    ).toMatchObject({ deadlineAt: deadline, importanceLevel: 3 });
+      await store.tasks.update(task.id, { deadlineOn: '2026-09-30', importanceLevel: 3 }),
+    ).toMatchObject({ deadlineOn: '2026-09-30', importanceLevel: 3 });
   });
 
   it('空白标题不能创建或更新', async () => {
@@ -39,15 +38,15 @@ describe('InMemoryLocalStore', () => {
     await expect(store.tasks.update(task.id, { title: '' })).rejects.toThrow(DataError);
   });
 
-  it('列表默认按截止时间从近到远，无截止时间排最后', async () => {
+  it('列表默认按截止日期从近到远，无截止日期排最后', async () => {
     let tick = 0;
     const store = new InMemoryLocalStore({
       ownerId: OWNER,
       now: () => new Date(Date.UTC(2026, 8, 1) + tick++),
     });
     await store.tasks.create({ title: '无截止' });
-    await store.tasks.create({ title: '下月', deadlineAt: new Date('2026-10-20T00:00:00Z') });
-    await store.tasks.create({ title: '明天', deadlineAt: new Date('2026-09-26T00:00:00Z') });
+    await store.tasks.create({ title: '下月', deadlineOn: '2026-10-20' });
+    await store.tasks.create({ title: '明天', deadlineOn: '2026-09-26' });
     await store.tasks.create({ title: '也无截止' });
     expect((await store.tasks.list()).map((t) => t.title)).toEqual([
       '明天',
@@ -115,12 +114,12 @@ describe('InMemoryLocalStore', () => {
     const task = await store.tasks.create({
       title: '健身',
       recurrenceRule: 'FREQ=WEEKLY;BYDAY=MO,WE,FR',
-      recurrenceDtstart: new Date('2026-09-21T07:00:00+08:00'),
+      recurrenceStartOn: '2026-09-21',
     });
     const series = seriesFromTask(task)!;
     const timeZone = 'Asia/Shanghai';
 
-    // 周四：周一、周三的时刻都已过且没勾选 → 都记为 missed
+    // 周四：周一、周三都已经过去且没勾选 → 都记为 missed
     const thursday = { now: new Date('2026-09-24T10:00:00+08:00'), timeZone };
     await store.occurrences.applyReconcile(
       task.id,
@@ -131,8 +130,8 @@ describe('InMemoryLocalStore', () => {
       'missed',
     ]);
 
-    // 周五 10:00：周五 07:00 已过 → missed；重复执行结果不变
-    const friday = { now: new Date('2026-09-25T10:00:00+08:00'), timeZone };
+    // 周六：周五已经过去 → missed；重复执行结果不变
+    const friday = { now: new Date('2026-09-26T10:00:00+08:00'), timeZone };
     for (let i = 0; i < 2; i++) {
       await store.occurrences.applyReconcile(
         task.id,
@@ -248,21 +247,16 @@ describe('组（本地只有自己一人）', () => {
 describe('任务关系（本地）', () => {
   it('开始于前置的结束 +1，结束是开始后 2 天；不能形成循环', async () => {
     const store = new InMemoryLocalStore({ ownerId: OWNER });
-    const zone = 'Asia/Shanghai';
-    const a = await store.tasks.create({
-      title: 'A',
-      deadlineAt: new Date('2026-10-05T15:59:59.999Z'),
-    });
+    const a = await store.tasks.create({ title: 'A', deadlineOn: '2026-10-05' });
     const b = await store.tasks.create({ title: 'B' });
     const updated = await store.relations.setSchedule(b.id, {
       startOn: null,
       startRelations: [{ predecessorId: a.id, anchor: 'end', offsetDays: 1 }],
       endAfterDays: 2,
       endRelations: [],
-      dateZone: zone,
     });
     expect(updated.startOn).toBe('2026-10-06');
-    expect(updated.deadlineAt?.toISOString()).toBe('2026-10-08T15:59:59.999Z');
+    expect(updated.deadlineOn).toBe('2026-10-08');
     expect(await store.relations.listForTasks([b.id])).toHaveLength(1);
     await expect(
       store.relations.setSchedule(a.id, {
@@ -270,7 +264,6 @@ describe('任务关系（本地）', () => {
         startRelations: [{ predecessorId: b.id, anchor: 'end', offsetDays: 0 }],
         endAfterDays: null,
         endRelations: [],
-        dateZone: zone,
       }),
     ).rejects.toMatchObject({ code: 'invalid' });
   });
@@ -290,7 +283,7 @@ describe('子任务（本地存储）', () => {
     expect(next.map((s) => s.title)).toEqual(['b2', 'c']);
     const all = await store.subtasks.listForTasks([task.id]);
     expect(all.subtasks.find((s) => s.id === a!.id)!.deletedAt).not.toBeNull();
-    const d1 = new Date('2026-10-03T01:00:00Z');
+    const d1 = '2026-10-03';
     await store.subtasks.setChecked(b!.id, d1, true);
     await store.subtasks.setChecked(b!.id, null, true);
     await store.subtasks.setChecked(b!.id, null, false);

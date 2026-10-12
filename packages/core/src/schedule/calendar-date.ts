@@ -1,7 +1,7 @@
-import { endOfLocalDay, fromWallTime, toWallTime } from '../time/zoned-time';
+import { toWallTime } from '../time/zoned-time';
 
 /**
- * 日历日（没有时刻、没有时区）："YYYY-MM-DD"。任务关系、甘特图都以天为单位。
+ * 日历日（没有时刻、没有时区）："YYYY-MM-DD"。截止日期、循环的日期、任务关系、甘特图都以天为单位。
  */
 export type CalendarDate = string;
 
@@ -42,10 +42,4 @@ export function latestDate(dates: readonly (CalendarDate | null)[]): CalendarDat
 /** 时间点在某时区里所在的日期 */
 export function dateOfInstant(instant: Date, timeZone: string): CalendarDate {
   return toWallTime(instant, timeZone).toISOString().slice(0, 10);
-}
-
-/** 某日期在某时区的最后一刻（"没选时刻 = 当天最后一刻"） */
-export function endOfDate(date: CalendarDate, timeZone: string): Date {
-  const start = fromWallTime(new Date(dayNumber(date) * MS_PER_DAY), timeZone);
-  return endOfLocalDay(start, timeZone);
 }

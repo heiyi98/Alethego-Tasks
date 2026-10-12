@@ -1,6 +1,7 @@
 import type { ImportanceLevel } from '../domain/importance';
 import type { RecurrenceOccurrence } from '../domain/occurrence';
 import type { Task } from '../domain/task';
+import type { CalendarDate } from '../schedule/calendar-date';
 import type { MatrixCandidate } from '../quadrant/matrix-candidate';
 import { resolveRepresentativeInstance, seriesFromTask } from '../recurrence/recurrence-engine';
 import type { EvaluationContext } from '../time/zoned-time';
@@ -13,9 +14,9 @@ import { calculateUrgency } from '../urgency/urgency-calculator';
 export interface TaskRepresentative {
   taskId: string;
   importanceLevel: ImportanceLevel;
-  deadlineAt: Date | null;
-  /** 循环任务代表实例对应的时间点；普通任务为 null */
-  occurrenceAt: Date | null;
+  deadlineOn: CalendarDate | null;
+  /** 循环任务代表实例的日期；普通任务为 null */
+  occurrenceDate: CalendarDate | null;
 }
 
 /**
@@ -37,8 +38,8 @@ export function resolveTaskRepresentative(
     return {
       taskId: task.id,
       importanceLevel: task.importanceLevel,
-      deadlineAt: instance.dueAt,
-      occurrenceAt: instance.occurrenceAt,
+      deadlineOn: instance.occurrenceDate,
+      occurrenceDate: instance.occurrenceDate,
     };
   }
 
@@ -46,8 +47,8 @@ export function resolveTaskRepresentative(
   return {
     taskId: task.id,
     importanceLevel: task.importanceLevel,
-    deadlineAt: task.deadlineAt,
-    occurrenceAt: null,
+    deadlineOn: task.deadlineOn,
+    occurrenceDate: null,
   };
 }
 
@@ -57,6 +58,6 @@ export function toMatrixCandidate(
 ): MatrixCandidate {
   return {
     importanceLevel: representative.importanceLevel,
-    urgency: calculateUrgency(representative.deadlineAt, context),
+    urgency: calculateUrgency(representative.deadlineOn, context),
   };
 }

@@ -75,6 +75,11 @@ export interface Project {
   tools: ProjectTool[];
   createdBy: string;
   createdAt: Date;
+  /**
+   * 组的默认项目：建组时自动生成，名字和颜色跟着组走；全组成员都在里面（不能移出、不能退出、
+   * 不能邀请组外的人）；不能单独删除
+   */
+  isDefault: boolean;
   /** 我在这个项目里的身份（合作组里不是组长的人在项目里是管理员） */
   myRole: ProjectRole;
 }
@@ -403,19 +408,22 @@ export function projectMemberActions(
   kind: GroupKind,
   actorRole: ProjectRole,
   target: Pick<ProjectMember, 'role' | 'isMe'>,
+  options: { isDefault?: boolean } = {},
 ): ProjectMemberActions {
   const none = { appointAdmin: false, revokeAdmin: false, remove: false };
   const config = GROUP_KIND_CONFIG[kind];
   // 组长自动在每个项目里，不能被移出
   if (!config.creatable || target.isMe || target.role === 'leader') return none;
+  // 默认项目里是全组成员：不能移出（退出小组才会离开）
+  const removable = !options.isDefault;
   if (actorRole === 'leader') {
     return {
       appointAdmin: config.projectAdmins && target.role === 'member',
       revokeAdmin: config.projectAdmins && target.role === 'admin',
-      remove: true,
+      remove: removable,
     };
   }
-  if (actorRole === 'admin') return { ...none, remove: target.role === 'member' };
+  if (actorRole === 'admin') return { ...none, remove: removable && target.role === 'member' };
   return none;
 }
 

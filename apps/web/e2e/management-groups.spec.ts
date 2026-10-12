@@ -28,6 +28,7 @@ import {
   dbUrl,
   editPanel,
   localDate,
+  pickDate,
   runId,
   selectStatus,
   setDbClock,
@@ -349,7 +350,7 @@ test('RACI：创建时设定（创建人默认是 A）；R 标记完成进入待
   ).toHaveCount(0);
   await raci.getByRole('combobox', { name: '添加顾问（C）' }).selectOption({ label: `${id}顾问` });
   await raci.getByRole('combobox', { name: '添加知会（I）' }).selectOption({ label: `${id}组长` });
-  await bar.locator('input[aria-label="截止日期"]').fill(localDate(-1));
+  await pickDate(bar, localDate(-1));
   await bar.getByRole('button', { name: '创建', exact: true }).click();
   await expect(pa.getByLabel('快速添加任务')).toHaveValue('');
 

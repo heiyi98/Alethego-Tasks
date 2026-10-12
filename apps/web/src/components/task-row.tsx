@@ -4,10 +4,12 @@ import {
   dateOfInstant,
   deriveTaskStatus,
   isSubtaskChecked,
+  occurrenceListAsOf,
   resolveRepresentativeInstance,
   seriesFromTask,
   subtasksFor,
   taskPermissions,
+  todayOf,
   type Category,
   type Task,
   type TaskStatus,
@@ -31,8 +33,8 @@ export function TaskRow({
   now,
   timeZone,
   onToggleComplete,
-  deadline = task.deadlineAt,
-  status = task.recurrenceRule ? 'todo' : deriveTaskStatus(task, now),
+  deadline = task.deadlineOn,
+  status = task.recurrenceRule ? 'todo' : deriveTaskStatus(task, todayOf({ now, timeZone })),
 }: {
   task: Task;
   categories: readonly Category[];
@@ -43,8 +45,8 @@ export function TaskRow({
    * 不传时为只读行（不显示勾选框）。
    */
   onToggleComplete?: (task: Task) => void;
-  /** 显示的截止时间；循环任务传代表实例的时间 */
-  deadline?: Date | null;
+  /** 显示的截止日期；循环任务传代表实例的日期 */
+  deadline?: string | null;
   /** 列表状态；循环任务的状态不由任务本身的截止 / 完成时间决定 */
   status?: TaskStatus;
 }) {
@@ -70,12 +72,15 @@ export function TaskRow({
     ? (resolveRepresentativeInstance(series, data?.occurrencesByTask.get(task.id) ?? [], {
         now,
         timeZone,
-      })?.occurrenceAt ?? null)
+      })?.occurrenceDate ?? null)
     : null;
   const subtasks =
     series && !occurrenceDate
       ? []
-      : subtasksFor(data?.subtasksByTask.get(task.id) ?? [], occurrenceDate);
+      : subtasksFor(
+          data?.subtasksByTask.get(task.id) ?? [],
+          occurrenceDate ? occurrenceListAsOf({ occurrenceDate }, timeZone) : null,
+        );
   const checks = data?.subtaskChecks ?? [];
   const doneCount = subtasks.filter((s) => isSubtaskChecked(checks, s.id, occurrenceDate)).length;
   // 谁能勾：个人任务是自己；开了任务分配的项目里是执行人；没开的项目里是项目成员
@@ -116,7 +121,7 @@ export function TaskRow({
       {deadline && (
         <span className="task-deadline">
           {recurring && '本次 '}
-          {formatDeadline(deadline, now, timeZone)}
+          {formatDeadline(deadline, todayOf({ now, timeZone }))}
         </span>
       )}
       {(['R', 'A'] as const).map(
@@ -135,11 +140,11 @@ export function TaskRow({
       {deadline && (
         <span className="task-deadline">
           {recurring && '本次 '}
-          {formatDeadline(deadline, now, timeZone)}
+          {formatDeadline(deadline, todayOf({ now, timeZone }))}
         </span>
       )}
       {recurring && (
-        <span className="task-recurrence">↻ {recurrenceLabel(task.recurrenceRule!, timeZone)}</span>
+        <span className="task-recurrence">↻ {recurrenceLabel(task.recurrenceRule!)}</span>
       )}
       {task.importanceLevel > 0 && (
         <span className="task-importance">{importanceLabel(task.importanceLevel)}</span>

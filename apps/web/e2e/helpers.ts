@@ -27,11 +27,6 @@ export function localDate(offsetDays: number): string {
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
-/** 距今 offsetDays 天、指定时刻的 datetime-local 值（按 TIME_ZONE） */
-export function localDateTime(offsetDays: number, time: string): string {
-  return `${localDate(offsetDays)}T${time}`;
-}
-
 /** 直接查询数据库（taskapp schema）验证落库结果；按 RLS 只看得到这个账号（默认主测试账号）的数据 */
 export async function queryRest<T>(
   request: APIRequestContext,
@@ -64,14 +59,31 @@ export async function pickImportance(scope: Locator, level: number) {
   await importanceButton(scope, level).click();
 }
 
-export const dateInput = (scope: Locator) => scope.locator('input[aria-label="截止日期"]');
-export const timeInput = (scope: Locator) => scope.locator('input[aria-label="截止时刻"]');
+/** 选日子的按钮（第二行的截止日期，或其他日期）；它的 data-value 是选中的日期 YYYY-MM-DD */
+export const dateButton = (scope: Locator, label = '截止日期') =>
+  scope.getByRole('button', { name: label, exact: true });
 
-/** 点日期旁的时钟图标，选择具体到分钟的时刻（HH:MM） */
-export async function setTime(scope: Locator, time: string) {
-  const input = timeInput(scope);
-  if ((await input.count()) === 0) await scope.getByRole('button', { name: '选择时刻' }).click();
-  await input.fill(time);
+/** 断言选中的日期（空字符串 = 没选） */
+export async function expectDate(scope: Locator, date: string, label = '截止日期') {
+  await expect(dateButton(scope, label)).toHaveAttribute('data-value', date);
+}
+
+/** 点开日历，翻到那个月，点那一天（YYYY-MM-DD） */
+export async function pickDate(scope: Locator, date: string, label = '截止日期') {
+  await dateButton(scope, label).click();
+  const popover = scope.page().getByRole('dialog', { name: '选择日期' });
+  const [y, m, d] = date.split('-').map(Number) as [number, number, number];
+  const target = y * 12 + m;
+  for (let i = 0; i < 240; i++) {
+    const title = (await popover.locator('.date-popover-title').textContent()) ?? '';
+    const match = /(\d+)年(\d+)月/.exec(title);
+    const shown = Number(match![1]) * 12 + Number(match![2]);
+    if (shown === target) break;
+    await popover.getByRole('button', { name: shown < target ? '下个月' : '上个月' }).click();
+    await expect(popover.locator('.date-popover-title')).not.toHaveText(title);
+  }
+  await popover.getByRole('button', { name: `${y}年${m}月${d}日`, exact: true }).click();
+  await expect(popover).toHaveCount(0);
 }
 
 /** 快速添加：可同时设置重要性与截止日期（YYYY-MM-DD），点输入栏右端的 ✓ 创建（enter: true 时按回车） */
@@ -81,7 +93,6 @@ export async function quickAdd(
   options: {
     importance?: number;
     deadline?: string;
-    time?: string;
     expectVisible?: boolean;
     enter?: boolean;
   } = {},
@@ -90,8 +101,7 @@ export async function quickAdd(
   const input = page.getByLabel('快速添加任务');
   await input.fill(title);
   if (options.importance !== undefined) await pickImportance(bar, options.importance);
-  if (options.deadline) await dateInput(bar).fill(options.deadline);
-  if (options.time) await setTime(bar, options.time);
+  if (options.deadline) await pickDate(bar, options.deadline);
   if (options.enter) await input.press('Enter');
   else await bar.getByRole('button', { name: '创建', exact: true }).click();
   await expect(input).toHaveValue('');

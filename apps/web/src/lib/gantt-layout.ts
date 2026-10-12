@@ -65,7 +65,7 @@ export function buildGantt(input: {
 }): GanttLayout {
   const { timeZone, today } = input;
   const placed = (task: Task) => {
-    const dates = taskDates(task, timeZone);
+    const dates = taskDates(task);
     if (dates.end) return { start: dates.start ?? dates.end, end: dates.end };
     if (dates.start) return { start: dates.start, end: dates.start };
     return null;

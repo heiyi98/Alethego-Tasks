@@ -13,7 +13,7 @@ export interface Task {
   ownerId: string;
   /**
    * 所属的组；null = 个人任务。一条任务只属于一个容器（个人或某一个组），创建后不能移动。
-   * 组任务不使用重要性、分类、收藏，不进总览和矩阵。
+   * 组任务没有分类、收藏，不进总览。
    */
   groupId: string | null;
   /** 组任务所属的项目（组任务必须属于一个项目）；个人任务为 null */
@@ -26,12 +26,16 @@ export interface Task {
   endAfterDays: number | null;
   title: string;
   description: string;
-  /** 截止时间（UTC），null 表示无截止时间 */
-  deadlineAt: Date | null;
+  /**
+   * 截止日期：只到"哪一天"，没有时刻和时区；null 表示无截止日期。那一天过完（用户本地日期）才算过去。
+   * 有"任务关系"的任务，结束是关系或"开始后 N 天"时由数据库算出。
+   */
+  deadlineOn: CalendarDate | null;
   importanceLevel: ImportanceLevel;
-  /** RFC 5545 RRULE 字符串，如 "FREQ=WEEKLY;BYDAY=MO,WE,FR" */
+  /** RFC 5545 RRULE（一行或几行），如 "FREQ=WEEKLY;WKST=MO;BYDAY=MO,WE,FR"；见 recurrence-rule.ts */
   recurrenceRule: string | null;
-  recurrenceDtstart: Date | null;
+  /** 循环任务的开始日期：第一次是这天起第一个符合规则的日子 */
+  recurrenceStartOn: CalendarDate | null;
   completedAt: Date | null;
   /**
    * 已确认的时间。个人任务、没开任务分配的项目里的任务完成即确认（与 completedAt 相同）；

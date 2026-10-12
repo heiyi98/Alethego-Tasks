@@ -133,7 +133,7 @@ test('通知：结构化记录拼成一句话；收件人按动作决定；只�
   expect(await taskNotifications(L, title)).toEqual([]);
   expect(await taskNotifications(O, title)).toEqual([]);
 
-  // 修改（描述、截止时间、负责人、人物）：执行人和知会；同一条通知合并改动的字段
+  // 修改（描述、截止日期、负责人、人物）：执行人和知会；同一条通知合并改动的字段
   const update = async (u: GroupUser, body: object) => {
     const response = await fetch(
       `${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/tasks?id=eq.${taskId}`,
@@ -151,7 +151,7 @@ test('通知：结构化记录拼成一句话；收件人按动作决定；只�
     expect(response.ok, await response.clone().text()).toBe(true);
   };
   await update(L, { description: '新的描述' });
-  await update(L, { deadline_at: new Date(Date.now() + 86_400_000).toISOString() });
+  await update(L, { deadline_on: localDate(1) });
   await rpc(L, 'set_task_raci', {
     p_task_id: taskId,
     p_assignments: [
@@ -192,7 +192,7 @@ test('通知：结构化记录拼成一句话；收件人按动作决定；只�
         `${id}执行完成了${title}`,
         `${id}组长确认了${title}`,
         `${id}组长退回了${title}`,
-        `${id}组长修改了${title}的描述、截止时间、负责人（A）和知会（I）`,
+        `${id}组长修改了${title}的描述、截止日期、负责人（A）和知会（I）`,
       ]),
     );
   await pi.context().close();
@@ -228,9 +228,9 @@ test('开了任务分配的项目：快捷添加必须选执行人；执行人�
       p_project_id: projectId,
       p_title: 'x',
       p_description: '',
-      p_deadline_at: null,
+      p_deadline_on: null,
       p_recurrence_rule: null,
-      p_recurrence_dtstart: null,
+      p_recurrence_start_on: null,
       p_assignments: [{ role: 'A', user_id: await userId(L) }],
     }),
   ).rejects.toThrow(/必须有执行人和负责人/);
@@ -364,7 +364,7 @@ test('通知里的"查看"：进入项目，把任务滚动到屏幕中间并在
   // 很多任务，目标任务排在中间偏后（前面 25 条、后面 12 条），一开始不在屏幕里
   for (let i = 0; i < 25; i++) {
     await groupTask(L, projectId, `${id} 前面${String(i).padStart(2, '0')}`, raci, {
-      deadline_at: new Date(Date.now() + (i + 1) * 3_600_000).toISOString(),
+      deadline_on: localDate(1),
     });
   }
   const title = `${id} 目标`;
@@ -376,11 +376,11 @@ test('通知里的"查看"：进入项目，把任务滚动到屏幕中间并在
       { role: 'R', userId: await userId(M) },
       { role: 'A', userId: await userId(L) },
     ],
-    { deadline_at: new Date(Date.now() + 25.5 * 3_600_000).toISOString() },
+    { deadline_on: localDate(2) },
   );
   for (let i = 0; i < 12; i++) {
     await groupTask(L, projectId, `${id} 后面${String(i).padStart(2, '0')}`, raci, {
-      deadline_at: new Date(Date.now() + (30 + i) * 3_600_000).toISOString(),
+      deadline_on: localDate(3),
     });
   }
 
@@ -477,7 +477,7 @@ test('RACI 人名：简介行、详情、快速添加、责任分配矩阵、甘
       { role: 'R', userId: await userId(L) },
       { role: 'A', userId: await userId(L) },
     ],
-    { deadline_at: `${localDate(3)}T23:59:59.999+08:00` },
+    { deadline_on: localDate(3) },
   );
   const page = await openAs(browser, L);
   await projectLink(page, `${id}项目`).click();

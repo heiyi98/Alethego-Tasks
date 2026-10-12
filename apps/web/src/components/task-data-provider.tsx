@@ -1,6 +1,6 @@
 'use client';
 
-import { subtasksFor, type Subtask, type Task } from '@alethego/core';
+import { occurrenceListAsOf, subtasksFor, type Subtask, type Task } from '@alethego/core';
 import { completeCurrentOccurrence } from '@alethego/data';
 import { usePathname } from 'next/navigation';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
@@ -24,7 +24,11 @@ interface TaskDataValue {
   /** 勾选完成：普通任务切换自身完成状态；循环任务完成当前代表实例 */
   toggleComplete: (task: Task) => Promise<void>;
   /** 勾选 / 取消一个子任务；循环任务给出是哪一次，普通任务为 null（不发通知） */
-  toggleSubtask: (subtask: Subtask, occurrenceDate: Date | null, checked: boolean) => Promise<void>;
+  toggleSubtask: (
+    subtask: Subtask,
+    occurrenceDate: string | null,
+    checked: boolean,
+  ) => Promise<void>;
   /** 切换标星（书签） */
   toggleStar: (task: Task) => Promise<void>;
   actionError: string | null;
@@ -38,8 +42,9 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
   const { data, error, reload, replaceTask, upsertOccurrence, setSubtaskCheck } = useTaskListData();
 
   /** 父任务（或循环任务的这一次）勾完成时，没勾的子任务一起勾上（数据库同样处理） */
-  const checkAllSubtasks = (task: Task, occurrenceDate: Date | null) => {
-    for (const subtask of subtasksFor(data?.subtasksByTask.get(task.id) ?? [], occurrenceDate)) {
+  const checkAllSubtasks = (task: Task, occurrenceDate: string | null) => {
+    const asOf = occurrenceDate ? occurrenceListAsOf({ occurrenceDate }, timeZone) : null;
+    for (const subtask of subtasksFor(data?.subtasksByTask.get(task.id) ?? [], asOf)) {
       setSubtaskCheck(subtask.id, occurrenceDate, true);
     }
   };
@@ -87,7 +92,7 @@ export function TaskDataProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  async function toggleSubtask(subtask: Subtask, occurrenceDate: Date | null, checked: boolean) {
+  async function toggleSubtask(subtask: Subtask, occurrenceDate: string | null, checked: boolean) {
     setSubtaskCheck(subtask.id, occurrenceDate, checked); // 乐观更新
     try {
       await repositories.subtasks.setChecked(subtask.id, occurrenceDate, checked);

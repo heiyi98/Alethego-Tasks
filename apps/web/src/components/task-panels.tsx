@@ -2,7 +2,6 @@
 
 import {
   featuresForProject,
-  normalizeLocationDraft,
   normalizePeopleDrafts,
   resolveRepresentativeInstance,
   seriesFromTask,
@@ -28,13 +27,12 @@ import { EditorTitleRow, StarButton, TaskEditor } from './task-editor';
 import { useTaskData } from './task-data-provider';
 import { isSaveEnter, useUnsaved, useUnsavedChanges } from './unsaved-changes';
 import { errorMessage, toDateValue } from '@/lib/format';
+import { sameRecurrence } from '@/lib/recurrence-form';
 import { previewDates, relationScopes, scheduleEligible, scopeIdOf } from '@/lib/schedule';
 import {
-  locationDraft,
   newTaskFromForm,
   peopleDrafts,
   peopleRows,
-  sameLocation,
   samePeople,
   sameRaci,
   sameSchedule,
@@ -55,24 +53,23 @@ import {
 /* 新建                                                                 */
 /* ------------------------------------------------------------------ */
 
-/** 新建：把草稿写入数据库（任务 + 分类 + 地点 / 人物）；container 不为空时是这个项目的任务（不带分类） */
+/** 新建：把草稿写入数据库（任务 + 分类 + 人物 + 子任务）；container 不为空时是这个项目的任务（不带分类） */
 export function useCreateTask(container: { groupId: string; projectId: string } | null = null) {
   const repositories = useRepositories();
-  const { reload, timeZone } = useTaskData();
+  const { reload } = useTaskData();
   return useCallback(
     async (form: TaskFormValue): Promise<{ created: boolean; message?: string }> => {
       try {
-        // 开了任务分配的项目：任务、RACI、地点、人物一起写入（数据库要求必须有执行人和负责人）
+        // 开了任务分配的项目：任务、RACI、子任务一起写入（数据库要求必须有执行人和负责人）
         const withRaci = container !== null && form.raci.length > 0;
         const people = normalizePeopleDrafts(form.people);
-        const input = newTaskFromForm(form, timeZone, container);
+        const input = newTaskFromForm(form, container);
         const subtasks = subtaskDrafts(form.subtasks).map((s) => s.title);
         const task = await repositories.tasks.create(
           withRaci
             ? {
                 ...input,
                 assignments: form.raci,
-                location: normalizeLocationDraft(form.location),
                 people: people.ok ? people.people : [],
                 subtasks,
               }
@@ -89,13 +86,9 @@ export function useCreateTask(container: { groupId: string; projectId: string } 
           if (!container && form.categoryIds.length > 0) {
             await repositories.categories.setTaskCategories(task.id, form.categoryIds);
           }
-          const location = normalizeLocationDraft(form.location);
           const people = normalizePeopleDrafts(form.people);
-          if (location || (people.ok && people.people.length > 0)) {
-            await saveTaskExtensions(repositories, task.id, {
-              location,
-              people: people.ok ? people.people : [],
-            });
+          if (people.ok && people.people.length > 0) {
+            await saveTaskExtensions(repositories, task.id, { people: people.people });
           }
         } catch (e) {
           return { created: true, message: `任务已创建，但部分信息未保存：${errorMessage(e)}` };
@@ -107,7 +100,7 @@ export function useCreateTask(container: { groupId: string; projectId: string } 
         await reload();
       }
     },
-    [repositories, reload, timeZone, container],
+    [repositories, reload, container],
   );
 }
 
@@ -203,12 +196,18 @@ export function EditPanel({
           relations.filter((r) => r.taskId === taskId),
           (predecessorId) => (current ? scopeIdOf(predecessorId, current) : ''),
         );
+        // 循环任务：第二行显示当前这一次的日期
+        const series = seriesFromTask(detail.task);
+        const currentDate = series
+          ? (resolveRepresentativeInstance(series, records, { now: new Date(), timeZone })
+              ?.occurrenceDate ?? null)
+          : null;
         const initial = taskFormFromDetail(
           detail,
-          timeZone,
           raci,
           schedule,
           subtasksFor(subtasks.subtasks, null),
+          currentDate,
         );
         formRef.current = initial;
         savedRef.current = initial;
@@ -225,50 +224,43 @@ export function EditPanel({
   }, [repositories, taskId, timeZone]);
 
   /** 当前表单与上次保存的差异 */
-  const changesOf = useCallback(
-    (current: TaskFormValue, saved: TaskFormValue, task: Task) => {
-      const patch = taskPatchFromForms(current, saved, timeZone);
-      const categoriesChanged =
-        [...current.categoryIds].sort().join() !== [...saved.categoryIds].sort().join();
-      const people = normalizePeopleDrafts(current.people);
-      const extensionsChanged =
-        !sameLocation(current.location, saved.location) ||
-        !samePeople(current.people, saved.people);
-      const raciChanged = !sameRaci(current.raci, saved.raci);
-      const subtasksChanged = !sameSubtasks(current.subtasks, saved.subtasks);
-      // 两行逻辑：只在有"任务关系"、不是循环任务时保存；刚改成循环任务时先去掉它自己的关系
-      const eligible = scheduleEligible(task, current, dataRef.current);
-      const scheduleChanged =
-        eligible &&
-        !current.recurrence.enabled &&
-        !sameSchedule(current.schedule, saved.schedule, timeZone);
-      const clearSchedule =
-        current.recurrence.enabled &&
-        !saved.recurrence.enabled &&
-        saved.schedule !== null &&
-        (saved.schedule.startRelations.length > 0 || saved.schedule.endRelations.length > 0);
-      const any =
-        Object.keys(patch).length > 0 ||
-        categoriesChanged ||
-        raciChanged ||
-        subtasksChanged ||
-        scheduleChanged ||
-        clearSchedule ||
-        extensionsChanged;
-      return {
-        patch,
-        categoriesChanged,
-        people,
-        extensionsChanged,
-        raciChanged,
-        subtasksChanged,
-        scheduleChanged,
-        clearSchedule,
-        any,
-      };
-    },
-    [timeZone],
-  );
+  const changesOf = useCallback((current: TaskFormValue, saved: TaskFormValue, task: Task) => {
+    const patch = taskPatchFromForms(current, saved);
+    const categoriesChanged =
+      [...current.categoryIds].sort().join() !== [...saved.categoryIds].sort().join();
+    const people = normalizePeopleDrafts(current.people);
+    const extensionsChanged = !samePeople(current.people, saved.people);
+    const raciChanged = !sameRaci(current.raci, saved.raci);
+    const subtasksChanged = !sameSubtasks(current.subtasks, saved.subtasks);
+    // 两行逻辑：只在有"任务关系"、不是循环任务时保存；刚改成循环任务时先去掉它自己的关系
+    const eligible = scheduleEligible(task, current, dataRef.current);
+    const scheduleChanged =
+      eligible && !current.recurrence.enabled && !sameSchedule(current.schedule, saved.schedule);
+    const clearSchedule =
+      current.recurrence.enabled &&
+      !saved.recurrence.enabled &&
+      saved.schedule !== null &&
+      (saved.schedule.startRelations.length > 0 || saved.schedule.endRelations.length > 0);
+    const any =
+      Object.keys(patch).length > 0 ||
+      categoriesChanged ||
+      raciChanged ||
+      subtasksChanged ||
+      scheduleChanged ||
+      clearSchedule ||
+      extensionsChanged;
+    return {
+      patch,
+      categoriesChanged,
+      people,
+      extensionsChanged,
+      raciChanged,
+      subtasksChanged,
+      scheduleChanged,
+      clearSchedule,
+      any,
+    };
+  }, []);
 
   const isDirty = () => {
     const current = formRef.current;
@@ -310,28 +302,19 @@ export function EditPanel({
       try {
         let nextTask = task;
         // 先存分类（决定个人任务有没有"任务关系"），再存两行逻辑，最后存内容
-        // （结束改回固定日期时，要先去掉结束的关系，截止时间才不会被算出来的值覆盖）
+        // （结束改回固定日期时，要先去掉结束的关系，截止日期才不会被算出来的值覆盖）
         if (categoriesChanged) {
           await repositories.categories.setTaskCategories(task.id, current.categoryIds);
         }
-        let deadlineFromServer: Pick<TaskFormValue, 'deadline' | 'deadlineTime'> | null = null;
+        let deadlineFromServer: Pick<TaskFormValue, 'deadline'> | null = null;
         if ((scheduleChanged || clearSchedule) && current.schedule) {
           const input = clearSchedule
-            ? {
-                startOn: null,
-                startRelations: [],
-                endAfterDays: null,
-                endRelations: [],
-                dateZone: timeZone,
-              }
-            : scheduleInputFrom(current.schedule, timeZone);
+            ? { startOn: null, startRelations: [], endAfterDays: null, endRelations: [] }
+            : scheduleInputFrom(current.schedule);
           nextTask = await repositories.relations.setSchedule(task.id, input);
           if (!clearSchedule && current.schedule.endMode !== 'date') {
             // 结束是算出来的：表单里的截止日期跟着服务器的值走
-            deadlineFromServer = {
-              deadline: nextTask.deadlineAt ? toDateValue(nextTask.deadlineAt) : '',
-              deadlineTime: '',
-            };
+            deadlineFromServer = { deadline: nextTask.deadlineOn ?? '' };
           }
         }
         if (Object.keys(patch).length > 0)
@@ -346,13 +329,10 @@ export function EditPanel({
           setForm((f) => (f ? { ...f, subtasks: savedSubtasks } : f));
         }
         let savedPeople: PersonRow[] = saved.people;
-        let savedLocation = saved.location;
         if (extensionsChanged && people.ok) {
           const result = await saveTaskExtensions(repositories, task.id, {
-            location: current.location,
             people: peopleDrafts(current.people),
           });
-          savedLocation = locationDraft(result.location);
           savedPeople = peopleRows(result.people);
           // 新增的人物拿到 id 后回填到表单行上，之后的修改走更新而不是重复新增
           const knownIds = new Set(current.people.flatMap((p) => (p.id ? [p.id] : [])));
@@ -376,20 +356,18 @@ export function EditPanel({
           schedule: scheduleChanged || clearSchedule ? current.schedule : saved.schedule,
           title: patch.title !== undefined ? current.title : saved.title,
           description: current.description,
-          deadline:
-            deadlineFromServer?.deadline ??
-            (current.recurrence.enabled ? saved.deadline : current.deadline),
-          deadlineTime:
-            deadlineFromServer?.deadlineTime ??
-            (current.recurrence.enabled ? saved.deadlineTime : current.deadlineTime),
+          deadline: deadlineFromServer?.deadline ?? current.deadline,
           isStarred: current.isStarred,
           importanceLevel: current.importanceLevel,
           completed: current.recurrence.enabled ? saved.completed : current.completed,
-          recurrence: patch.recurrenceRule !== undefined ? current.recurrence : saved.recurrence,
+          recurrence:
+            patch.recurrenceRule !== undefined ||
+            sameRecurrence(current.recurrence, saved.recurrence)
+              ? current.recurrence
+              : saved.recurrence,
           categoryIds: current.categoryIds,
           raci: current.raci,
           subtasks: savedSubtasks,
-          location: extensionsChanged && people.ok ? savedLocation : saved.location,
           people: extensionsChanged && people.ok ? savedPeople : saved.people,
         };
         taskRef.current = nextTask;
@@ -404,18 +382,29 @@ export function EditPanel({
           });
         }
 
-        if (patch.recurrenceRule !== undefined || patch.recurrenceDtstart !== undefined) {
-          // 开始时间改了：从新的开始时间补齐缺的记录（已有记录不动）；只改规则时新规则只管以后到点的实例
+        if (patch.recurrenceRule !== undefined || patch.recurrenceStartOn !== undefined) {
+          // 开始日期改了：从新的开始日期补齐缺的记录（已有记录不动）；只改规则时新规则只管以后的日子
           const startChanged =
-            nextTask.recurrenceDtstart !== null &&
-            nextTask.recurrenceDtstart.getTime() !== task.recurrenceDtstart?.getTime();
+            nextTask.recurrenceStartOn !== null &&
+            nextTask.recurrenceStartOn !== task.recurrenceStartOn;
+          const context = { now: new Date(), timeZone };
           const records = await syncOccurrences(
             repositories.occurrences,
             nextTask,
-            { now: new Date(), timeZone },
-            startChanged ? { backfillFrom: nextTask.recurrenceDtstart! } : {},
+            context,
+            startChanged ? { backfillFrom: nextTask.recurrenceStartOn! } : {},
           );
           setLoaded((l) => (l ? { task: nextTask, records } : l));
+          // 第二行显示重新排过的当前这一次（开始日期不一定正好符合规则）
+          const series = seriesFromTask(nextTask);
+          const currentDate = series
+            ? resolveRepresentativeInstance(series, records, context)?.occurrenceDate
+            : undefined;
+          if (currentDate) {
+            formRef.current = { ...formRef.current!, deadline: currentDate };
+            savedRef.current = { ...savedRef.current, deadline: currentDate };
+            setForm((f) => (f ? { ...f, deadline: currentDate } : f));
+          }
         } else {
           setLoaded((l) => (l ? { ...l, task: nextTask } : l));
         }
@@ -469,9 +458,9 @@ export function EditPanel({
     const removed = current?.people[index];
     if (!current || !removed) return;
     onChange({ people: current.people.filter((_, i) => i !== index) });
-    if (removed.name.trim() || removed.relation.trim()) {
+    if (removed.name.trim() || removed.note.trim()) {
       // 撤销：按原值重新添加（作为新记录保存）
-      showUndo(`已删除人物「${removed.name || removed.relation}」`, () => {
+      showUndo(`已删除人物「${removed.name || removed.note}」`, () => {
         const people = [...(formRef.current?.people ?? [])];
         people.splice(Math.min(index, people.length), 0, { ...removed, id: undefined });
         onChange({ people });
@@ -558,7 +547,7 @@ export function EditPanel({
           return {
             scopes,
             defaultScopeId,
-            computed: previewDates(form.schedule, form.deadline, data, timeZone),
+            computed: previewDates(form.schedule, form.deadline, data),
           };
         })()
       : undefined;
@@ -584,8 +573,15 @@ export function EditPanel({
     }
   }
 
-  // 组任务不使用重要性、分类和收藏
+  // 组任务没有分类和收藏：第一个模块里显示组名和项目名
   const inGroup = loaded.task.groupId !== null;
+  const containerNames =
+    inGroup && project
+      ? {
+          groupName: data?.groups.find((g) => g.id === loaded.task.groupId)?.name ?? '',
+          projectName: project.name,
+        }
+      : null;
   // 内容由项目管理员编辑；开了任务分配时 R 标记完成，A 确认或不通过
   const myRaci = me(form.raci);
   const perms = taskPermissions(project, myRaci);
@@ -652,7 +648,7 @@ export function EditPanel({
     ? (resolveRepresentativeInstance(series, data?.occurrencesByTask.get(loaded.task.id) ?? [], {
         now,
         timeZone,
-      })?.occurrenceAt ?? null)
+      })?.occurrenceDate ?? null)
     : null;
   const subtaskChecks =
     series && !occurrenceDate
@@ -660,9 +656,7 @@ export function EditPanel({
       : {
           isChecked: (subtaskId: string) =>
             (data?.subtaskChecks ?? []).some(
-              (c) =>
-                c.subtaskId === subtaskId &&
-                (c.occurrenceDate?.getTime() ?? null) === (occurrenceDate?.getTime() ?? null),
+              (c) => c.subtaskId === subtaskId && c.occurrenceDate === occurrenceDate,
             ),
           canCheck: loaded.task.groupId === null || (features.raci ? myRaci.includes('R') : true),
           onToggle: (subtaskId: string, checked: boolean) => {
@@ -736,7 +730,7 @@ export function EditPanel({
         onChange={onChange}
         errors={errors}
         categories={categories}
-        inGroup={inGroup}
+        container={containerNames}
         readOnly={!perms.edit}
         raci={features.raci ? { members, contacts, editable: perms.edit } : undefined}
         schedule={scheduleProps}
@@ -744,18 +738,20 @@ export function EditPanel({
         onToggleRecord={toggleRecord}
         now={now}
         timeZone={timeZone}
-        fallbackStart={loaded.task.deadlineAt}
+        deadlineMin={loaded.task.recurrenceRule ? toDateValue(now) : undefined}
         onToggle={requestClose}
         onRemovePerson={removePerson}
         titleRow={titleRow}
         subtaskChecks={subtaskChecks}
-        historyProgress={(date) => {
+        historyProgress={(record) => {
           const all = data?.subtasksByTask.get(loaded.task.id) ?? [];
-          const occurrence = data?.occurrencesByTask
-            .get(loaded.task.id)
-            ?.find((o) => o.occurrenceDate.getTime() === date.getTime());
-          const asOf = occurrence ? occurrenceListAsOf(occurrence) : date;
-          const progress = subtaskProgress(all, data?.subtaskChecks ?? [], date, asOf);
+          const asOf = occurrenceListAsOf(record, timeZone);
+          const progress = subtaskProgress(
+            all,
+            data?.subtaskChecks ?? [],
+            record.occurrenceDate,
+            asOf,
+          );
           return progress.total > 0 ? `${progress.done}/${progress.total}` : null;
         }}
       />

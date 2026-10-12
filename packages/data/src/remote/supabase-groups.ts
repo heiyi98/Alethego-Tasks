@@ -70,6 +70,7 @@ export function projectFromRow(row: TableRow<'projects'>, myRole: ProjectRole): 
     tools: [...row.tools],
     createdBy: row.created_by,
     createdAt: new Date(row.created_at),
+    isDefault: row.is_default ?? false,
     myRole,
   };
 }

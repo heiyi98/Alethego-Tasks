@@ -1,4 +1,5 @@
-import { calendarDaysBetween, type EvaluationContext } from '../time/zoned-time';
+import { daysBetween, type CalendarDate } from '../schedule/calendar-date';
+import { todayOf, type EvaluationContext } from '../time/zoned-time';
 import {
   EXTENDED_TIER_DAYS,
   MODE_TIER_DAYS,
@@ -13,8 +14,7 @@ import {
  * - scheduled：一年内；dayNumber = N（今天算第 1 天）。落在哪一格取决于矩阵模式，见 cellForDayNumber
  * - far：N > 365（扩展向量），不进入矩阵与四象限清单；extendedTierDays 超出扩展向量时为 null
  * - no_deadline：无截止时间
- * - overdue：已超过截止时刻（只会出现在普通任务上）；overdueDays = 逾期的日历天数，不封顶
- *   （当天已过点为 0）
+ * - overdue：截止日期已过（只会出现在普通任务上）；overdueDays = 逾期的天数（截止日期的第二天为 1），不封顶
  */
 export type Urgency =
   | { kind: 'scheduled'; dayNumber: number }
@@ -32,21 +32,19 @@ export function cellForDayNumber(dayNumber: number, mode: MatrixMode): number | 
 }
 
 /**
- * 计算紧迫度：按日历日判档，位置只看截止日期（用户时区），不看几点几分。
- * N = (截止日期 − 今天) 的日历天数 + 1。日期型和设了具体时刻的任务落格方式完全相同。
- *
- * 是否逾期看截止时刻：超过截止时刻即逾期（日期型任务的截止时刻是当天最后一刻，
- * 所以从次日 00:00 起逾期；设了具体时刻的从该时刻起，当天已过点也算）。
+ * 计算紧迫度：按日期判档。N = (截止日期 − 今天) 的天数 + 1（今天截止为 1）。
+ * 截止日期那一天过完才算逾期：从第二天起逾期。今天按用户所在时区判断。
  */
-export function calculateUrgency(deadlineAt: Date | null, context: EvaluationContext): Urgency {
-  if (!deadlineAt) return { kind: 'no_deadline' };
+export function calculateUrgency(
+  deadlineOn: CalendarDate | null,
+  context: EvaluationContext,
+): Urgency {
+  if (!deadlineOn) return { kind: 'no_deadline' };
 
-  const { now, timeZone } = context;
-  if (deadlineAt.getTime() < now.getTime()) {
-    return { kind: 'overdue', overdueDays: calendarDaysBetween(deadlineAt, now, timeZone) };
-  }
+  const today = todayOf(context);
+  if (deadlineOn < today) return { kind: 'overdue', overdueDays: daysBetween(deadlineOn, today) };
 
-  const dayNumber = calendarDaysBetween(now, deadlineAt, timeZone) + 1;
+  const dayNumber = daysBetween(today, deadlineOn) + 1;
   if (dayNumber > QUADRANT_LIST_MAX_DAYS) {
     const extendedTierDays = EXTENDED_TIER_DAYS.find((days) => dayNumber <= days) ?? null;
     return { kind: 'far', dayNumber, extendedTierDays };

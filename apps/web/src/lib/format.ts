@@ -2,12 +2,8 @@ import {
   DEFAULT_STATUS_FILTER,
   LIST_SCOPES,
   STATUS_FILTERS,
-  calendarDaysBetween,
-  endOfLocalDay,
-  describeRecurrence,
+  daysBetween,
   parseRecurrenceRule,
-  weekdayName,
-  weekdayOf,
   type ContainerFeatures,
   IMPORTANCE_KEYS,
   IMPORTANCE_LEVELS_STRONG_FIRST,
@@ -97,96 +93,53 @@ export function browserTimeZone(): string {
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
-/** 只精确到天的截止时间存为当天本地日终点（23:59:59.999） */
-export function isDateOnlyDeadline(deadline: Date, timeZone: string): boolean {
-  return endOfLocalDay(deadline, timeZone).getTime() === deadline.getTime();
+const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
+
+/** 日期 → 星期几（0 = 周日，和 Date.getUTCDay 一致） */
+function weekdayIndex(date: string): number {
+  const [y, m, d] = date.split('-').map(Number) as [number, number, number];
+  return new Date(Date.UTC(y, m - 1, d)).getUTCDay();
 }
 
-const dayLabel = (date: Date, now: Date, timeZone: string) => {
-  const year = date.getFullYear() === now.getFullYear() ? '' : `${date.getFullYear()}年`;
-  return `${year}${date.getMonth() + 1}月${date.getDate()}日 周${weekdayName(weekdayOf(date, timeZone))}`;
-};
+/** 日期 → "9月30日 周三"（和今天不在同一年时带年份） */
+export function formatDate(date: string, today: string): string {
+  const [y, m, d] = date.split('-').map(Number) as [number, number, number];
+  const year = date.slice(0, 4) === today.slice(0, 4) ? '' : `${y}年`;
+  return `${year}${m}月${d}日 周${WEEKDAYS[weekdayIndex(date)]}`;
+}
 
 /**
- * 列表中的截止时间：日期 + 星期（+ 时刻）· 剩余天数。天数按日历天计算，不受时分影响。
- * - 今天：「今天」（选了时刻时带时刻，时刻已过则为「今天 09:00 · 已过」）
+ * 列表中的截止日期：日期 + 星期 · 剩余天数。截止日期那一天过完才算逾期。
+ * - 今天：「今天」
  * - 以后：「9月30日 周三 · 还剩2天」
  * - 已过期：「9月26日 周六 · 逾期2天」
  */
-export function formatDeadline(deadline: Date, now: Date, timeZone: string): string {
-  const time = isDateOnlyDeadline(deadline, timeZone)
-    ? ''
-    : ` ${pad(deadline.getHours())}:${pad(deadline.getMinutes())}`;
-  const days = calendarDaysBetween(now, deadline, timeZone);
-  if (days === 0) {
-    return deadline.getTime() < now.getTime() ? `今天${time} · 已过` : `今天${time}`;
-  }
-  const label = `${dayLabel(deadline, now, timeZone)}${time}`;
+export function formatDeadline(deadline: string, today: string): string {
+  const days = daysBetween(today, deadline);
+  if (days === 0) return '今天';
+  const label = formatDate(deadline, today);
   return days > 0 ? `${label} · 还剩${days}天` : `${label} · 逾期${-days}天`;
-}
-
-/** Date → <input type="time"> 的值（本地时刻）；只精确到天的截止时间为空字符串 */
-export function toTimeValue(date: Date, timeZone: string): string {
-  return isDateOnlyDeadline(date, timeZone)
-    ? ''
-    : `${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
-/** Date → <input type="datetime-local"> 的值（本地时间） */
-export function toDateTimeLocalValue(date: Date | null): string {
-  if (!date) return '';
-  return (
-    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
-    `T${pad(date.getHours())}:${pad(date.getMinutes())}`
-  );
-}
-
-/** <input type="datetime-local"> 的值 → Date；空字符串为 null */
-export function fromDateTimeLocalValue(value: string): Date | null {
-  if (!value) return null;
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** 循环规则的简短描述；超出可编辑子集的规则显示为"自定义重复" */
-export function recurrenceLabel(rule: string, timeZone: string): string {
+/** 循环规则的一句话描述（文案集中在 i18n）；不认识的规则显示为"自定义重复" */
+export function recurrenceLabel(rule: string): string {
   const spec = parseRecurrenceRule(rule);
-  return spec ? describeRecurrence(spec, timeZone) : '自定义重复';
+  return spec ? messages.recurrence.describe(spec) : '自定义重复';
 }
 
-/** 完整日期：9月25日 周五 07:00（非今年时带年份） */
-export function formatFullDateTime(date: Date, timeZone: string): string {
-  const year = date.getFullYear() === new Date().getFullYear() ? '' : `${date.getFullYear()}年`;
-  return (
-    `${year}${date.getMonth() + 1}月${date.getDate()}日 ` +
-    `周${weekdayName(weekdayOf(date, timeZone))} ` +
-    `${pad(date.getHours())}:${pad(date.getMinutes())}`
-  );
-}
-
-/** Date → <input type="date"> 的值（本地日期） */
+/** Date → 本地日期 "YYYY-MM-DD"（例如今天） */
 export function toDateValue(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
-/** <input type="date"> 的值 → 本地当天 00:00；空字符串为 null */
-export function fromDateValue(value: string): Date | null {
-  if (!value) return null;
-  const date = new Date(`${value}T00:00`);
-  return Number.isNaN(date.getTime()) ? null : date;
-}
-
-const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
-
 /** 日历日 → "10月12日 周一"（任务关系、甘特图用） */
 export function formatDay(date: string): string {
-  const [y, m, d] = date.split('-').map(Number) as [number, number, number];
-  const weekday = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
-  return `${m}月${d}日 周${WEEKDAYS[weekday]}`;
+  const [, m, d] = date.split('-').map(Number) as [number, number, number];
+  return `${m}月${d}日 周${WEEKDAYS[weekdayIndex(date)]}`;
 }
 
 /** 关系的偏移：0 → 当天，正数 → 后 N 天，负数 → 前 N 天 */

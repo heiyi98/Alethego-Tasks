@@ -19,8 +19,6 @@ import type {
   ReconcileResult,
   RecurrenceOccurrence,
   Task,
-  TaskLocation,
-  TaskLocationDraft,
   TaskPerson,
   TaskPersonDraft,
 } from '@alethego/core';
@@ -40,10 +38,12 @@ export interface NewTask {
   /** 会去除首尾空白；为空白时抛出 DataError('invalid') */
   title: string;
   description?: string;
-  deadlineAt?: Date | null;
+  /** 截止日期（只到哪一天） */
+  deadlineOn?: CalendarDate | null;
   importanceLevel?: ImportanceLevel;
   recurrenceRule?: string | null;
-  recurrenceDtstart?: Date | null;
+  /** 循环任务的开始日期 */
+  recurrenceStartOn?: CalendarDate | null;
   /** 标星（书签），默认 false；组任务不能标星 */
   isStarred?: boolean;
   /** 所属的项目；不传 / null = 个人任务。创建后不能移动到别的容器 */
@@ -51,11 +51,10 @@ export interface NewTask {
   /** 项目所属的组（组任务必须同时给出项目和组） */
   groupId?: string | null;
   /**
-   * 开了任务分配的项目：RACI（至少一个执行人和一个负责人）以及地点、人物，和任务在同一个事务里一起写入。
+   * 开了任务分配的项目：RACI（至少一个执行人和一个负责人）以及人物、子任务，和任务在同一个事务里一起写入。
    * 传了 assignments 时走这条路；不传就是普通的建任务。
    */
   assignments?: readonly AssignmentDraft[];
-  location?: TaskLocationDraft | null;
   people?: readonly TaskPersonDraft[];
   /** 和 assignments 一起写入的子任务标题（按顺序） */
   subtasks?: readonly string[];
@@ -66,10 +65,10 @@ export type TaskPatch = Partial<
     Task,
     | 'title'
     | 'description'
-    | 'deadlineAt'
+    | 'deadlineOn'
     | 'importanceLevel'
     | 'recurrenceRule'
-    | 'recurrenceDtstart'
+    | 'recurrenceStartOn'
     | 'completedAt'
     | 'confirmedAt'
     | 'isStarred'
@@ -81,7 +80,7 @@ export type TaskPatch = Partial<
  */
 export interface ITaskRepository {
   /**
-   * 默认按截止时间从近到远排序，无截止时间的排最后（同 core 的 compareByDeadline）。
+   * 默认按截止日期从近到远排序，无截止日期的排最后（同 core 的 compareByDeadline）。
    * 循环任务的排序依据是代表实例，需上层用 listDeadlineOf + sortByDeadline 重新排序。
    */
   list(query?: TaskListQuery): Promise<Task[]>;
@@ -127,11 +126,11 @@ export interface IOccurrenceRepository {
     completedAt: Date | null,
   ): Promise<RecurrenceOccurrence>;
   /**
-   * 按实例时间设置状态：记录不存在时新建（例如提前完成一个尚未到来的实例），存在时更新。
+   * 按那一次的日期设置状态：记录不存在时新建（例如提前完成一个尚未到来的实例），存在时更新。
    */
   setStatusByDate(
     taskId: string,
-    occurrenceDate: Date,
+    occurrenceDate: CalendarDate,
     status: OccurrenceStatus,
     completedAt: Date | null,
   ): Promise<RecurrenceOccurrence>;
@@ -139,22 +138,12 @@ export interface IOccurrenceRepository {
   applyReconcile(taskId: string, result: ReconcileResult): Promise<void>;
 }
 
-/** 任务地点（一对一）。tasks 仓储不感知它的存在。 */
-export interface ITaskLocationRepository {
-  getByTask(taskId: string): Promise<TaskLocation | null>;
-  /**
-   * 设置地点的本地字段（名称、地址）；传 null 表示删除地点。
-   * 只写本地字段，预留的 placeId / 坐标不会被覆盖。名称与地址都为空时等同于删除。
-   */
-  set(taskId: string, draft: TaskLocationDraft | null): Promise<TaskLocation | null>;
-}
-
 /** 任务关联人物（一对多）。 */
 export interface ITaskPeopleRepository {
   listByTask(taskId: string): Promise<TaskPerson[]>;
   /**
    * 将任务的人物整体替换为给定列表：带 id 的更新、不带 id 的新增、列表中没有的删除。
-   * 完全空白的行会被忽略；只有关系没有姓名时抛出 DataError('invalid')。
+   * 完全空白的行会被忽略；只有备注没有姓名时抛出 DataError('invalid')。
    */
   replace(taskId: string, drafts: readonly TaskPersonDraft[]): Promise<TaskPerson[]>;
 }
@@ -194,8 +183,7 @@ export type TaskNotificationField =
   | 'A'
   | 'C'
   | 'I'
-  | 'people'
-  | 'location';
+  | 'people';
 
 /** 应用内通知 */
 export interface GroupNotification {
@@ -359,7 +347,7 @@ export interface IProjectRepository {
   voteDeletion(projectId: string, agree: boolean): Promise<DeletionVoteResult>;
 }
 
-/** 一次设定一条任务的开始和结束（整组替换关系）；结束是固定日期时，截止时间照常在任务上改 */
+/** 一次设定一条任务的开始和结束（整组替换关系）；结束是固定日期时，截止日期照常在任务上改 */
 export interface ScheduleInput {
   /** 开始是固定日期时的日期（有开始关系时忽略） */
   startOn: CalendarDate | null;
@@ -367,8 +355,6 @@ export interface ScheduleInput {
   /** 结束是"开始后 N 天"时的 N */
   endAfterDays: number | null;
   endRelations: readonly RelationRef[];
-  /** 用户的时区：算出的结束日期按它写成截止时间（当天最后一刻） */
-  dateZone: string;
 }
 
 /** 任务关系（开了"任务关系"的项目、个人分类）；日期由数据库按关系算出，前置变了自动重算 */
@@ -393,7 +379,11 @@ export interface ISubtaskRepository {
   /** 整组替换子任务清单（和编辑任务一样的权限）；没列出的标记为删除 */
   setList(taskId: string, items: readonly SubtaskDraft[]): Promise<Subtask[]>;
   /** 勾选 / 取消；循环任务给出是哪一次，普通任务为 null */
-  setChecked(subtaskId: string, occurrenceDate: Date | null, checked: boolean): Promise<void>;
+  setChecked(
+    subtaskId: string,
+    occurrenceDate: CalendarDate | null,
+    checked: boolean,
+  ): Promise<void>;
 }
 
 /** 账号上的设置（存在 taskapp.users 上，换设备也一样） */

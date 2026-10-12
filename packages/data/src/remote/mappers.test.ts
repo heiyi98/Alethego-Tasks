@@ -10,13 +10,12 @@ const row = {
   project_id: null,
   start_on: null,
   end_after_days: null,
-  date_zone: null,
   title: '写周报',
   description: '',
-  deadline_at: '2026-09-26T10:00:00+00:00',
+  deadline_on: '2026-09-26',
   importance_level: 3,
   recurrence_rule: null,
-  recurrence_dtstart: null,
+  recurrence_start_on: null,
   completed_at: null,
   confirmed_at: null,
   is_starred: true,
@@ -42,7 +41,7 @@ describe('task mappers', () => {
     expect(taskFromRow(row)).toMatchObject({
       id: 't1',
       ownerId: 'u1',
-      deadlineAt: new Date('2026-09-26T10:00:00Z'),
+      deadlineOn: '2026-09-26',
       importanceLevel: 3,
       completedAt: null,
       isStarred: true,
@@ -61,10 +60,10 @@ describe('task mappers', () => {
       project_id: null,
       title: 'x',
       description: '',
-      deadline_at: null,
+      deadline_on: null,
       importance_level: 0,
       recurrence_rule: null,
-      recurrence_dtstart: null,
+      recurrence_start_on: null,
       is_starred: false,
     });
   });
@@ -79,8 +78,8 @@ describe('task mappers', () => {
   });
 
   it('补丁只包含传入的字段，null 会被显式写入', () => {
-    expect(taskPatchToUpdate({ deadlineAt: null, importanceLevel: 3 })).toEqual({
-      deadline_at: null,
+    expect(taskPatchToUpdate({ deadlineOn: null, importanceLevel: 3 })).toEqual({
+      deadline_on: null,
       importance_level: 3,
     });
   });

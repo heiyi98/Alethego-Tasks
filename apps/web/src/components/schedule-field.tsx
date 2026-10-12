@@ -4,6 +4,7 @@ import type { CalendarDate, RelationAnchor } from '@alethego/core';
 import { useState, type ReactNode } from 'react';
 
 import { CategoryDot } from './category-dot';
+import { DatePicker } from './date-picker';
 import { IconButton, PlusIcon, XIcon } from './icons';
 import { formatDay, formatOffset } from '@/lib/format';
 import type { RelationScope } from '@/lib/schedule';
@@ -13,15 +14,14 @@ import type { RelationDraft, ScheduleFormValue, TaskFormValue } from '@/lib/task
  * 有"任务关系"的任务在详情里的两行：开始、结束。每行分上下两层：
  * - 第一层选条件的类型：开始是 日期 / 关系；结束是 日期 / 关系 / 开始后
  * - 第二层是内容：日期输入框、关系（"于〔某任务〕的〔开始 / 结束〕"）或"N 天"
- * 填了关系的那一行日期由系统算出（只显示，不能手填），显示在第一层的最后。
+ * 填了关系的那一行日期由系统算出（只显示，不能手填）：开始显示在第一层的最后；结束就是第二行的截止日期
+ * （结束是关系或"开始后 N 天"时第二行的日期不能点，只显示算出来的；结束是固定日期时在第二行选）。
  * 一行可以挂多个关系，取最晚；默认只显示一个条件，它旁边的"＋"再加一个。
  * 每个关系最后有偏移：默认"当天"，点开是 − / + 步进器，也可以直接输入。
  * 选关系对象时先选项目（组里）或分类（个人），默认是当前所在的那个，再选任务。
  */
 export function ScheduleField({
   value,
-  deadline,
-  deadlineTime,
   onChange,
   scopes,
   defaultScopeId,
@@ -29,13 +29,11 @@ export function ScheduleField({
   readOnly,
 }: {
   value: ScheduleFormValue;
-  deadline: string;
-  deadlineTime: string;
   onChange: (patch: Partial<TaskFormValue>) => void;
   scopes: readonly RelationScope[];
   defaultScopeId: string;
-  /** 按现在的两行逻辑算出的日期 */
-  computed: { start: CalendarDate | null; end: CalendarDate | null };
+  /** 按现在的两行逻辑算出的开始日期 */
+  computed: { start: CalendarDate | null };
   readOnly: boolean;
 }) {
   const set = (patch: Partial<ScheduleFormValue>) => onChange({ schedule: { ...value, ...patch } });
@@ -88,27 +86,8 @@ export function ScheduleField({
             ]}
             onChange={(endMode) => set({ endMode })}
           />
-          {value.endMode !== 'date' && <Computed date={computed.end} label="算出的结束" />}
         </div>
         <div className="schedule-content">
-          {value.endMode === 'date' && (
-            <>
-              <DateInput
-                label="结束日期"
-                value={deadline}
-                onChange={(d) => onChange(d ? { deadline: d } : { deadline: '', deadlineTime: '' })}
-              />
-              {deadline && (
-                <input
-                  type="time"
-                  aria-label="结束时刻"
-                  className={`date-input time-input${deadlineTime ? '' : ' date-input-empty'}`}
-                  value={deadlineTime}
-                  onChange={(event) => onChange({ deadlineTime: event.target.value })}
-                />
-              )}
-            </>
-          )}
           {value.endMode === 'after_start' && (
             <>
               <input
@@ -180,26 +159,7 @@ function DateInput({
   value: string;
   onChange: (value: string) => void;
 }) {
-  return (
-    <>
-      <input
-        type="date"
-        aria-label={label}
-        className={`date-input${value ? '' : ' date-input-empty'}`}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      />
-      {value && (
-        <IconButton
-          label={`清除${label}`}
-          className="icon-button-small"
-          onClick={() => onChange('')}
-        >
-          <XIcon size={14} />
-        </IconButton>
-      )}
-    </>
-  );
+  return <DatePicker label={label} value={value} onChange={onChange} />;
 }
 
 function Computed({ date, label }: { date: CalendarDate | null; label: string }) {

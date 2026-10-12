@@ -6,12 +6,12 @@ import { compareByDeadline, listDeadlineOf, sortByDeadline } from './task-list-o
 const sh = (local: string) => new Date(`${local}+08:00`);
 const item = (id: string, deadline: string | null, created = '2026-09-01T00:00:00') => ({
   id,
-  deadlineAt: deadline ? sh(deadline) : null,
+  deadlineOn: deadline ? deadline.slice(0, 10) : null,
   createdAt: sh(created),
 });
 
 describe('sortByDeadline', () => {
-  it('截止时间从近到远，无截止时间排最后', () => {
+  it('截止日期从近到远，无截止日期排最后', () => {
     const sorted = sortByDeadline([
       item('none', null),
       item('far', '2026-12-01T00:00:00'),
@@ -21,7 +21,7 @@ describe('sortByDeadline', () => {
     expect(sorted.map((t) => t.id)).toEqual(['overdue', 'soon', 'far', 'none']);
   });
 
-  it('截止时间相同（或都没有）时新建的在前，再按 id 稳定排序', () => {
+  it('截止日期相同（或都没有）时新建的在前，再按 id 稳定排序', () => {
     const sorted = sortByDeadline([
       item('b', null, '2026-09-01T00:00:00'),
       item('a', null, '2026-09-01T00:00:00'),
@@ -49,10 +49,10 @@ describe('listDeadlineOf', () => {
     endAfterDays: null,
     title: '健身',
     description: '',
-    deadlineAt: sh('2026-10-01T00:00:00'),
+    deadlineOn: '2026-10-01',
     importanceLevel: 0,
     recurrenceRule: null,
-    recurrenceDtstart: null,
+    recurrenceStartOn: null,
     completedAt: null,
     confirmedAt: null,
     isStarred: false,
@@ -61,16 +61,16 @@ describe('listDeadlineOf', () => {
     deletedAt: null,
   };
 
-  it('普通任务取 deadline_at', () => {
-    expect(listDeadlineOf(task, [], context)).toEqual(task.deadlineAt);
+  it('普通任务取截止日期', () => {
+    expect(listDeadlineOf(task, [], context)).toEqual(task.deadlineOn);
   });
 
-  it('循环任务取代表实例的时间', () => {
+  it('循环任务取代表实例的日期', () => {
     const recurring = {
       ...task,
       recurrenceRule: 'FREQ=WEEKLY;BYDAY=MO,WE,FR',
-      recurrenceDtstart: sh('2026-09-21T07:00:00'),
+      recurrenceStartOn: '2026-09-21',
     };
-    expect(listDeadlineOf(recurring, [], context)).toEqual(sh('2026-09-25T07:00:00'));
+    expect(listDeadlineOf(recurring, [], context)).toEqual('2026-09-25');
   });
 });

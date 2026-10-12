@@ -160,8 +160,8 @@ test('循环任务的子任务：清单属于任务本身，勾选属于每一�
     me,
     `tasks?select=id&title=eq.${encodeURIComponent(title)}`,
   );
-  // 从前天 23:59 开始每天一次：前天、昨天的已过，当前代表是今天 23:59
-  const start = new Date(`${localDate(-2)}T23:59:00+08:00`).toISOString();
+  // 从前天开始每天一次：前天、昨天的已过，当前代表是今天
+  const start = localDate(-2);
   const patch = await fetch(
     `${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/tasks?id=eq.${task!.id}`,
     {
@@ -172,7 +172,7 @@ test('循环任务的子任务：清单属于任务本身，勾选属于每一�
         'Content-Profile': 'taskapp',
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ recurrence_rule: 'FREQ=DAILY', recurrence_dtstart: start }),
+      body: JSON.stringify({ recurrence_rule: 'FREQ=DAILY', recurrence_start_on: start }),
     },
   );
   expect(patch.ok).toBe(true);
@@ -195,9 +195,7 @@ test('循环任务的子任务：清单属于任务本身，勾选属于每一�
     'task_subtask_checks?select=occurrence_date',
   );
   expect(checks).toHaveLength(2);
-  expect(new Set(checks.map((c) => new Date(c.occurrence_date).toISOString()))).toEqual(
-    new Set([new Date(`${localDate(0)}T23:59:00+08:00`).toISOString()]),
-  );
+  expect(new Set(checks.map((c) => c.occurrence_date))).toEqual(new Set([localDate(0)]));
 
   // 改清单（加一个）：只影响以后；历史里完成的那一次仍是 2/2
   await openTask(page, title);
@@ -206,8 +204,10 @@ test('循环任务的子任务：清单属于任务本身，勾选属于每一�
   await expect(progress(page, title)).toHaveText('0/3');
   await openTask(page, title);
   const history = editPanel(page).locator('.history-row-inline');
-  await expect(history.filter({ hasText: '23:59' }).locator('.history-progress')).toContainText([
-    '2/2',
-  ]);
+  await expect(
+    history
+      .filter({ has: page.getByRole('checkbox', { checked: true }) })
+      .locator('.history-progress'),
+  ).toContainText(['2/2']);
   await page.context().close();
 });

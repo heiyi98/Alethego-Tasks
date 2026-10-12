@@ -11,9 +11,6 @@
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run"
   },
-  "dependencies": {
-    "rrule": "^2.8.1"
-  },
   "devDependencies": {
     "typescript": "~5.9.3",
     "vitest": "^4.1.0"

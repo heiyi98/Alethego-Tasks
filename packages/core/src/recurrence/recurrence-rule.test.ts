@@ -1,145 +1,148 @@
 import { describe, expect, it } from 'vitest';
 
-import { occurrencesBetween } from './recurrence-engine';
 import {
   buildRecurrenceRule,
-  defaultRecurrenceSpec,
-  describeRecurrence,
+  isValidRecurrenceRule,
+  normalizePattern,
   parseRecurrenceRule,
-  untilFromLocalDate,
   validateRecurrenceSpec,
-  weekdayOf,
   type RecurrenceRuleSpec,
 } from './recurrence-rule';
 
-const timeZone = 'Asia/Shanghai';
-const sh = (local: string) => new Date(`${local}+08:00`);
-
-const spec = (fields: Partial<RecurrenceRuleSpec>): RecurrenceRuleSpec => ({
-  frequency: 'daily',
-  interval: 1,
-  weekdays: [],
-  end: { kind: 'never' },
-  ...fields,
+const never = { kind: 'never' } as const;
+const spec = (pattern: RecurrenceRuleSpec['pattern'], interval = 1): RecurrenceRuleSpec => ({
+  pattern,
+  interval,
+  end: never,
 });
 
-describe('buildRecurrenceRule / parseRecurrenceRule', () => {
-  it.each([
-    [spec({}), 'FREQ=DAILY'],
-    [spec({ interval: 3 }), 'FREQ=DAILY;INTERVAL=3'],
-    [spec({ frequency: 'weekly', weekdays: ['FR', 'MO', 'WE'] }), 'FREQ=WEEKLY;BYDAY=MO,WE,FR'],
+describe('结构 ⇄ RRULE（RFC 5545）', () => {
+  const cases: [string, RecurrenceRuleSpec, string][] = [
+    ['每 2 日', spec({ period: 'day' }, 2), 'FREQ=DAILY;INTERVAL=2'],
     [
+      '每周一、三',
+      spec({ period: 'week', weekdays: ['WE', 'MO'] }),
+      'FREQ=WEEKLY;WKST=MO;BYDAY=MO,WE',
+    ],
+    [
+      '每月 1、15 日、最后一天',
+      spec({ period: 'month', by: 'day', days: [15, 'last', 1] }),
+      'FREQ=MONTHLY;BYMONTHDAY=1,15,-1',
+    ],
+    [
+      '每月 31 日：短月份落到最后一天（RFC 7529 SKIP=BACKWARD）',
+      spec({ period: 'month', by: 'day', days: [31] }),
+      'RSCALE=GREGORIAN;FREQ=MONTHLY;SKIP=BACKWARD;BYMONTHDAY=31',
+    ],
+    [
+      '每月第 2、4 个周二',
       spec({
-        frequency: 'weekly',
-        interval: 3,
-        weekdays: ['TU'],
-        end: { kind: 'count', count: 5 },
+        period: 'month',
+        by: 'weekday',
+        rows: [
+          { ordinal: 4, weekdays: ['TU'] },
+          { ordinal: 2, weekdays: ['TU'] },
+        ],
       }),
-      'FREQ=WEEKLY;INTERVAL=3;BYDAY=TU;COUNT=5',
+      'FREQ=MONTHLY;BYDAY=2TU,4TU',
     ],
     [
-      spec({ end: { kind: 'until', until: new Date('2026-12-31T15:59:59.999Z') } }),
-      'FREQ=DAILY;UNTIL=20261231T155959Z',
+      '每月最后一个周五',
+      spec({ period: 'month', by: 'weekday', rows: [{ ordinal: -1, weekdays: ['FR'] }] }),
+      'FREQ=MONTHLY;BYDAY=-1FR',
     ],
-  ])('%j → %s，且能解析回来', (input, expected) => {
-    const rule = buildRecurrenceRule(input);
-    expect(rule).toBe(expected);
-    expect(buildRecurrenceRule(parseRecurrenceRule(rule)!)).toBe(expected);
+    [
+      '每年 1、4、7、10 月 15 日（日子相同的月份合成一条）',
+      spec({ period: 'year', by: 'monthDay', days: { 1: [15], 4: [15], 7: [15], 10: [15] } }),
+      'FREQ=YEARLY;BYMONTH=1,4,7,10;BYMONTHDAY=15',
+    ],
+    [
+      '每年第 42 周周一',
+      spec({ period: 'year', by: 'weekNumber', rows: [{ week: 42, weekdays: ['MO'] }] }),
+      'FREQ=YEARLY;WKST=MO;BYWEEKNO=42;BYDAY=MO',
+    ],
+  ];
+  it.each(cases)('%s', (_, value, rule) => {
+    expect(buildRecurrenceRule(value)).toBe(rule);
+    expect(parseRecurrenceRule(rule)).toEqual({
+      ...value,
+      pattern: normalizePattern(value.pattern),
+    });
+    expect(buildRecurrenceRule(parseRecurrenceRule(rule)!)).toBe(rule);
   });
 
-  it('解析时忽略 RRULE: 前缀、DTSTART 行与大小写', () => {
-    expect(parseRecurrenceRule('DTSTART:20260101T000000Z\nrrule:freq=weekly;byday=mo')).toEqual(
-      spec({ frequency: 'weekly', weekdays: ['MO'] }),
+  it('年里任意的"某月某日"组合写成几行 RRULE，读回来不变', () => {
+    const value = spec({ period: 'year', by: 'monthDay', days: { 2: [29], 4: [1, 15] } });
+    const rule = buildRecurrenceRule(value);
+    expect(rule).toBe(
+      'RRULE:RSCALE=GREGORIAN;FREQ=YEARLY;SKIP=BACKWARD;BYMONTH=2;BYMONTHDAY=29\nRRULE:FREQ=YEARLY;BYMONTH=4;BYMONTHDAY=1,15',
     );
+    expect(parseRecurrenceRule(rule)).toEqual(value);
   });
 
-  it('超出可编辑子集的规则返回 null（包括以前的每月、每年规则）', () => {
-    expect(parseRecurrenceRule('FREQ=MONTHLY;BYMONTHDAY=1,-1')).toBeNull();
-    expect(parseRecurrenceRule('FREQ=MONTHLY')).toBeNull();
-    expect(parseRecurrenceRule('FREQ=YEARLY;COUNT=5')).toBeNull();
-    expect(parseRecurrenceRule('FREQ=MONTHLY;BYDAY=+1MO')).toBeNull();
-    expect(parseRecurrenceRule('FREQ=HOURLY')).toBeNull();
-    expect(parseRecurrenceRule('FREQ=DAILY;BYHOUR=9')).toBeNull();
-    expect(parseRecurrenceRule('FREQ=DAILY;BYDAY=MO')).toBeNull();
-    expect(parseRecurrenceRule('FREQ=DAILY;COUNT=2;UNTIL=20261231')).toBeNull();
-    expect(parseRecurrenceRule('garbage')).toBeNull();
-  });
-});
-
-describe('describeRecurrence', () => {
-  it.each([
-    [spec({}), '每天'],
-    [spec({ interval: 2 }), '每 2 天'],
-    [spec({ frequency: 'weekly', weekdays: ['MO', 'WE', 'FR'] }), '每周一、三、五'],
-    [spec({ frequency: 'weekly', interval: 2, weekdays: ['SA'] }), '每 2 周的周六'],
-    [spec({ interval: 3, end: { kind: 'count', count: 10 } }), '每 3 天，共 10 次'],
-    [
-      spec({
-        end: { kind: 'until', until: untilFromLocalDate(sh('2026-12-31T08:00:00'), timeZone) },
-      }),
-      '每天，到 2026年12月31日为止',
-    ],
-  ])('%j → %s', (input, expected) => {
-    expect(describeRecurrence(input, timeZone)).toBe(expected);
-  });
-});
-
-describe('defaults & validation', () => {
-  it('默认：每周，起始日所在的星期几（按用户时区）', () => {
-    // UTC 周五 20:00 = 上海周六 04:00
-    const dtstart = new Date('2026-09-25T20:00:00Z');
-    expect(weekdayOf(dtstart, timeZone)).toBe('SA');
-    expect(defaultRecurrenceSpec(dtstart, timeZone)).toMatchObject({
-      frequency: 'weekly',
-      weekdays: ['SA'],
+  it('年的月周：同一个月的条件合成一条，不同的月分开', () => {
+    const value = spec({
+      period: 'year',
+      by: 'monthWeekday',
+      rows: [
+        { month: 3, ordinal: 2, weekdays: ['MO'] },
+        { month: 5, ordinal: -1, weekdays: ['FR'] },
+        { month: 3, ordinal: -1, weekdays: ['FR'] },
+      ],
+    });
+    const rule = buildRecurrenceRule(value);
+    expect(rule).toBe(
+      'RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=2MO,-1FR\nRRULE:FREQ=YEARLY;BYMONTH=5;BYDAY=-1FR',
+    );
+    expect(parseRecurrenceRule(rule)?.pattern).toEqual({
+      period: 'year',
+      by: 'monthWeekday',
+      rows: [
+        { month: 3, ordinal: 2, weekdays: ['MO'] },
+        { month: 3, ordinal: -1, weekdays: ['FR'] },
+        { month: 5, ordinal: -1, weekdays: ['FR'] },
+      ],
     });
   });
 
-  it('校验', () => {
-    expect(validateRecurrenceSpec(spec({ frequency: 'weekly' }))).toBe('no_weekday');
-    expect(validateRecurrenceSpec(spec({ interval: 0 }))).toBe('bad_interval');
-    expect(validateRecurrenceSpec(spec({ end: { kind: 'count', count: 0 } }))).toBe('bad_count');
-    expect(validateRecurrenceSpec(spec({ frequency: 'weekly', weekdays: ['MO'] }))).toBeNull();
+  it('结束条件：次数、截止日期', () => {
+    const rule = buildRecurrenceRule({
+      pattern: { period: 'day' },
+      interval: 1,
+      end: { kind: 'until', until: '2026-12-31' },
+    });
+    expect(rule).toBe('FREQ=DAILY;UNTIL=20261231');
+    expect(parseRecurrenceRule(rule)?.end).toEqual({ kind: 'until', until: '2026-12-31' });
+    expect(parseRecurrenceRule('FREQ=DAILY;COUNT=5')?.end).toEqual({ kind: 'count', count: 5 });
   });
 
-  it('生成的规则可被引擎正确展开：每 2 周的周二', () => {
-    const rule = buildRecurrenceRule(spec({ frequency: 'weekly', interval: 2, weekdays: ['TU'] }));
-    const dates = occurrencesBetween(
-      { rule, dtstart: sh('2026-09-29T09:00:00') },
-      sh('2026-09-29T00:00:00'),
-      sh('2026-10-31T00:00:00'),
-      timeZone,
-    );
-    expect(dates).toEqual([
-      sh('2026-09-29T09:00:00'),
-      sh('2026-10-13T09:00:00'),
-      sh('2026-10-27T09:00:00'),
-    ]);
+  it('不认识的规则返回 null', () => {
+    expect(isValidRecurrenceRule('FREQ=HOURLY')).toBe(false);
+    expect(isValidRecurrenceRule('BYDAY=MO')).toBe(false);
+    expect(isValidRecurrenceRule('FREQ=MONTHLY;BYDAY=5MO')).toBe(false);
+    expect(isValidRecurrenceRule('FREQ=MONTHLY;BYMONTHDAY=1;BYDAY=MO')).toBe(false);
+    // 同一个年里不能混用两种标尺
+    expect(
+      isValidRecurrenceRule(
+        'RRULE:FREQ=YEARLY;BYMONTH=1;BYMONTHDAY=1\nRRULE:FREQ=YEARLY;BYMONTH=2;BYDAY=1MO',
+      ),
+    ).toBe(false);
   });
+});
 
-  it('库里已有的每月规则：编辑器不再解析，但引擎照常计算', () => {
-    const dates = occurrencesBetween(
-      { rule: 'FREQ=MONTHLY;BYMONTHDAY=-1', dtstart: sh('2026-01-01T09:00:00') },
-      sh('2026-01-01T00:00:00'),
-      sh('2026-04-01T00:00:00'),
-      timeZone,
+describe('validateRecurrenceSpec', () => {
+  it('必须选了日子', () => {
+    expect(validateRecurrenceSpec(spec({ period: 'week', weekdays: [] }))).toBe('no_weekday');
+    expect(validateRecurrenceSpec(spec({ period: 'month', by: 'day', days: [] }))).toBe('no_day');
+    expect(
+      validateRecurrenceSpec(
+        spec({ period: 'month', by: 'weekday', rows: [{ ordinal: 1, weekdays: [] }] }),
+      ),
+    ).toBe('no_condition');
+    expect(validateRecurrenceSpec(spec({ period: 'year', by: 'monthDay', days: {} }))).toBe(
+      'no_day',
     );
-    expect(dates).toEqual([
-      sh('2026-01-31T09:00:00'),
-      sh('2026-02-28T09:00:00'),
-      sh('2026-03-31T09:00:00'),
-    ]);
-  });
-
-  it('UNTIL 取所选日期的本地日终点：当天的实例仍包含在内', () => {
-    const until = untilFromLocalDate(sh('2026-09-30T00:00:00'), timeZone);
-    const rule = buildRecurrenceRule(spec({ end: { kind: 'until', until } }));
-    const dates = occurrencesBetween(
-      { rule, dtstart: sh('2026-09-28T21:00:00') },
-      sh('2026-09-28T00:00:00'),
-      sh('2026-10-05T00:00:00'),
-      timeZone,
-    );
-    expect(dates.at(-1)).toEqual(sh('2026-09-30T21:00:00'));
+    expect(validateRecurrenceSpec(spec({ period: 'day' }, 0))).toBe('bad_interval');
+    expect(validateRecurrenceSpec(spec({ period: 'day' }, 2))).toBeNull();
   });
 });

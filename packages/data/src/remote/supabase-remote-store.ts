@@ -1,8 +1,5 @@
 import {
   normalizeColor,
-  normalizeLocationDraft,
-  type TaskLocation,
-  type TaskLocationDraft,
   type TaskPerson,
   type TaskPersonDraft,
   type OccurrenceStatus,
@@ -20,7 +17,6 @@ import type {
   CategoryPatch,
   ICategoryRepository,
   IOccurrenceRepository,
-  ITaskLocationRepository,
   ITaskPeopleRepository,
   ITaskRepository,
   IRelationRepository,
@@ -43,7 +39,6 @@ import {
 import type { Json, TableRow, TableUpdate } from './database.types';
 import {
   categoryFromRow,
-  locationFromRow,
   occurrenceFromRow,
   personFromRow,
   taskFromRow,
@@ -95,7 +90,7 @@ export class SupabaseTaskRepository implements ITaskRepository {
 
   async list(query: TaskListQuery = {}): Promise<Task[]> {
     let request = this.activeTasks()
-      .order('deadline_at', { ascending: true, nullsFirst: false })
+      .order('deadline_on', { ascending: true, nullsFirst: false })
       .order('created_at', { ascending: false })
       .order('id', { ascending: true });
 
@@ -125,27 +120,23 @@ export class SupabaseTaskRepository implements ITaskRepository {
   async create(input: NewTask): Promise<Task> {
     const valid = validateNewTask(input);
     if (valid.projectId && valid.assignments && valid.assignments.length > 0) {
-      // 开了任务分配的项目：任务、RACI、地点、人物在同一个事务里写入（数据库要求必须有执行人和负责人）
-      const location = valid.location ? normalizeLocationDraft(valid.location) : null;
+      // 开了任务分配的项目：任务、RACI、人物、子任务在同一个事务里写入（数据库要求必须有执行人和负责人）
       const row = unwrap(
         await this.client.rpc('create_task_with_raci', {
           p_project_id: valid.projectId,
           p_title: valid.title,
           p_description: valid.description ?? '',
-          p_deadline_at: valid.deadlineAt ? valid.deadlineAt.toISOString() : null,
+          p_deadline_on: valid.deadlineOn ?? null,
           p_recurrence_rule: valid.recurrenceRule ?? null,
-          p_recurrence_dtstart: valid.recurrenceDtstart
-            ? valid.recurrenceDtstart.toISOString()
-            : null,
+          p_recurrence_start_on: valid.recurrenceStartOn ?? null,
           p_assignments: valid.assignments.map((a) =>
             a.userId
               ? { role: a.role, user_id: a.userId }
               : { role: a.role, contact_id: a.contactId },
           ),
-          p_location: location ? { name: location.name, address: location.address } : null,
           p_people: validatePeopleDrafts(valid.people ?? []).map((p) => ({
             name: p.name,
-            relation: p.relation,
+            note: p.note,
           })),
           p_importance_level: valid.importanceLevel ?? 0,
           p_subtasks: (valid.subtasks ?? []).map((title) => ({ title })),
@@ -320,7 +311,7 @@ export class SupabaseOccurrenceRepository implements IOccurrenceRepository {
 
   async setStatusByDate(
     taskId: string,
-    occurrenceDate: Date,
+    occurrenceDate: string,
     status: OccurrenceStatus,
     completedAt: Date | null,
   ) {
@@ -331,7 +322,7 @@ export class SupabaseOccurrenceRepository implements IOccurrenceRepository {
           .upsert(
             {
               task_id: taskId,
-              occurrence_date: occurrenceDate.toISOString(),
+              occurrence_date: occurrenceDate,
               status,
               completed_at: completedAt ? completedAt.toISOString() : null,
             },
@@ -349,7 +340,7 @@ export class SupabaseOccurrenceRepository implements IOccurrenceRepository {
       const { error } = await this.client.from('recurrence_occurrences').upsert(
         result.toCreate.map((o) => ({
           task_id: taskId,
-          occurrence_date: o.occurrenceDate.toISOString(),
+          occurrence_date: o.occurrenceDate,
           status: o.status,
         })),
         { onConflict: 'task_id,occurrence_date', ignoreDuplicates: true },
@@ -366,40 +357,6 @@ export class SupabaseOccurrenceRepository implements IOccurrenceRepository {
         .eq('status', 'pending');
       if (error) unwrap({ data: null, error }, '归档循环实例');
     }
-  }
-}
-
-export class SupabaseTaskLocationRepository implements ITaskLocationRepository {
-  constructor(private readonly client: TaskAppSupabaseClient) {}
-
-  async getByTask(taskId: string): Promise<TaskLocation | null> {
-    const { data, error } = await this.client
-      .from('task_locations')
-      .select('*')
-      .eq('task_id', taskId)
-      .maybeSingle();
-    if (error) unwrap({ data: null, error }, '查询地点');
-    return data ? locationFromRow(data) : null;
-  }
-
-  async set(taskId: string, draft: TaskLocationDraft | null): Promise<TaskLocation | null> {
-    const location = draft ? normalizeLocationDraft(draft) : null;
-    if (!location) {
-      const { error } = await this.client.from('task_locations').delete().eq('task_id', taskId);
-      if (error) unwrap({ data: null, error }, '删除地点');
-      return null;
-    }
-    // 只写本地字段：预留的 place_id / 坐标不在 payload 中，不会被覆盖
-    return locationFromRow(
-      unwrap(
-        await this.client
-          .from('task_locations')
-          .upsert({ task_id: taskId, ...location }, { onConflict: 'task_id' })
-          .select()
-          .single(),
-        '保存地点',
-      ),
-    );
   }
 }
 
@@ -437,17 +394,17 @@ export class SupabaseTaskPeopleRepository implements ITaskPeopleRepository {
     for (const person of people) {
       const existing = person.id ? byId.get(person.id) : undefined;
       if (existing) {
-        if (existing.name === person.name && existing.relation === person.relation) continue;
+        if (existing.name === person.name && existing.note === person.note) continue;
         const { error } = await this.client
           .from('task_people')
-          .update({ name: person.name, relation: person.relation })
+          .update({ name: person.name, note: person.note })
           .eq('id', existing.id)
           .eq('task_id', taskId);
         if (error) unwrap({ data: null, error }, '更新人物');
       } else {
         const { error } = await this.client
           .from('task_people')
-          .insert({ task_id: taskId, name: person.name, relation: person.relation });
+          .insert({ task_id: taskId, name: person.name, note: person.note });
         if (error) unwrap({ data: null, error }, '添加人物');
       }
     }
@@ -497,7 +454,6 @@ export class SupabaseRelationRepository implements IRelationRepository {
           p_start_relations: refs(input.startRelations),
           p_end_after_days: input.endAfterDays,
           p_end_relations: refs(input.endRelations),
-          p_date_zone: input.dateZone,
         }),
         '设定开始和结束',
       ) as TableRow<'tasks'>,
@@ -539,7 +495,7 @@ export class SupabaseSubtaskRepository implements ISubtaskRepository {
       checks.push(
         ...rows.map((row) => ({
           subtaskId: row.subtask_id,
-          occurrenceDate: row.occurrence_date ? new Date(row.occurrence_date) : null,
+          occurrenceDate: row.occurrence_date,
         })),
       );
     }
@@ -559,10 +515,10 @@ export class SupabaseSubtaskRepository implements ISubtaskRepository {
     return rows.map(subtaskFromRow);
   }
 
-  async setChecked(subtaskId: string, occurrenceDate: Date | null, checked: boolean) {
+  async setChecked(subtaskId: string, occurrenceDate: string | null, checked: boolean) {
     const { error } = await this.client.rpc('set_subtask_checked', {
       p_subtask_id: subtaskId,
-      p_occurrence_date: occurrenceDate ? occurrenceDate.toISOString() : null,
+      p_occurrence_date: occurrenceDate,
       p_checked: checked,
     });
     if (error) unwrap({ data: null, error }, '勾选子任务');
@@ -610,7 +566,6 @@ export class SupabaseRemoteStore implements IRemoteStore {
   readonly tasks: SupabaseTaskRepository;
   readonly categories: SupabaseCategoryRepository;
   readonly occurrences: SupabaseOccurrenceRepository;
-  readonly locations: SupabaseTaskLocationRepository;
   readonly people: SupabaseTaskPeopleRepository;
   readonly groups: SupabaseGroupRepository;
   readonly projects: SupabaseProjectRepository;
@@ -624,7 +579,6 @@ export class SupabaseRemoteStore implements IRemoteStore {
     this.tasks = new SupabaseTaskRepository(client, ownerId);
     this.categories = new SupabaseCategoryRepository(client, ownerId);
     this.occurrences = new SupabaseOccurrenceRepository(client);
-    this.locations = new SupabaseTaskLocationRepository(client);
     this.people = new SupabaseTaskPeopleRepository(client);
     this.groups = new SupabaseGroupRepository(client, ownerId);
     this.projects = new SupabaseProjectRepository(client, ownerId);

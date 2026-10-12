@@ -127,7 +127,7 @@ export const QUADRANT_ORDER: readonly Quadrant[] = [
   'not_important_not_urgent',
 ];
 
-/** 象限列表视图：按象限分组，组内按（代表实例的）截止时间从近到远 */
+/** 象限列表视图：按象限分组，组内按（代表实例的）截止日期从近到远 */
 export function groupPointsByQuadrant(
   points: readonly MatrixPoint[],
 ): Record<Quadrant, MatrixPoint[]> {
@@ -139,7 +139,7 @@ export function groupPointsByQuadrant(
   const sortKey = (p: MatrixPoint) => ({
     id: p.task.id,
     createdAt: p.task.createdAt,
-    deadlineAt: p.representative.deadlineAt,
+    deadlineOn: p.representative.deadlineOn,
   });
   for (const quadrant of QUADRANT_ORDER) {
     groups[quadrant].sort((a, b) => compareByDeadline(sortKey(a), sortKey(b)));

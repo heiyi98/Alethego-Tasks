@@ -1,14 +1,9 @@
 import {
   compareByDeadline,
   computeScheduleDates,
-  dateOfInstant,
-  endOfDate,
   wouldCreateCycle,
   type TaskRelation,
   normalizeColor,
-  normalizeLocationDraft,
-  type TaskLocation,
-  type TaskLocationDraft,
   type TaskPerson,
   type TaskPersonDraft,
   type Category,
@@ -26,7 +21,6 @@ import type {
   CategoryPatch,
   ICategoryRepository,
   IOccurrenceRepository,
-  ITaskLocationRepository,
   ITaskPeopleRepository,
   ITaskRepository,
   ISubtaskRepository,
@@ -69,7 +63,6 @@ interface MemoryState {
   /** `${taskId}:${categoryId}` */
   taskCategories: Set<string>;
   occurrences: Map<string, RecurrenceOccurrence>;
-  locations: Map<string, TaskLocation>;
   people: Map<string, TaskPerson>;
   projects: Map<string, Project>;
 }
@@ -119,10 +112,10 @@ class MemoryTaskRepository implements ITaskRepository {
       endAfterDays: null,
       title: valid.title,
       description: valid.description ?? '',
-      deadlineAt: valid.deadlineAt ?? null,
+      deadlineOn: valid.deadlineOn ?? null,
       importanceLevel: valid.importanceLevel ?? 0,
       recurrenceRule: valid.recurrenceRule ?? null,
-      recurrenceDtstart: valid.recurrenceDtstart ?? null,
+      recurrenceStartOn: valid.recurrenceStartOn ?? null,
       completedAt: null,
       confirmedAt: null,
       isStarred: valid.isStarred ?? false,
@@ -236,7 +229,9 @@ class MemoryOccurrenceRepository implements IOccurrenceRepository {
   async listByTask(taskId: string) {
     return [...this.state.occurrences.values()]
       .filter((o) => o.taskId === taskId)
-      .sort((a, b) => a.occurrenceDate.getTime() - b.occurrenceDate.getTime());
+      .sort((a, b) =>
+        a.occurrenceDate < b.occurrenceDate ? -1 : a.occurrenceDate > b.occurrenceDate ? 1 : 0,
+      );
   }
 
   async setStatus(id: string, status: OccurrenceStatus, completedAt: Date | null) {
@@ -248,12 +243,12 @@ class MemoryOccurrenceRepository implements IOccurrenceRepository {
 
   async setStatusByDate(
     taskId: string,
-    occurrenceDate: Date,
+    occurrenceDate: string,
     status: OccurrenceStatus,
     completedAt: Date | null,
   ) {
     const existing = (await this.listByTask(taskId)).find(
-      (o) => o.occurrenceDate.getTime() === occurrenceDate.getTime(),
+      (o) => o.occurrenceDate === occurrenceDate,
     );
     if (existing) return this.setStatus(existing.id, status, completedAt);
     const occurrence: RecurrenceOccurrence = {
@@ -269,11 +264,9 @@ class MemoryOccurrenceRepository implements IOccurrenceRepository {
   }
 
   async applyReconcile(taskId: string, result: ReconcileResult) {
-    const existingDates = new Set(
-      (await this.listByTask(taskId)).map((o) => o.occurrenceDate.getTime()),
-    );
+    const existingDates = new Set((await this.listByTask(taskId)).map((o) => o.occurrenceDate));
     for (const { occurrenceDate, status } of result.toCreate) {
-      if (existingDates.has(occurrenceDate.getTime())) continue;
+      if (existingDates.has(occurrenceDate)) continue;
       const occurrence: RecurrenceOccurrence = {
         id: this.state.newId(),
         taskId,
@@ -290,29 +283,6 @@ class MemoryOccurrenceRepository implements IOccurrenceRepository {
         this.state.occurrences.set(id, { ...occurrence, status: 'missed' });
       }
     }
-  }
-}
-
-class MemoryTaskLocationRepository implements ITaskLocationRepository {
-  constructor(private readonly state: MemoryState) {}
-
-  async getByTask(taskId: string) {
-    return this.state.locations.get(taskId) ?? null;
-  }
-
-  async set(taskId: string, draft: TaskLocationDraft | null) {
-    if (!this.state.tasks.has(taskId)) notFound('任务', taskId);
-    const location = draft ? normalizeLocationDraft(draft) : null;
-    if (!location) {
-      this.state.locations.delete(taskId);
-      return null;
-    }
-    const existing = this.state.locations.get(taskId);
-    const next: TaskLocation = existing
-      ? { ...existing, ...location }
-      : { taskId, ...location, placeId: null, lat: null, lng: null };
-    this.state.locations.set(taskId, next);
-    return next;
   }
 }
 
@@ -341,14 +311,14 @@ class MemoryTaskPeopleRepository implements ITaskPeopleRepository {
         this.state.people.set(existing.id, {
           ...existing,
           name: draft.name,
-          relation: draft.relation,
+          note: draft.note,
         });
       } else {
         const person: TaskPerson = {
           id: this.state.newId(),
           taskId,
           name: draft.name,
-          relation: draft.relation,
+          note: draft.note,
           contactId: null,
           createdAt: this.state.now(),
         };
@@ -392,11 +362,10 @@ class MemoryRelationRepository implements IRelationRepository {
       }
     }
     this.relations = [...others, ...next];
-    const zone = input.dateZone;
     const datesOf = (id: string) => {
       const t = this.state.tasks.get(id);
       if (!t) return undefined;
-      return { start: t.startOn, end: t.deadlineAt ? dateOfInstant(t.deadlineAt, zone) : null };
+      return { start: t.startOn, end: t.deadlineOn };
     };
     const dates = computeScheduleDates(
       {
@@ -408,7 +377,7 @@ class MemoryRelationRepository implements IRelationRepository {
             : input.endRelations.length > 0
               ? 'relations'
               : 'date',
-        endOn: task.deadlineAt ? dateOfInstant(task.deadlineAt, zone) : null,
+        endOn: task.deadlineOn,
         endAfterDays: input.endAfterDays,
         endRelations: input.endRelations,
       },
@@ -418,12 +387,10 @@ class MemoryRelationRepository implements IRelationRepository {
       ...task,
       startOn: dates.start,
       endAfterDays: input.endAfterDays,
-      deadlineAt:
+      deadlineOn:
         input.endAfterDays === null && input.endRelations.length === 0
-          ? task.deadlineAt
-          : dates.end
-            ? endOfDate(dates.end, zone)
-            : null,
+          ? task.deadlineOn
+          : dates.end,
       updatedAt: this.state.now(),
     };
     this.state.tasks.set(taskId, updated);
@@ -478,10 +445,9 @@ class MemorySubtaskRepository implements ISubtaskRepository {
       .sort((a, b) => a.position - b.position);
   }
 
-  async setChecked(subtaskId: string, occurrenceDate: Date | null, checked: boolean) {
+  async setChecked(subtaskId: string, occurrenceDate: string | null, checked: boolean) {
     const same = (c: SubtaskCheck) =>
-      c.subtaskId === subtaskId &&
-      (c.occurrenceDate?.getTime() ?? null) === (occurrenceDate?.getTime() ?? null);
+      c.subtaskId === subtaskId && c.occurrenceDate === occurrenceDate;
     this.checks = this.checks.filter((c) => !same(c));
     if (checked) this.checks.push({ subtaskId, occurrenceDate });
   }
@@ -505,7 +471,6 @@ export class InMemoryLocalStore implements ILocalStore {
   readonly tasks: ITaskRepository;
   readonly categories: ICategoryRepository;
   readonly occurrences: IOccurrenceRepository;
-  readonly locations: ITaskLocationRepository;
   readonly people: ITaskPeopleRepository;
   readonly groups: IGroupRepository;
   readonly projects: IProjectRepository;
@@ -523,14 +488,12 @@ export class InMemoryLocalStore implements ILocalStore {
       categories: new Map(),
       taskCategories: new Set(),
       occurrences: new Map(),
-      locations: new Map(),
       people: new Map(),
       projects: new Map(),
     };
     this.tasks = new MemoryTaskRepository(state);
     this.categories = new MemoryCategoryRepository(state);
     this.occurrences = new MemoryOccurrenceRepository(state);
-    this.locations = new MemoryTaskLocationRepository(state);
     this.people = new MemoryTaskPeopleRepository(state);
     this.groups = new MemoryGroupRepository(state);
     this.projects = new MemoryProjectRepository(state);

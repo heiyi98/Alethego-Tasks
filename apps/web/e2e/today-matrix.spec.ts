@@ -33,7 +33,6 @@ import {
 test.use({ storageState: { cookies: [], origins: [] } });
 
 const dot = (page: Page, title: string) => page.locator(`.matrix-node[aria-label^="${title}，"]`);
-const endOf = (date: string) => `${date}T23:59:59.999+08:00`;
 const scopeLink = (page: Page, name: string) =>
   sidebar(page)
     .getByRole('region', { name: '范围' })
@@ -142,10 +141,10 @@ test('组任务的重要性（管理员设定、全组共用、快捷添加栏�
     { role: 'R' as const, userId: r },
     { role: 'A' as const, userId: lId },
   ];
-  await groupTask(L, assign, `${id} 我执行`, raci(mId), { deadline_at: endOf(localDate(0)) });
-  await groupTask(L, assign, `${id} 别人执行`, raci(lId), { deadline_at: endOf(localDate(0)) });
-  await groupTask(L, plain, `${id} 普通项目`, [], { deadline_at: endOf(localDate(-2)) });
-  await groupTask(L, plain, `${id} 普通明天`, [], { deadline_at: endOf(localDate(1)) });
+  await groupTask(L, assign, `${id} 我执行`, raci(mId), { deadline_on: localDate(0) });
+  await groupTask(L, assign, `${id} 别人执行`, raci(lId), { deadline_on: localDate(0) });
+  await groupTask(L, plain, `${id} 普通项目`, [], { deadline_on: localDate(-2) });
+  await groupTask(L, plain, `${id} 普通明天`, [], { deadline_on: localDate(1) });
 
   // 管理员（组长）在快捷添加栏和详情里都能设重要性
   const pl = await openAs(browser, L);
@@ -224,13 +223,11 @@ test('组任务的重要性（管理员设定、全组共用、快捷添加栏�
   ]);
   // 在今日里新建的任务截止日期默认是今天
   await quickAdd(pm, `${id} 今日里新建`);
-  const [created] = await select<{ deadline_at: string }>(
+  const [created] = await select<{ deadline_on: string }>(
     M,
-    `tasks?select=deadline_at&title=eq.${encodeURIComponent(`${id} 今日里新建`)}`,
+    `tasks?select=deadline_on&title=eq.${encodeURIComponent(`${id} 今日里新建`)}`,
   );
-  expect(new Date(created!.deadline_at).toISOString()).toBe(
-    new Date(endOf(localDate(0))).toISOString(),
-  );
+  expect(created!.deadline_on).toBe(localDate(0));
   // 总览里没有组任务
   await scopeLink(pm, '总览').click();
   await expect(taskItem(pm, `${id} 我执行`)).toHaveCount(0);
@@ -253,10 +250,10 @@ test('矩阵筛选栏：第一次只勾个人；组的勾选框部分选中；�
     { role: 'R' as const, userId: r },
     { role: 'A' as const, userId: lId },
   ];
-  const tomorrow = endOf(localDate(1));
-  await groupTask(L, assign, `${id} 我执行`, raci(mId), { deadline_at: tomorrow });
-  await groupTask(L, assign, `${id} 别人执行`, raci(lId), { deadline_at: tomorrow });
-  await groupTask(L, plain, `${id} 普通项目`, [], { deadline_at: tomorrow });
+  const tomorrow = localDate(1);
+  await groupTask(L, assign, `${id} 我执行`, raci(mId), { deadline_on: tomorrow });
+  await groupTask(L, assign, `${id} 别人执行`, raci(lId), { deadline_on: tomorrow });
+  await groupTask(L, plain, `${id} 普通项目`, [], { deadline_on: tomorrow });
 
   const pm = await openAs(browser, M);
   await createCategory(pm, `${id}甲`);
@@ -277,19 +274,19 @@ test('矩阵筛选栏：第一次只勾个人；组的勾选框部分选中；�
   await expect(sidebar(pm)).toHaveCount(0);
   await expect(filterBar(pm).getByRole('link', { name: /总览|今日|收藏/ })).toHaveCount(0);
   await expect(filterCheck(pm, '个人')).toBeChecked();
-  await expect(filterCheck(pm, `${id}组`)).not.toBeChecked();
+  await expect(filterCheck(pm, `${id}组`).first()).not.toBeChecked();
   await expect(dot(pm, `${id} 没分类`)).toHaveCount(1);
   await expect(dot(pm, `${id} 我执行`)).toHaveCount(0);
 
   // 勾一个项目：组部分选中；只显示和我有关的组任务
   await filterCheck(pm, `${id}分配`).check();
-  await expect(filterCheck(pm, `${id}组`)).toHaveAttribute('aria-checked', 'mixed');
+  await expect(filterCheck(pm, `${id}组`).first()).toHaveAttribute('aria-checked', 'mixed');
   await expect(dot(pm, `${id} 我执行`)).toHaveCount(1);
   await expect(dot(pm, `${id} 别人执行`)).toHaveCount(0);
   await expect(dot(pm, `${id} 普通项目`)).toHaveCount(0);
   // 勾组 = 勾全部项目
-  await filterCheck(pm, `${id}组`).click();
-  await expect(filterCheck(pm, `${id}组`)).toBeChecked();
+  await filterCheck(pm, `${id}组`).first().click();
+  await expect(filterCheck(pm, `${id}组`).first()).toBeChecked();
   await expect(filterCheck(pm, `${id}普通`)).toBeChecked();
   await expect(dot(pm, `${id} 普通项目`)).toHaveCount(1);
   // 个人只勾部分分类：个人部分选中，只有这些分类的个人任务
@@ -314,7 +311,7 @@ test('矩阵筛选栏：第一次只勾个人；组的勾选框部分选中；�
   // 换一台设备（新的浏览器上下文），从另一个页面进入：还是上一次的勾选
   const other = await openAs(browser, M);
   await switchMode(other, 'matrix');
-  await expect(filterCheck(other, `${id}组`)).toBeChecked();
+  await expect(filterCheck(other, `${id}组`).first()).toBeChecked();
   await expect(filterCheck(other, '个人')).toHaveAttribute('aria-checked', 'mixed');
   await expect(dot(other, `${id} 我执行`)).toHaveCount(1);
   await expect(dot(other, `${id} 乙的事`)).toHaveCount(0);

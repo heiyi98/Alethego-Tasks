@@ -6,6 +6,7 @@ import {
   MATRIX_ROW_MIDLINE,
   layoutLabels,
   separateDots,
+  todayOf,
   type Category,
   type MatrixMode,
   type MatrixPoint,
@@ -124,13 +125,11 @@ function Marker({ colors, r = DOT_R }: { colors: readonly string[]; r?: number }
 
 /** 读屏文字（不显示） */
 function describeDeadline(point: MatrixPoint, now: Date, timeZone: string): string {
-  if (point.urgency.kind === 'overdue') {
-    return point.overdueDays === 0 ? '今天已过截止时刻' : `逾期 ${point.overdueDays} 天`;
-  }
-  const shown = point.representative.occurrenceAt ?? point.task.deadlineAt;
-  if (!shown) return '无截止时间';
-  const text = formatDeadline(shown, now, timeZone);
-  return point.representative.occurrenceAt ? `本次 ${text}` : text;
+  if (point.urgency.kind === 'overdue') return `逾期 ${point.overdueDays} 天`;
+  const shown = point.representative.occurrenceDate ?? point.task.deadlineOn;
+  if (!shown) return '无截止日期';
+  const text = formatDeadline(shown, todayOf({ now, timeZone }));
+  return point.representative.occurrenceDate ? `本次 ${text}` : text;
 }
 
 /** 圆点中心允许的范围：所属格子（× 重要性一行）的内部，不贴格子边和刻度线 */

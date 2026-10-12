@@ -18,8 +18,11 @@ import {
 } from './group-helpers';
 import {
   categoryItem,
+  dateButton,
   editPanel,
+  expectDate,
   localDate,
+  pickDate,
   runId,
   selectStatus,
   taskItem,
@@ -29,7 +32,6 @@ import {
 // 多个账号各用自己的浏览器上下文：从"没登录"开始
 test.use({ storageState: { cookies: [], origins: [] } });
 
-const ZONE = 'Asia/Shanghai';
 const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
 
 /** "YYYY-MM-DD" → "10月12日 周一"（和页面上的写法一样） */
@@ -49,13 +51,12 @@ async function schedule(
     endRelations?: { predecessor_id: string; anchor: 'start' | 'end'; offset_days?: number }[];
   },
 ) {
-  return rpc<{ deadline_at: string | null; start_on: string | null }>(u, 'set_task_schedule', {
+  return rpc<{ deadline_on: string | null; start_on: string | null }>(u, 'set_task_schedule', {
     p_task_id: taskId,
     p_start_on: input.start ?? null,
     p_start_relations: input.startRelations ?? [],
     p_end_after_days: input.after ?? null,
     p_end_relations: input.endRelations ?? [],
-    p_date_zone: ZONE,
   });
 }
 
@@ -69,7 +70,7 @@ async function open(page: Page, title: string) {
 const startRow = (page: Page) => editPanel(page).getByRole('group', { name: '开始', exact: true });
 const endRow = (page: Page) => editPanel(page).getByRole('group', { name: '结束', exact: true });
 
-test('开始和结束：固定日期、开始后 N 天、关系（多个取最晚、偏移）；结束写进截止时间；里程碑', async ({
+test('开始和结束：固定日期、开始后 N 天、关系（多个取最晚、偏移）；结束写进截止日期；里程碑', async ({
   browser,
 }) => {
   test.setTimeout(120_000);
@@ -78,18 +79,30 @@ test('开始和结束：固定日期、开始后 N 天、关系（多个取最�
   const groupId = await groupWith(L, [], `${id}组`);
   const projectId = await projectIn(L, groupId, `${id}项目`, ['relations']);
   await groupTask(L, projectId, `${id} 甲`);
-  await groupTask(L, projectId, `${id} 乙`, [], { deadline_at: null });
+  await groupTask(L, projectId, `${id} 乙`, [], { deadline_on: null });
   const page = await openAs(browser, L);
   await projectLink(page, `${id}项目`).click();
 
   // 甲：开始是固定日期，结束是开始后 3 天
   let panel = await open(page, `${id} 甲`);
-  // 截止日期挪到了"结束"那一行
-  await expect(panel.locator('.quick-options').getByLabel('截止日期')).toHaveCount(0);
-  await startRow(page).getByLabel('开始日期', { exact: true }).fill(localDate(2));
+  // 关系型任务：时间模块里是开始和结束，没有循环
+  const time = panel.getByRole('region', { name: '时间' });
+  await expect(time.getByRole('group', { name: '开始', exact: true })).toBeVisible();
+  await expect(time.getByRole('switch', { name: '重复' })).toHaveCount(0);
+  // 组任务：第一个模块显示组名和项目名
+  await expect(panel.getByRole('group', { name: '所属' })).toContainText(`${id}项目`);
+  await expect(panel.getByRole('group', { name: '分类' })).toHaveCount(0);
+  // 结束是固定日期：第二行的截止日期可以点
+  const second = panel.locator('.quick-options');
+  await expect(dateButton(second)).not.toHaveAttribute('aria-disabled', 'true');
+  await pickDate(startRow(page), localDate(2), '开始日期');
   await endRow(page).getByRole('radio', { name: '开始后' }).click();
   await endRow(page).getByLabel('开始后的天数').fill('3');
-  await expect(endRow(page).getByLabel('算出的结束')).toHaveText(dayLabel(localDate(5)));
+  // 结束是"开始后 N 天"：第二行只显示算出来的日期，不能点
+  await expectDate(second, localDate(5));
+  await expect(dateButton(second)).toHaveAttribute('aria-disabled', 'true');
+  await dateButton(second).click({ force: true });
+  await expect(page.getByRole('dialog', { name: '选择日期' })).toHaveCount(0);
   await waitSaved(page);
   await expect(taskItem(page, `${id} 甲`).locator('.task-deadline')).toContainText(
     dayLabel(localDate(5)).split(' ')[0]!,
@@ -127,14 +140,12 @@ test('开始和结束：固定日期、开始后 N 天、关系（多个取最�
   // 前 2 天 → 甲的结束 −2 早于甲的开始 → 取最晚的那个（甲的开始）
   await expect(startRow(page).getByLabel('算出的开始')).toHaveText(dayLabel(localDate(3)));
   await waitSaved(page);
-  const [b] = await select<{ start_on: string; deadline_at: string }>(
+  const [b] = await select<{ start_on: string; deadline_on: string }>(
     L,
-    `tasks?select=start_on,deadline_at&title=eq.${id} 乙`,
+    `tasks?select=start_on,deadline_on&title=eq.${id} 乙`,
   );
   expect(b!.start_on).toBe(localDate(3));
-  expect(new Date(b!.deadline_at).toISOString()).toBe(
-    new Date(`${localDate(3)}T23:59:59.999+08:00`).toISOString(),
-  );
+  expect(b!.deadline_on).toBe(localDate(3));
 
   // 甘特图：乙（开始和结束同一天）画成里程碑
   await page.getByRole('link', { name: '切换到甘特图' }).click();
@@ -162,12 +173,12 @@ test('选关系对象：先选项目或分类再选任务；跨项目、跨分�
   const p3 = await projectIn(L, groupId, `${id}三`, []);
   await groupTask(L, p1, `${id} 本项目`);
   await groupTask(L, p2, `${id} 别的项目`, [], {
-    deadline_at: `${localDate(4)}T23:59:59.999+08:00`,
+    deadline_on: localDate(4),
   });
   await groupTask(L, p3, `${id} 没开的项目`);
   await groupTask(L, p2, `${id} 循环`, [], {
     recurrence_rule: 'FREQ=DAILY',
-    recurrence_dtstart: `${localDate(0)}T09:00:00+08:00`,
+    recurrence_start_on: localDate(0),
   });
   const page = await openAs(browser, L);
   await projectLink(page, `${id}一`).click();
@@ -182,7 +193,12 @@ test('选关系对象：先选项目或分类再选任务；跨项目、跨分�
   // 循环任务不能被选为关系对象
   await expect(ends.getByLabel('关系对象').locator('option')).toHaveText(['—', `${id} 别的项目`]);
   await ends.getByLabel('关系对象').selectOption({ label: `${id} 别的项目` });
-  await expect(endRow(page).getByLabel('算出的结束')).toHaveText(dayLabel(localDate(4)));
+  // 结束是关系：第二行只显示算出来的日期
+  await expectDate(panel.locator('.quick-options'), localDate(4));
+  await expect(dateButton(panel.locator('.quick-options'))).toHaveAttribute(
+    'aria-disabled',
+    'true',
+  );
   await waitSaved(page);
   expect(
     await select(
@@ -215,7 +231,7 @@ test('选关系对象：先选项目或分类再选任务；跨项目、跨分�
       },
       body: JSON.stringify({
         recurrence_rule: 'FREQ=DAILY',
-        recurrence_dtstart: `${localDate(0)}T09:00:00+08:00`,
+        recurrence_start_on: localDate(0),
       }),
     },
   );
@@ -258,7 +274,7 @@ test('选关系对象：先选项目或分类再选任务；跨项目、跨分�
         'Content-Type': 'application/json',
         Prefer: 'return=representation',
       },
-      body: JSON.stringify({ title, owner_id: await userId(L), deadline_at: deadline ?? null }),
+      body: JSON.stringify({ title, owner_id: await userId(L), deadline_on: deadline ?? null }),
     });
     const [task] = (await response.json()) as { id: string }[];
     await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/task_categories`, {
@@ -274,7 +290,7 @@ test('选关系对象：先选项目或分类再选任务；跨项目、跨分�
     return task!.id;
   };
   await personal(`${id} 个人甲`, `${id}关系甲`);
-  await personal(`${id} 个人乙`, `${id}关系乙`, `${localDate(7)}T23:59:59.999+08:00`);
+  await personal(`${id} 个人乙`, `${id}关系乙`, localDate(7));
   const plainId = await personal(`${id} 个人普通`, `${id}普通`);
   await page.reload();
   await categoryItem(page, `${id}关系甲`).click();
@@ -327,7 +343,7 @@ test('不能形成循环：保存时拒绝', async ({ browser }) => {
   await page.context().close();
 });
 
-test('前置改日期后，依赖它的任务自动重算；开了任务分配的项目里通知执行人"修改了截止时间"，操作者是改前置的人', async ({
+test('前置改日期后，依赖它的任务自动重算；开了任务分配的项目里通知执行人"修改了截止日期"，操作者是改前置的人', async ({
   browser,
 }) => {
   test.setTimeout(120_000);
@@ -359,7 +375,7 @@ test('前置改日期后，依赖它的任务自动重算；开了任务分配�
   );
   // 前置的开始往后挪 3 天
   await open(page, `${id} 前置`);
-  await startRow(page).getByLabel('开始日期', { exact: true }).fill(localDate(4));
+  await pickDate(startRow(page), localDate(4), '开始日期');
   await waitSaved(page);
   await expect(taskItem(page, `${id} 后续`).locator('.task-deadline')).toContainText(
     dayLabel(localDate(8)).split(' ')[0]!,
@@ -373,7 +389,7 @@ test('前置改日期后，依赖它的任务自动重算；开了任务分配�
     notificationList(pr)
       .locator('.notification-text')
       .filter({ hasText: `${id} 后续` }),
-  ).toHaveText(`${id}组长修改了${id} 后续的截止时间`);
+  ).toHaveText(`${id}组长修改了${id} 后续的截止日期`);
   await Promise.all([page, pr].map((p) => p.context().close()));
 });
 
@@ -650,7 +666,7 @@ test('甘特图：每天一条线；同一天结束和开始的任务在同一�
   const same = await groupTask(L, projectId, `${id} 同一天`);
   const startOnly = await groupTask(L, projectId, `${id} 只有开始`);
   await groupTask(L, projectId, `${id} 只有结束`, [], {
-    deadline_at: `${localDate(6)}T23:59:59.999+08:00`,
+    deadline_on: localDate(6),
   });
   await schedule(L, a, { start: localDate(1), after: 2 });
   await schedule(L, b, { startRelations: [{ predecessor_id: a, anchor: 'end' }], after: 3 });

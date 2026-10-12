@@ -39,10 +39,10 @@ const task = (id: string, fields: Partial<Task> = {}): Task => ({
   endAfterDays: null,
   title: id,
   description: '',
-  deadlineAt: null,
+  deadlineOn: null,
   importanceLevel: 0,
   recurrenceRule: null,
-  recurrenceDtstart: null,
+  recurrenceStartOn: null,
   completedAt: null,
   confirmedAt: fields.completedAt ?? null,
   isStarred: false,
@@ -87,23 +87,23 @@ describe('和我有关的组任务', () => {
 
 describe('今日', () => {
   const tasks = [
-    task('today', { deadlineAt: sh('2026-10-09T23:59:59.999') }),
+    task('today', { deadlineOn: '2026-10-09' }),
     task('today-done', {
-      deadlineAt: sh('2026-10-09T09:00:00'),
+      deadlineOn: '2026-10-09',
       completedAt: sh('2026-10-09T08:00:00'),
     }),
-    task('today-passed', { deadlineAt: sh('2026-10-09T08:00:00') }),
-    task('late-1', { deadlineAt: sh('2026-10-08T23:59:59.999') }),
-    task('late-2', { deadlineAt: sh('2026-10-07T12:00:00') }),
-    task('late-3', { deadlineAt: sh('2026-10-06T23:59:59.999') }),
+    task('today-passed', { deadlineOn: '2026-10-09' }),
+    task('late-1', { deadlineOn: '2026-10-08' }),
+    task('late-2', { deadlineOn: '2026-10-07' }),
+    task('late-3', { deadlineOn: '2026-10-06' }),
     task('late-1-done', {
-      deadlineAt: sh('2026-10-08T12:00:00'),
+      deadlineOn: '2026-10-08',
       completedAt: sh('2026-10-08T20:00:00'),
     }),
-    task('tomorrow', { deadlineAt: sh('2026-10-10T09:00:00') }),
+    task('tomorrow', { deadlineOn: '2026-10-10' }),
     task('none'),
-    task('group-mine', { groupId: 'g', projectId: 'p', deadlineAt: sh('2026-10-09T18:00:00') }),
-    task('group-other', { groupId: 'g', projectId: 'q', deadlineAt: sh('2026-10-09T18:00:00') }),
+    task('group-mine', { groupId: 'g', projectId: 'p', deadlineOn: '2026-10-09' }),
+    task('group-other', { groupId: 'g', projectId: 'q', deadlineOn: '2026-10-09' }),
   ];
   it('今天截止的（不管完成没有）+ 逾期不满 3 天还没完成的；逾期满 3 天离开', () => {
     expect(tasks.filter((t) => isTodayTask(t, [], context)).map((t) => t.id)).toEqual([
@@ -136,11 +136,11 @@ describe('今日', () => {
   it('循环任务看当前的代表实例', () => {
     const daily = task('daily', {
       recurrenceRule: 'FREQ=DAILY',
-      recurrenceDtstart: sh('2026-10-01T18:00:00'),
+      recurrenceStartOn: '2026-10-01',
     });
     const weekly = task('weekly', {
       recurrenceRule: 'FREQ=WEEKLY',
-      recurrenceDtstart: sh('2026-10-03T18:00:00'),
+      recurrenceStartOn: '2026-10-03',
     });
     expect(isTodayTask(daily, [], context)).toBe(true);
     expect(isTodayTask(weekly, [], context)).toBe(false);
@@ -221,42 +221,46 @@ describe('子任务', () => {
     sub('removed', '2026-10-01T00:00:00', '2026-10-05T00:00:00', 1),
     sub('new', '2026-10-06T00:00:00', null, 2),
   ];
-  it('普通任务：没删除的；循环任务的某一次：那一次之前就有、之后才删的（改清单只影响以后）', () => {
+  const asOf = (date: string) => occurrenceListAsOf({ occurrenceDate: date }, 'Asia/Shanghai');
+  it('普通任务：没删除的；循环任务的某一次：那一天结束时已经有、还没删的（改清单只影响以后）', () => {
     expect(subtasksFor(list, null).map((s) => s.id)).toEqual(['old', 'new']);
-    expect(subtasksFor(list, sh('2026-10-03T09:00:00')).map((s) => s.id)).toEqual([
-      'old',
-      'removed',
-    ]);
-    expect(subtasksFor(list, sh('2026-10-09T09:00:00')).map((s) => s.id)).toEqual(['old', 'new']);
-    expect(subtaskApplies(list[1]!, sh('2026-10-05T00:00:00'))).toBe(false);
+    expect(subtasksFor(list, asOf('2026-10-03')).map((s) => s.id)).toEqual(['old', 'removed']);
+    expect(subtasksFor(list, asOf('2026-10-09')).map((s) => s.id)).toEqual(['old', 'new']);
+    // 10 月 5 日 00:00 删掉的，那一天结束时已经不在了
+    expect(subtaskApplies(list[1]!, asOf('2026-10-05'))).toBe(false);
+    expect(subtaskApplies(list[1]!, asOf('2026-10-04'))).toBe(true);
+    // 当天加的算进当天这一次
+    expect(subtaskApplies(list[2]!, asOf('2026-10-06'))).toBe(true);
   });
   it('提前完成的那一次：清单定格在完成的时刻，之后加的不算进它', () => {
-    const date = sh('2026-10-09T09:00:00');
     const early = {
-      occurrenceDate: date,
+      occurrenceDate: '2026-10-09',
       status: 'completed',
       completedAt: sh('2026-10-05T12:00:00'),
     };
-    expect(occurrenceListAsOf(early)).toEqual(sh('2026-10-05T12:00:00'));
-    expect(subtasksFor(list, date, occurrenceListAsOf(early)).map((s) => s.id)).toEqual(['old']);
-    // 按时完成或还没完成的：就是这一次的时间
-    const late = {
-      occurrenceDate: date,
-      status: 'completed',
-      completedAt: sh('2026-10-09T10:00:00'),
-    };
-    expect(occurrenceListAsOf(late)).toEqual(date);
-    expect(occurrenceListAsOf({ ...early, status: 'missed' })).toEqual(date);
+    expect(occurrenceListAsOf(early, 'Asia/Shanghai')).toEqual(sh('2026-10-05T12:00:00'));
+    expect(subtasksFor(list, occurrenceListAsOf(early, 'Asia/Shanghai')).map((s) => s.id)).toEqual([
+      'old',
+    ]);
+    // 事后才在历史里补勾的、没完成的：那一天结束的时刻
+    const late = { ...early, completedAt: sh('2026-10-11T10:00:00') };
+    expect(occurrenceListAsOf(late, 'Asia/Shanghai')).toEqual(sh('2026-10-09T23:59:59.999'));
+    expect(occurrenceListAsOf({ ...early, status: 'missed' }, 'Asia/Shanghai')).toEqual(
+      sh('2026-10-09T23:59:59.999'),
+    );
   });
   it('进度按这一次自己的勾选算，各次互不相关', () => {
-    const d1 = sh('2026-10-03T09:00:00');
-    const d2 = sh('2026-10-04T09:00:00');
-    const checks = [{ subtaskId: 'old', occurrenceDate: d1 }];
-    expect(subtaskProgress(list, checks, d1)).toEqual({ done: 1, total: 2 });
-    expect(subtaskProgress(list, checks, d2)).toEqual({ done: 0, total: 2 });
-    expect(subtaskProgress(list, [{ subtaskId: 'new', occurrenceDate: null }], null)).toEqual({
+    const checks = [{ subtaskId: 'old', occurrenceDate: '2026-10-03' }];
+    expect(subtaskProgress(list, checks, '2026-10-03', asOf('2026-10-03'))).toEqual({
       done: 1,
       total: 2,
     });
+    expect(subtaskProgress(list, checks, '2026-10-04', asOf('2026-10-04'))).toEqual({
+      done: 0,
+      total: 2,
+    });
+    expect(subtaskProgress(list, [{ subtaskId: 'new', occurrenceDate: null }], null, null)).toEqual(
+      { done: 1, total: 2 },
+    );
   });
 });

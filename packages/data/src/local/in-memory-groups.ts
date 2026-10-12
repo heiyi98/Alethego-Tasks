@@ -65,6 +65,19 @@ export class MemoryGroupRepository implements IGroupRepository {
       myRole: 'leader',
     };
     this.groups.set(group.id, group);
+    // 默认项目：名字就是组名，不选任何工具
+    const project: Project = {
+      id: this.state.newId(),
+      groupId: group.id,
+      name: trimmed,
+      color: input.color ?? '',
+      tools: [],
+      createdBy: this.state.ownerId,
+      createdAt: this.state.now(),
+      isDefault: true,
+      myRole: 'leader',
+    };
+    this.state.projects.set(project.id, project);
     return group;
   }
 
@@ -73,6 +86,16 @@ export class MemoryGroupRepository implements IGroupRepository {
     if (!trimmed) throw new DataError('invalid', '组名不能为空');
     const group = { ...this.group(groupId), name: trimmed, color: input.color };
     this.groups.set(groupId, group);
+    // 默认项目的名字和颜色跟着组走
+    for (const project of this.state.projects.values()) {
+      if (project.groupId === groupId && project.isDefault) {
+        this.state.projects.set(project.id, {
+          ...project,
+          name: trimmed,
+          color: input.color ?? '',
+        });
+      }
+    }
     return group;
   }
 
@@ -206,6 +229,7 @@ export class MemoryProjectRepository implements IProjectRepository {
       tools: [...new Set(input.tools)].sort(),
       createdBy: this.state.ownerId,
       createdAt: this.state.now(),
+      isDefault: false,
       myRole: 'leader',
     };
     this.state.projects.set(project.id, project);
@@ -221,6 +245,9 @@ export class MemoryProjectRepository implements IProjectRepository {
   async update(projectId: string, input: { name: string; color: string }) {
     const trimmed = input.name.trim();
     if (!trimmed) throw new DataError('invalid', '项目名不能为空');
+    if (this.project(projectId).isDefault) {
+      throw new DataError('invalid', '默认项目的名字和颜色跟着组走');
+    }
     const project = { ...this.project(projectId), name: trimmed, color: input.color };
     this.state.projects.set(projectId, project);
     return project;
@@ -293,7 +320,7 @@ export class MemoryProjectRepository implements IProjectRepository {
   }
 
   async requestDeletion(projectId: string): Promise<DeletionRequestResult> {
-    this.project(projectId);
+    if (this.project(projectId).isDefault) throw new DataError('invalid', '默认项目不能单独删除');
     // 组里只有自己一位组长：直接删除，连同项目里的全部任务
     this.state.projects.delete(projectId);
     for (const [id, task] of this.state.tasks) {

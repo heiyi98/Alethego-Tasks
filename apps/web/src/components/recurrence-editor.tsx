@@ -1,55 +1,51 @@
 'use client';
 
 import {
+  ORDINALS,
+  RECURRENCE_PERIODS,
   WEEKDAYS,
-  defaultRecurrenceSpec,
   resolveRepresentativeInstance,
-  untilFromLocalDate,
-  weekdayName,
-  weekdayOf,
+  type MonthDay,
+  type Ordinal,
   type RecurrenceEnd,
-  type RecurrenceFrequency,
   type RecurrenceOccurrence,
-  type RecurrenceRuleSpec,
+  type RecurrencePeriod,
+  type Weekday,
 } from '@alethego/core';
 import { useState } from 'react';
 
-import { ChevronDownIcon, IconButton } from './icons';
+import { DatePicker } from './date-picker';
+import { ChevronDownIcon, IconButton, PlusIcon, XIcon } from './icons';
+import { messages } from '@/i18n';
+import { formatDate, toDateValue } from '@/lib/format';
 import {
-  formatFullDateTime,
-  fromDateTimeLocalValue,
-  fromDateValue,
-  toDateTimeLocalValue,
-  toDateValue,
-} from '@/lib/format';
-import { recurrencePatch, type RecurrenceFormState } from '@/lib/recurrence-form';
+  defaultRecurrenceForm,
+  recurrencePatch,
+  type RecurrenceFormState,
+} from '@/lib/recurrence-form';
+import type { TaskFormValue } from '@/lib/task-form';
 
 /**
- * 循环开关与重复规则编辑（每 N 天 / 每 N 周）。循环不是独立的任务类型，只是任务上的一个开关：
- * 打开后设置 RRULE + 起始时间，关闭后任务恢复为普通任务，已产生的历史记录保留。
- * 规则下方嵌着历史：过去最近两次实例（最近的在上），勾上 = 已完成，可展开查看更早的记录。
+ * 循环开关与重复规则。循环不是独立的任务类型，只是任务上的一个开关：打开后开关右边同一行是
+ * "日、周、月、年"四个选项，下面是这一种的内容；关闭后任务恢复为普通任务，已产生的历史记录保留。
+ * 开始日期就是第二行的截止日期。规则下方嵌着历史：过去最近两次（最近的在上），勾上 = 已完成。
  */
 
-/** 打开开关时的默认起始时间：任务的截止时间（若有），否则为今天 09:00 */
-function defaultDtstart(fallback: Date | null): Date {
-  if (fallback) return fallback;
-  const date = new Date();
-  date.setHours(9, 0, 0, 0);
-  return date;
-}
-
-const FREQUENCY_UNITS: Record<RecurrenceFrequency, string> = {
-  daily: '天',
-  weekly: '周',
-};
+const t = messages.recurrence;
+const DAYS_1_31 = Array.from({ length: 31 }, (_, i) => i + 1);
+const MONTHS = Array.from({ length: 12 }, (_, i) => i + 1);
+const WEEKS = Array.from({ length: 53 }, (_, i) => i + 1);
 
 /** 历史默认显示的行数；展开后的行数 */
 const HISTORY_ROWS = 2;
 const HISTORY_ROWS_EXPANDED = 5;
 
+const toggleIn = <T,>(list: readonly T[], item: T): T[] =>
+  list.includes(item) ? list.filter((x) => x !== item) : [...list, item];
+
 export function RecurrenceEditor({
-  fallbackStart,
   value,
+  start,
   onChange,
   records,
   onToggleRecord,
@@ -57,228 +53,236 @@ export function RecurrenceEditor({
   now,
   timeZone,
 }: {
-  /** 打开开关时默认的起始时间（通常是任务的截止时间）；没有则取今天 09:00 */
-  fallbackStart: Date | null;
   value: RecurrenceFormState;
-  onChange: (next: RecurrenceFormState) => void;
+  /** 开始日期（第二行的日期）；空 = 还没选 */
+  start: string;
+  /** 打开开关时还没选日期：第二行一并设为今天 */
+  onChange: (next: RecurrenceFormState, patch?: Partial<TaskFormValue>) => void;
   /** 该任务已有的实例记录（历史） */
   records: readonly RecurrenceOccurrence[];
   /** 切换某次实例的完成状态；不传时不显示历史（例如新建时） */
   onToggleRecord?: (record: RecurrenceOccurrence, completed: boolean) => void;
   /** 历史里每一次的子任务进度（例如 2/5）；那一次没有子任务时为 null */
-  historyProgress?: (occurrenceDate: Date) => string | null;
+  historyProgress?: (record: RecurrenceOccurrence) => string | null;
   now: Date;
   timeZone: string;
 }) {
-  const dtstartDate = fromDateTimeLocalValue(value.dtstart);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const set = (patch: Partial<RecurrenceFormState>) => onChange({ ...value, ...patch });
 
   function toggle(enabled: boolean) {
     if (!enabled) {
       onChange({ ...value, enabled: false });
       return;
     }
-    const dtstart = dtstartDate ?? defaultDtstart(fallbackStart);
-    onChange({
-      enabled: true,
-      dtstart: toDateTimeLocalValue(dtstart),
-      spec: value.spec ?? (value.customRule ? null : defaultRecurrenceSpec(dtstart, timeZone)),
-      customRule: value.customRule,
-    });
+    // 打开时各种标尺的默认值都落在开始日期那一天；还没选日期时开始日期是今天
+    const date = start || toDateValue(now);
+    onChange(
+      { ...defaultRecurrenceForm(date, true), period: value.period },
+      start ? undefined : { deadline: date },
+    );
   }
 
-  function updateSpec(patch: Partial<RecurrenceRuleSpec>) {
-    if (!value.spec) return;
-    const spec = { ...value.spec, ...patch };
-    // 仅在切换频率时：若尚未选择具体的星期，按起始时间补一个。
-    // 用户手动清空时不自动补回，交给校验提示。
-    const frequencyChanged =
-      patch.frequency !== undefined && patch.frequency !== value.spec.frequency;
-    if (frequencyChanged && dtstartDate) {
-      if (spec.frequency === 'weekly' && spec.weekdays.length === 0) {
-        spec.weekdays = [weekdayOf(dtstartDate, timeZone)];
-      }
-    }
-    onChange({ ...value, spec });
-  }
-
-  function setEnd(kind: RecurrenceEnd['kind']) {
-    const base = dtstartDate ?? now;
-    const end: RecurrenceEnd =
-      kind === 'never'
-        ? { kind }
-        : kind === 'count'
-          ? { kind, count: 10 }
-          : {
-              kind,
-              until: untilFromLocalDate(new Date(base.getTime() + 30 * 86_400_000), timeZone),
-            };
-    updateSpec({ end });
-  }
-
-  // 历史：当前代表实例之前的实例记录（包括提前完成的），最近的在上
+  // 历史：当前代表实例之前的记录（包括提前完成的），最近的在上
   const patch = recurrencePatch(value);
   const current =
-    value.enabled && patch.ok && patch.recurrenceRule && patch.recurrenceDtstart
-      ? resolveRepresentativeInstance(
-          { rule: patch.recurrenceRule, dtstart: patch.recurrenceDtstart },
-          records,
-          { now, timeZone },
-        )
+    value.enabled && patch.ok && patch.recurrenceRule && start
+      ? resolveRepresentativeInstance({ rule: patch.recurrenceRule, start }, records, {
+          now,
+          timeZone,
+        })
       : null;
+  const today = toDateValue(now);
   const history = [...records]
-    .filter((r) =>
-      current
-        ? r.occurrenceDate.getTime() < current.occurrenceAt.getTime()
-        : r.occurrenceDate.getTime() <= now.getTime(),
-    )
-    .sort((a, b) => b.occurrenceDate.getTime() - a.occurrenceDate.getTime());
+    .filter((r) => (current ? r.occurrenceDate < current.occurrenceDate : r.occurrenceDate < today))
+    .sort((a, b) => (a.occurrenceDate < b.occurrenceDate ? 1 : -1));
 
   return (
     <fieldset className="field recurrence" aria-label="重复">
-      <label className="switch">
-        <input
-          type="checkbox"
-          role="switch"
-          aria-label="重复"
-          checked={value.enabled}
-          onChange={(event) => toggle(event.target.checked)}
-        />
-        <span className="switch-track" aria-hidden />
-      </label>
+      <div className="recurrence-head">
+        <label className="switch">
+          <input
+            type="checkbox"
+            role="switch"
+            aria-label="重复"
+            checked={value.enabled}
+            onChange={(event) => toggle(event.target.checked)}
+          />
+          <span className="switch-track" aria-hidden />
+        </label>
+        {value.enabled && (
+          <Segmented
+            label="重复周期"
+            value={value.period}
+            options={RECURRENCE_PERIODS.map((p) => [p, t.periods[p]] as const)}
+            onChange={(period: RecurrencePeriod) => set({ period })}
+          />
+        )}
+      </div>
 
       {value.enabled && (
         <div className="recurrence-body" role="group" aria-label="重复规则">
-          {value.spec ? (
-            <>
-              <div className="field-inline">
-                <span>每</span>
-                <input
-                  type="number"
-                  min={1}
-                  max={99}
-                  aria-label="重复间隔"
-                  className="input-narrow"
-                  value={value.spec.interval}
-                  onChange={(event) => updateSpec({ interval: Number(event.target.value) })}
-                />
-                <select
-                  aria-label="重复频率"
-                  value={value.spec.frequency}
-                  onChange={(event) =>
-                    updateSpec({ frequency: event.target.value as RecurrenceFrequency })
-                  }
-                >
-                  {(Object.keys(FREQUENCY_UNITS) as RecurrenceFrequency[]).map((f) => (
-                    <option key={f} value={f}>
-                      {FREQUENCY_UNITS[f]}
-                    </option>
-                  ))}
-                </select>
-              </div>
+          <div className="field-inline">
+            <span>{t.every.before}</span>
+            <input
+              type="number"
+              min={1}
+              max={999}
+              aria-label="重复间隔"
+              className="input-narrow"
+              value={value.interval}
+              onChange={(event) => set({ interval: Number(event.target.value) })}
+            />
+            <span>{t.every.after[value.period]}</span>
+          </div>
 
-              {value.spec.frequency === 'weekly' && (
-                <div className="chip-row" role="group" aria-label="星期">
-                  {WEEKDAYS.map((day) => {
-                    const selected = value.spec!.weekdays.includes(day);
+          {value.period === 'week' && (
+            <WeekdayChips
+              label="星期"
+              value={value.weekdays}
+              onChange={(weekdays) => set({ weekdays })}
+            />
+          )}
+
+          {value.period === 'month' && (
+            <>
+              <Segmented
+                label="按月的方式"
+                value={value.monthBy}
+                options={[
+                  ['day', t.monthModes.day],
+                  ['weekday', t.monthModes.weekday],
+                ]}
+                onChange={(monthBy) => set({ monthBy })}
+              />
+              {value.monthBy === 'day' ? (
+                <div className="day-grid" role="group" aria-label="日子">
+                  {[...DAYS_1_31, 'last' as const].map((day: MonthDay) => (
+                    <button
+                      key={day}
+                      type="button"
+                      className={`day-cell${day === 'last' ? ' day-cell-wide' : ''}`}
+                      aria-pressed={value.monthDays.includes(day)}
+                      aria-label={day === 'last' ? t.lastDay : `${day}日`}
+                      onClick={() => set({ monthDays: toggleIn(value.monthDays, day) })}
+                    >
+                      {day === 'last' ? t.lastDay : day}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <ConditionRows
+                  rows={value.monthRows}
+                  onChange={(monthRows) => set({ monthRows })}
+                  newRow={() => ({ ordinal: 1 as Ordinal, weekdays: [] as Weekday[] })}
+                  render={(row, update) => (
+                    <OrdinalSelect
+                      value={row.ordinal}
+                      onChange={(ordinal) => update({ ordinal })}
+                    />
+                  )}
+                />
+              )}
+            </>
+          )}
+
+          {value.period === 'year' && (
+            <>
+              <Segmented
+                label="按年的方式"
+                value={value.yearBy}
+                options={[
+                  ['monthDay', t.yearModes.monthDay],
+                  ['monthWeekday', t.yearModes.monthWeekday],
+                  ['weekNumber', t.yearModes.weekNumber],
+                ]}
+                onChange={(yearBy) => set({ yearBy })}
+              />
+              {value.yearBy === 'monthDay' && (
+                <div className="year-days">
+                  {MONTHS.map((month) => {
+                    const days = value.yearDays[month] ?? [];
                     return (
-                      <button
-                        key={day}
-                        type="button"
-                        className="chip chip-square"
-                        aria-pressed={selected}
-                        aria-label={`周${weekdayName(day)}`}
-                        onClick={() =>
-                          updateSpec({
-                            weekdays: selected
-                              ? value.spec!.weekdays.filter((d) => d !== day)
-                              : [...value.spec!.weekdays, day],
-                          })
-                        }
+                      <div
+                        key={month}
+                        className="year-month"
+                        role="group"
+                        aria-label={t.months[month - 1]}
                       >
-                        {weekdayName(day)}
-                      </button>
+                        <span className="year-month-name">{t.months[month - 1]}</span>
+                        <div className="day-grid day-grid-compact">
+                          {DAYS_1_31.map((day) => (
+                            <button
+                              key={day}
+                              type="button"
+                              className="day-cell"
+                              aria-pressed={days.includes(day)}
+                              aria-label={`${month}月${day}日`}
+                              onClick={() =>
+                                set({
+                                  yearDays: { ...value.yearDays, [month]: toggleIn(days, day) },
+                                })
+                              }
+                            >
+                              {day}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                     );
                   })}
                 </div>
               )}
-            </>
-          ) : (
-            <p className="muted">
-              自定义规则 <code>{value.customRule}</code>，无法在此编辑。
-              <button
-                type="button"
-                className="button-link"
-                onClick={() =>
-                  onChange({
-                    ...value,
-                    customRule: null,
-                    spec: defaultRecurrenceSpec(
-                      dtstartDate ?? defaultDtstart(fallbackStart),
-                      timeZone,
-                    ),
-                  })
-                }
-              >
-                改为可编辑的规则
-              </button>
-            </p>
-          )}
-
-          <label className="field-inline">
-            <span>开始时间</span>
-            <input
-              type="datetime-local"
-              aria-label="开始时间"
-              value={value.dtstart}
-              onChange={(event) => onChange({ ...value, dtstart: event.target.value })}
-            />
-          </label>
-
-          {value.spec && (
-            <div className="field-inline">
-              <span>结束</span>
-              <select
-                aria-label="结束方式"
-                value={value.spec.end.kind}
-                onChange={(event) => setEnd(event.target.value as RecurrenceEnd['kind'])}
-              >
-                <option value="never">永不结束</option>
-                <option value="count">重复一定次数</option>
-                <option value="until">截止到某天</option>
-              </select>
-              {value.spec.end.kind === 'count' && (
-                <>
-                  <input
-                    type="number"
-                    min={1}
-                    aria-label="重复次数"
-                    className="input-narrow"
-                    value={value.spec.end.count}
-                    onChange={(event) =>
-                      updateSpec({ end: { kind: 'count', count: Number(event.target.value) } })
-                    }
-                  />
-                  <span>次</span>
-                </>
-              )}
-              {value.spec.end.kind === 'until' && (
-                <input
-                  type="date"
-                  aria-label="结束日期"
-                  value={toDateValue(value.spec.end.until)}
-                  onChange={(event) => {
-                    const date = fromDateValue(event.target.value);
-                    if (date) {
-                      updateSpec({
-                        end: { kind: 'until', until: untilFromLocalDate(date, timeZone) },
-                      });
-                    }
-                  }}
+              {value.yearBy === 'monthWeekday' && (
+                <ConditionRows
+                  rows={value.yearMonthRows}
+                  onChange={(yearMonthRows) => set({ yearMonthRows })}
+                  newRow={() => ({ month: 1, ordinal: 1 as Ordinal, weekdays: [] as Weekday[] })}
+                  render={(row, update) => (
+                    <>
+                      <select
+                        aria-label="月份"
+                        value={row.month}
+                        onChange={(event) => update({ month: Number(event.target.value) })}
+                      >
+                        {MONTHS.map((m) => (
+                          <option key={m} value={m}>
+                            {t.months[m - 1]}
+                          </option>
+                        ))}
+                      </select>
+                      <OrdinalSelect
+                        value={row.ordinal}
+                        onChange={(ordinal) => update({ ordinal })}
+                      />
+                    </>
+                  )}
                 />
               )}
-            </div>
+              {value.yearBy === 'weekNumber' && (
+                <ConditionRows
+                  rows={value.yearWeekRows}
+                  onChange={(yearWeekRows) => set({ yearWeekRows })}
+                  newRow={() => ({ week: 1, weekdays: [] as Weekday[] })}
+                  render={(row, update) => (
+                    <select
+                      aria-label="第几周"
+                      value={row.week}
+                      onChange={(event) => update({ week: Number(event.target.value) })}
+                    >
+                      {WEEKS.map((w) => (
+                        <option key={w} value={w}>
+                          {t.weekNumber(w)}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                />
+              )}
+            </>
           )}
+
+          <EndField value={value.end} start={start || today} onChange={(end) => set({ end })} />
 
           {onToggleRecord && history.length > 0 && (
             <div
@@ -293,11 +297,12 @@ export function RecurrenceEditor({
                 }}
               >
                 {(historyOpen ? history : history.slice(0, HISTORY_ROWS)).map((record) => {
-                  const when = formatFullDateTime(record.occurrenceDate, timeZone);
+                  const when = formatDate(record.occurrenceDate, today);
+                  const progress = historyProgress?.(record);
                   return (
                     <li
                       key={record.id}
-                      // 纯外观：沿用任务行现有的样式——已完成的删除线、变灰；没做的按"已错过"显示（日期标红）
+                      // 纯外观：已完成的删除线、变灰；没做的按"已错过"显示（日期标红）
                       className={`history-row-inline ${record.status === 'completed' ? 'task-completed' : 'task-missed'}`}
                     >
                       <input
@@ -308,11 +313,7 @@ export function RecurrenceEditor({
                         onChange={(event) => onToggleRecord(record, event.target.checked)}
                       />
                       <span className="task-title task-deadline">{when}</span>
-                      {historyProgress?.(record.occurrenceDate) && (
-                        <span className="history-progress">
-                          {historyProgress(record.occurrenceDate)}
-                        </span>
-                      )}
+                      {progress && <span className="history-progress">{progress}</span>}
                     </li>
                   );
                 })}
@@ -332,5 +333,190 @@ export function RecurrenceEditor({
         </div>
       )}
     </fieldset>
+  );
+}
+
+function Segmented<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: readonly (readonly [T, string])[];
+  onChange: (value: T) => void;
+}) {
+  return (
+    <div className="mini-segmented" role="radiogroup" aria-label={label}>
+      {options.map(([key, text]) => (
+        <button
+          key={key}
+          type="button"
+          role="radio"
+          aria-checked={value === key}
+          aria-pressed={value === key}
+          onClick={() => onChange(key)}
+        >
+          {text}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** 一 二 三 四 五 六 日，可多选 */
+function WeekdayChips({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: readonly Weekday[];
+  onChange: (next: Weekday[]) => void;
+}) {
+  return (
+    <div className="chip-row" role="group" aria-label={label}>
+      {WEEKDAYS.map((day) => (
+        <button
+          key={day}
+          type="button"
+          className="chip chip-square"
+          aria-pressed={value.includes(day)}
+          aria-label={`周${t.weekdays[day]}`}
+          onClick={() => onChange(toggleIn(value, day))}
+        >
+          {t.weekdays[day]}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function OrdinalSelect({
+  value,
+  onChange,
+}: {
+  value: Ordinal;
+  onChange: (value: Ordinal) => void;
+}) {
+  return (
+    <select
+      aria-label="第几个"
+      value={value}
+      onChange={(event) => onChange(Number(event.target.value) as Ordinal)}
+    >
+      {ORDINALS.map((o) => (
+        <option key={o} value={o}>
+          {t.ordinals[o]}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/** 一行一个条件：前面的选择（第几个 / 月份 / 第几周）+ 星期多选；"＋"再加一行，多于一行时可以删 */
+function ConditionRows<R extends { weekdays: Weekday[] }>({
+  rows,
+  onChange,
+  newRow,
+  render,
+}: {
+  rows: readonly R[];
+  onChange: (rows: R[]) => void;
+  newRow: () => R;
+  render: (row: R, update: (patch: Partial<R>) => void) => React.ReactNode;
+}) {
+  const update = (index: number, patch: Partial<R>) =>
+    onChange(rows.map((r, i) => (i === index ? { ...r, ...patch } : r)));
+  return (
+    <div className="condition-rows">
+      {rows.map((row, index) => (
+        <div
+          key={index}
+          className="condition-row"
+          role="group"
+          aria-label={`第 ${index + 1} 行条件`}
+        >
+          {render(row, (patch) => update(index, patch))}
+          <WeekdayChips
+            label="星期"
+            value={row.weekdays}
+            onChange={(weekdays) => update(index, { weekdays } as Partial<R>)}
+          />
+          {rows.length > 1 && (
+            <IconButton
+              label={`删除第 ${index + 1} 行条件`}
+              className="icon-button-small"
+              onClick={() => onChange(rows.filter((_, i) => i !== index))}
+            >
+              <XIcon size={14} />
+            </IconButton>
+          )}
+        </div>
+      ))}
+      <IconButton
+        label={t.addRow}
+        className="add-person"
+        onClick={() => onChange([...rows, newRow()])}
+      >
+        <PlusIcon size={16} />
+      </IconButton>
+    </div>
+  );
+}
+
+/** 结束：永不 / 重复一定次数 / 截止到某天 */
+function EndField({
+  value,
+  start,
+  onChange,
+}: {
+  value: RecurrenceEnd;
+  start: string;
+  onChange: (end: RecurrenceEnd) => void;
+}) {
+  const setKind = (kind: RecurrenceEnd['kind']) => {
+    if (kind === 'never') onChange({ kind });
+    else if (kind === 'count') onChange({ kind, count: 10 });
+    else {
+      const [y, m, d] = start.split('-').map(Number) as [number, number, number];
+      onChange({ kind, until: toDateValue(new Date(y, m - 1, d + 30)) });
+    }
+  };
+  return (
+    <div className="field-inline">
+      <span>结束</span>
+      <select
+        aria-label="结束方式"
+        value={value.kind}
+        onChange={(event) => setKind(event.target.value as RecurrenceEnd['kind'])}
+      >
+        <option value="never">永不结束</option>
+        <option value="count">重复一定次数</option>
+        <option value="until">截止到某天</option>
+      </select>
+      {value.kind === 'count' && (
+        <>
+          <input
+            type="number"
+            min={1}
+            aria-label="重复次数"
+            className="input-narrow"
+            value={value.count}
+            onChange={(event) => onChange({ kind: 'count', count: Number(event.target.value) })}
+          />
+          <span>次</span>
+        </>
+      )}
+      {value.kind === 'until' && (
+        <DatePicker
+          label="结束日期"
+          value={value.until}
+          clearable={false}
+          onChange={(until) => until && onChange({ kind: 'until', until })}
+        />
+      )}
+    </div>
   );
 }

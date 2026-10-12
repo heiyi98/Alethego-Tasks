@@ -14,9 +14,11 @@ import {
   projectIn,
   projectLink,
   rpc,
+  select,
   sidebar,
   titleBar,
   user,
+  userId,
 } from './group-helpers';
 import { dbUrl, queryRest, quickAdd, runId, setDbClock, taskItem } from './helpers';
 
@@ -66,7 +68,11 @@ test('建组、建项目、邀请（接受 / 拒绝）、昵称；合作组里�
   await bar.getByRole('button', { name: '展开完整选项' }).click();
   await expect(bar.getByRole('group', { name: '分类' })).toHaveCount(0);
   await expect(bar.getByRole('button', { name: '标星' })).toHaveCount(0);
-  await expect(bar.getByRole('group', { name: '地点' })).toBeVisible();
+  // 组任务第一个模块：组名和项目名，只显示
+  const owner = bar.getByRole('group', { name: '所属' });
+  await expect(owner.locator('.editor-container-group')).toHaveText(groupName);
+  await expect(owner.locator('.editor-container-project')).toHaveText(`${id}项目一`);
+  await expect(owner.locator('input, select, button, textarea')).toHaveCount(0);
   await expect(bar.getByRole('group', { name: '人物' })).toBeVisible();
   await bar.getByRole('button', { name: '收起' }).click();
   await quickAdd(pa, `${id} 甲建的组任务`);
@@ -75,7 +81,7 @@ test('建组、建项目、邀请（接受 / 拒绝）、昵称；合作组里�
   // 展开的面板里有重要性，没有分类、收藏
   await row.locator('.task-main').click();
   const panel = pa.getByRole('form', { name: '编辑任务' });
-  await expect(panel.getByRole('group', { name: '地点' })).toBeVisible();
+  await expect(panel.getByRole('group', { name: '所属' })).toContainText(`${id}项目一`);
   await expect(panel.getByRole('group', { name: '重要性' })).toHaveCount(1);
   await expect(panel.getByRole('group', { name: '分类' })).toHaveCount(0);
   await expect(panel.getByRole('button', { name: '标星' })).toHaveCount(0);
@@ -365,4 +371,114 @@ test('删除组：一周内没有操作的组长算作同意，任何成员打�
   } finally {
     setDbClock(null);
   }
+});
+
+test('组的默认项目：建组时自动生成、名字跟着组名；不选工具；全组成员都在里面，新加入的人也自动加入；不能单独删除，删组时一起删', async ({
+  browser,
+}) => {
+  test.setTimeout(120_000);
+  const id = runId();
+  const L = await user('dl', `${id}组长`);
+  const M = await user('dm', `${id}组员`);
+  const N = await user('dn', `${id}新人`);
+  const groupName = `${id}默认组`;
+  // 管理组：组员记在项目名单上（合作组里人人都是组长，组长本来就在每个项目里）
+  const groupId = await groupWith(L, [M], groupName, 'management');
+  const projects = () =>
+    select<{ id: string; name: string; is_default: boolean; tools: string[] }>(
+      L,
+      `projects?select=id,name,is_default,tools&group_id=eq.${groupId}`,
+    );
+  const [def] = await projects();
+  expect(def).toMatchObject({ name: groupName, is_default: true, tools: [] });
+  const members = async () =>
+    (
+      await select<{ user_id: string }>(
+        L,
+        `project_members?select=user_id&project_id=eq.${def!.id}`,
+      )
+    )
+      .map((m) => m.user_id)
+      .sort();
+  // 组长本来就在每个项目里（不记在项目名单上）
+  expect(await members()).toEqual([await userId(M)]);
+
+  // 以后新加入组的人也自动加入
+  await rpc(N, 'ensure_current_user', { p_email: N.email, p_display_name: N.name });
+  await rpc(L, 'invite_to_group', { p_group_id: groupId, p_email: N.email });
+  const [invitation] = await select<{ id: string }>(
+    N,
+    `group_invitations?select=id&group_id=eq.${groupId}`,
+  );
+  await rpc(N, 'accept_group_invitation', { p_invitation_id: invitation!.id });
+  expect(await members()).toEqual([await userId(M), await userId(N)].sort());
+
+  // 不能单独删除、改名、移出、退出、邀请组外的人
+  await expect(rpc(L, 'request_project_deletion', { p_project_id: def!.id })).rejects.toThrow(
+    /默认项目不能单独删除/,
+  );
+  await expect(
+    rpc(L, 'remove_project_member', { p_project_id: def!.id, p_user_id: await userId(M) }),
+  ).rejects.toThrow(/全组成员都在默认项目里/);
+  await expect(rpc(M, 'leave_project', { p_project_id: def!.id })).rejects.toThrow(
+    /全组成员都在默认项目里/,
+  );
+
+  // 侧边栏：默认项目排在最前面，没有编辑的铅笔
+  const page = await openAs(browser, L);
+  await projectIn(L, groupId, `${id}别的项目`);
+  await page.reload();
+  await groupLink(page, groupName).click();
+  const list = groupSection(page).getByRole('list', { name: `「${groupName}」的项目` });
+  await expect(list.getByRole('link')).toHaveText([
+    new RegExp(`^${groupName}\\d*$`),
+    new RegExp(`^${id}别的项目\\d*$`),
+  ]);
+  await expect(
+    groupSection(page).getByRole('button', { name: `编辑项目「${groupName}」` }),
+  ).toHaveCount(0);
+  await expect(
+    groupSection(page).getByRole('button', { name: `编辑项目「${id}别的项目」` }),
+  ).toHaveCount(1);
+
+  // 名单：没有加人、邀请；成员不能移出、组长不能退出
+  await list.getByRole('link', { name: groupName }).click();
+  await expect(titleBar(page)).toHaveText(groupName);
+  const roster = await openRoster(page);
+  await expect(roster.getByRole('form', { name: '邀请' })).toHaveCount(0);
+  await expect(roster.locator('.roster-row')).toHaveCount(3);
+  for (const who of [M, N]) {
+    const row = roster.locator('.roster-row').filter({ hasText: who.name });
+    const more = row.getByRole('button', { name: `「${who.name}」的操作` });
+    if (await more.count()) {
+      await more.click();
+      await expect(row.getByRole('button', { name: '移出项目' })).toHaveCount(0);
+    }
+  }
+  await roster.getByRole('button', { name: '关闭' }).click();
+
+  // 组改名：默认项目跟着改
+  const form = await editGroup(page, groupName);
+  await form.getByRole('textbox', { name: '组名' }).fill(`${groupName}新`);
+  await form.getByRole('button', { name: '保存' }).click();
+  await expect(groupLink(page, `${groupName}新`)).toBeVisible();
+  await expect(
+    groupSection(page)
+      .getByRole('list', { name: `「${groupName}新」的项目` })
+      .getByRole('link'),
+  ).toHaveText([new RegExp(`^${groupName}新\\d*$`), new RegExp(`^${id}别的项目\\d*$`)]);
+  expect((await projects()).find((p) => p.is_default)!.name).toBe(`${groupName}新`);
+  await page.context().close();
+
+  // 删组时一起删除
+  const S = await user('ds', `${id}独自`);
+  const solo = await groupWith(S, [], `${id}独自组`);
+  const [soloDefault] = await select<{ id: string }>(
+    S,
+    `projects?select=id&group_id=eq.${solo}&is_default=eq.true`,
+  );
+  expect(soloDefault).toBeTruthy();
+  await rpc(S, 'request_group_deletion', { p_group_id: solo });
+  expect(await select(S, `groups?select=id&id=eq.${solo}`)).toEqual([]);
+  expect(await select(S, `projects?select=id&id=eq.${soloDefault!.id}`)).toEqual([]);
 });

@@ -254,7 +254,6 @@ test('矩阵按日历日判档：不看几点几分；紧急与否跟着模式�
   await selectCategory(page, category);
 
   await quickAdd(page, t('今天全天'), { deadline: localDate(0), importance: 2 });
-  await quickAdd(page, t('明天零点半'), { deadline: localDate(1), time: '00:30', importance: 2 });
   await quickAdd(page, t('明天全天'), { deadline: localDate(1), importance: 2 });
   // 9 天后：N = 10
   await quickAdd(page, t('十天'), { deadline: localDate(9), importance: 2 });
@@ -265,7 +264,6 @@ test('矩阵按日历日判档：不看几点几分；紧急与否跟着模式�
   await setMatrixMode(page, 'short');
 
   await expect(dot(page, t('今天全天'))).toHaveAttribute('data-column', '5');
-  await expect(dot(page, t('明天零点半'))).toHaveAttribute('data-column', '4');
   await expect(dot(page, t('明天全天'))).toHaveAttribute('data-column', '4');
   await expect(dot(page, t('十天'))).toHaveAttribute('data-column', '0');
   await expect(dot(page, t('十六天'))).toHaveCount(0);
@@ -421,9 +419,10 @@ test('逾期区：一个区、不分道、不写字；圆点按重要性竖向�
   await createCategory(page, category);
   await selectCategory(page, category);
   await selectStatus(page, '全部');
-  // 今天 00:00 已经过去（除非恰好在午夜运行）→ 逾期 0 天
-  await quickAdd(page, t('今日零点截止'), { deadline: localDate(0), time: '00:00', importance: 2 });
-  // 日期型：从截止日期的次日 00:00 起逾期
+  // 今天截止的：今天还没过完，不逾期
+  await quickAdd(page, t('今天截止'), { deadline: localDate(0), importance: 2 });
+  // 从截止日期的次日起逾期
+  await quickAdd(page, t('昨天截止必须'), { deadline: localDate(-1), importance: 3 });
   await quickAdd(page, t('昨天截止'), { deadline: localDate(-1), importance: 2 });
   await quickAdd(page, t('前天截止'), { deadline: localDate(-2), importance: 2 });
   await quickAdd(page, t('不重要的'), { deadline: localDate(-1), importance: 1 });
@@ -435,7 +434,8 @@ test('逾期区：一个区、不分道、不写字；圆点按重要性竖向�
     await setMatrixMode(page, mode);
     const strip = await stripRange(page);
     const centers: { x: number; y: number }[] = [];
-    for (const name of ['今日零点截止', '昨天截止', '前天截止', '不重要的']) {
+    await expect(dot(page, t('今天截止'))).not.toHaveAttribute('data-column', 'overdue');
+    for (const name of ['昨天截止必须', '昨天截止', '前天截止', '不重要的']) {
       const node = dot(page, t(name));
       await expect(node).toHaveAttribute('data-column', 'overdue');
       await expect(node).not.toContainText('逾期');

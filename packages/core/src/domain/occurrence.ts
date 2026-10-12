@@ -6,12 +6,14 @@
  */
 export type OccurrenceStatus = 'pending' | 'completed' | 'missed';
 
+import type { CalendarDate } from '../schedule/calendar-date';
+
 /** 循环任务的一次实例记录，与 recurrence_occurrences 表对应。 */
 export interface RecurrenceOccurrence {
   id: string;
   taskId: string;
-  /** 这次实例对应的时间点（UTC） */
-  occurrenceDate: Date;
+  /** 这一次的日期 */
+  occurrenceDate: CalendarDate;
   status: OccurrenceStatus;
   completedAt: Date | null;
   createdAt: Date;

@@ -1,8 +1,9 @@
 /**
  * 时区相关的纯函数工具。
  *
- * 所有时间在存储和领域模型中一律是 UTC 时间点（Date）。但"今天/明天""实例日期是否已过去"
- * 这类判断依赖用户所在时区的日历日，因此这里提供基于 Intl 的换算，不依赖运行环境的系统时区。
+ * 具体到时刻的时间（完成时间、创建时间等）一律是 UTC 时间点（Date）；只到某一天的日期（截止日期、
+ * 循环的日期）是 "YYYY-MM-DD"。"今天是哪一天"按用户所在时区判断，这里提供基于 Intl 的换算，
+ * 不依赖运行环境的系统时区。
  *
  * 术语：
  * - instant（时间点）：真实的 UTC 时间点。
@@ -64,6 +65,18 @@ export function fromWallTime(wall: Date, timeZone: string): Date {
   let guess = target - (toWallTime(new Date(target), timeZone).getTime() - target);
   guess = target - (toWallTime(new Date(guess), timeZone).getTime() - guess);
   return new Date(guess);
+}
+
+/** 用户本地的今天（"YYYY-MM-DD"） */
+export function todayOf(context: EvaluationContext): string {
+  return toWallTime(context.now, context.timeZone).toISOString().slice(0, 10);
+}
+
+/** 某个日期（"YYYY-MM-DD"）在该时区结束的时刻（23:59:59.999） */
+export function endOfDay(date: string, timeZone: string): Date {
+  const [y, m, d] = date.split('-').map(Number);
+  const nextDayStart = fromWallTime(new Date(Date.UTC(y!, m! - 1, d! + 1)), timeZone);
+  return new Date(nextDayStart.getTime() - 1);
 }
 
 /** 时间点在该时区下所属日历日的序号（自 1970-01-01 起的天数），用于日历日差计算。 */

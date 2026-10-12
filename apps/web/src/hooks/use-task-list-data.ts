@@ -157,8 +157,8 @@ export function useTaskListData() {
     setData((current) => {
       if (!current) return current;
       const records = current.occurrencesByTask.get(occurrence.taskId) ?? [];
-      const next = [...records.filter((o) => o.id !== occurrence.id), occurrence].sort(
-        (a, b) => a.occurrenceDate.getTime() - b.occurrenceDate.getTime(),
+      const next = [...records.filter((o) => o.id !== occurrence.id), occurrence].sort((a, b) =>
+        a.occurrenceDate < b.occurrenceDate ? -1 : a.occurrenceDate > b.occurrenceDate ? 1 : 0,
       );
       const occurrencesByTask = new Map(current.occurrencesByTask);
       occurrencesByTask.set(occurrence.taskId, next);
@@ -168,13 +168,12 @@ export function useTaskListData() {
 
   /** 本地勾选 / 取消一个子任务（乐观更新） */
   const setSubtaskCheck = useCallback(
-    (subtaskId: string, occurrenceDate: Date | null, checked: boolean) => {
+    (subtaskId: string, occurrenceDate: string | null, checked: boolean) => {
       localVersion.current++;
       setData((current) => {
         if (!current) return current;
         const same = (c: SubtaskCheck) =>
-          c.subtaskId === subtaskId &&
-          (c.occurrenceDate?.getTime() ?? null) === (occurrenceDate?.getTime() ?? null);
+          c.subtaskId === subtaskId && c.occurrenceDate === occurrenceDate;
         const rest = current.subtaskChecks.filter((c) => !same(c));
         return {
           ...current,

@@ -14,14 +14,14 @@ function requireTitle(title: string): string {
   return normalized;
 }
 
-function checkRecurrence(rule: string | null | undefined, dtstart: Date | null | undefined) {
+function checkRecurrence(rule: string | null | undefined, start: string | null | undefined) {
   if (!rule) return;
   if (!isValidRecurrenceRule(rule)) throw new DataError('invalid', `无效的循环规则：${rule}`);
-  if (dtstart === null) throw new DataError('invalid', '循环任务需要起始时间');
+  if (start === null) throw new DataError('invalid', '循环任务需要开始日期');
 }
 
 export function validateNewTask(input: NewTask): NewTask {
-  checkRecurrence(input.recurrenceRule, input.recurrenceDtstart ?? null);
+  checkRecurrence(input.recurrenceRule, input.recurrenceStartOn ?? null);
   // 组任务不能收藏（重要性组任务也有）
   if (input.projectId && input.isStarred) {
     throw new DataError('invalid', '组任务不能收藏');
@@ -33,7 +33,7 @@ export function validateNewTask(input: NewTask): NewTask {
 }
 
 export function validateTaskPatch(patch: TaskPatch): TaskPatch {
-  checkRecurrence(patch.recurrenceRule, patch.recurrenceDtstart);
+  checkRecurrence(patch.recurrenceRule, patch.recurrenceStartOn);
   return patch.title === undefined ? patch : { ...patch, title: requireTitle(patch.title) };
 }
 

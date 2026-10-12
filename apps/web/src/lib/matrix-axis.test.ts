@@ -8,7 +8,7 @@ const sh = (local: string) => new Date(`${local}+08:00`);
 // 固定 now：2026-10-05 是周一，15:54（用户时区）
 const context = { now: sh('2026-10-05T15:54:00'), timeZone };
 
-const task = (id: string, deadlineAt: Date | null): Task => ({
+const task = (id: string, deadlineOn: string | null): Task => ({
   id,
   ownerId: 'u',
   groupId: null,
@@ -17,10 +17,10 @@ const task = (id: string, deadlineAt: Date | null): Task => ({
   endAfterDays: null,
   title: id,
   description: '',
-  deadlineAt,
+  deadlineOn,
   importanceLevel: 3,
   recurrenceRule: null,
-  recurrenceDtstart: null,
+  recurrenceStartOn: null,
   completedAt: null,
   confirmedAt: null,
   isStarred: false,
@@ -29,9 +29,9 @@ const task = (id: string, deadlineAt: Date | null): Task => ({
   deletedAt: null,
 });
 
-/** 某截止时间在某种模式下落在哪一格，以及这一格两侧画出的刻度名；不显示返回 null */
-function cellOf(deadlineAt: Date, mode: MatrixMode) {
-  const { points } = buildMatrixLayout({ tasks: [task('t', deadlineAt)] }, context, mode);
+/** 某截止日期在某种模式下落在哪一格，以及这一格两侧画出的刻度名；不显示返回 null */
+function cellOf(deadlineOn: string, mode: MatrixMode) {
+  const { points } = buildMatrixLayout({ tasks: [task('t', deadlineOn)] }, context, mode);
   expect(points).toHaveLength(1);
   const slot = points[0]!.slot;
   if (slot === null) return null;
@@ -40,16 +40,11 @@ function cellOf(deadlineAt: Date, mode: MatrixMode) {
   return { column, ...cellSideLabels(mode, column) };
 }
 
-/** 日期型（当天最后一刻）与设了具体时刻的任务落格完全相同，不看几点几分 */
+/** 截止日期只到哪一天：按日期落格 */
 function expectCell(mode: MatrixMode, date: string, expected: object | null) {
-  for (const time of ['23:59:59.999', '00:30:00', '16:00:00', '09:00:00']) {
-    const deadline = sh(`${date}T${time}`);
-    // 今天 09:00 与 00:30 已过点，属于逾期区，不在这张表里
-    if (deadline.getTime() < context.now.getTime()) continue;
-    const cell = cellOf(deadline, mode);
-    if (expected === null) expect(cell).toBeNull();
-    else expect(cell).toMatchObject(expected);
-  }
+  const cell = cellOf(date, mode);
+  if (expected === null) expect(cell).toBeNull();
+  else expect(cell).toMatchObject(expected);
 }
 
 /** 2026-10-05 起第 n 天（今天 n = 1）的日期 */
@@ -87,8 +82,8 @@ describe('短期模式对照表（now = 周一 15:54）', () => {
   });
 
   it('今天在最右的普通格，明天在它左边一格', () => {
-    expect(cellOf(sh('2026-10-05T23:59:59.999'), 'short')!.column).toBe(5);
-    expect(cellOf(sh('2026-10-06T23:59:59.999'), 'short')!.column).toBe(4);
+    expect(cellOf('2026-10-05', 'short')!.column).toBe(5);
+    expect(cellOf('2026-10-06', 'short')!.column).toBe(4);
   });
 });
 

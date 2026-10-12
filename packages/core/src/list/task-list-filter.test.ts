@@ -24,10 +24,10 @@ const task = (title: string, fields: Partial<Task> = {}): Task => ({
   endAfterDays: null,
   title,
   description: '',
-  deadlineAt: null,
+  deadlineOn: null,
   importanceLevel: 0,
   recurrenceRule: null,
-  recurrenceDtstart: null,
+  recurrenceStartOn: null,
   completedAt: null,
   // 个人任务完成即确认
   confirmedAt: fields.completedAt ?? null,
@@ -40,10 +40,10 @@ const task = (title: string, fields: Partial<Task> = {}): Task => ({
 
 const tasks = [
   task('无截止'),
-  task('明天', { deadlineAt: sh('2026-09-26T09:00:00') }),
-  task('昨天错过', { deadlineAt: sh('2026-09-24T09:00:00') }),
-  task('已完成', { deadlineAt: sh('2026-09-20T09:00:00'), completedAt: sh('2026-09-19T09:00:00') }),
-  task('下周', { deadlineAt: sh('2026-10-02T09:00:00') }),
+  task('明天', { deadlineOn: '2026-09-26' }),
+  task('昨天错过', { deadlineOn: '2026-09-24' }),
+  task('已完成', { deadlineOn: '2026-09-20', completedAt: sh('2026-09-19T09:00:00') }),
+  task('下周', { deadlineOn: '2026-10-02' }),
   task('已删除', { deletedAt: sh('2026-09-24T00:00:00') }),
 ];
 const categoryIdsByTask = new Map([
@@ -55,10 +55,10 @@ const titles = (list: Task[]) => list.map((t) => t.title);
 
 describe('matchesStatusFilter', () => {
   it('按派生状态筛选，all 不筛选', () => {
-    const missed = { deadlineAt: sh('2026-09-24T09:00:00'), completedAt: null, isStarred: false };
-    expect(matchesStatusFilter(missed, 'missed', context.now)).toBe(true);
-    expect(matchesStatusFilter(missed, 'todo', context.now)).toBe(false);
-    expect(matchesStatusFilter(missed, 'all', context.now)).toBe(true);
+    const missed = { deadlineOn: '2026-09-24', completedAt: null, isStarred: false };
+    expect(matchesStatusFilter(missed, 'missed', '2026-09-25')).toBe(true);
+    expect(matchesStatusFilter(missed, 'todo', '2026-09-25')).toBe(false);
+    expect(matchesStatusFilter(missed, 'all', '2026-09-25')).toBe(true);
   });
 });
 
@@ -94,14 +94,14 @@ describe('buildTaskList', () => {
 describe('循环任务在列表中的状态', () => {
   const gym = task('健身', {
     recurrenceRule: 'FREQ=WEEKLY;BYDAY=MO,WE,FR',
-    recurrenceDtstart: sh('2026-09-21T07:00:00'),
+    recurrenceStartOn: '2026-09-21',
     // 循环任务不看这两个字段
-    deadlineAt: sh('2026-09-01T00:00:00'),
+    deadlineOn: '2026-09-01',
     completedAt: sh('2026-09-02T00:00:00'),
   });
   const ended = task('两次就结束', {
     recurrenceRule: 'FREQ=DAILY;COUNT=2',
-    recurrenceDtstart: sh('2026-09-20T07:00:00'),
+    recurrenceStartOn: '2026-09-20',
   });
 
   it('进行中的循环任务是待办，按代表实例排序；已结束的序列算已完成', () => {
@@ -126,7 +126,7 @@ describe('循环任务在列表中的状态', () => {
           {
             id: 'o1',
             taskId: '健身',
-            occurrenceDate: sh('2026-09-25T07:00:00'),
+            occurrenceDate: '2026-09-25',
             status: 'completed' as const,
             completedAt: sh('2026-09-25T08:00:00'),
             createdAt: sh('2026-09-25T00:00:00'),
@@ -181,14 +181,14 @@ describe('categoriesForQuickAdd', () => {
 
 describe('收藏', () => {
   const starredTasks = [
-    task('星标待办', { isStarred: true, deadlineAt: sh('2026-09-27T09:00:00') }),
+    task('星标待办', { isStarred: true, deadlineOn: '2026-09-27' }),
     task('星标已完成', {
       isStarred: true,
-      deadlineAt: sh('2026-09-20T09:00:00'),
+      deadlineOn: '2026-09-20',
       completedAt: sh('2026-09-19T09:00:00'),
     }),
     task('星标已删除', { isStarred: true, deletedAt: sh('2026-09-24T00:00:00') }),
-    task('没标星', { deadlineAt: sh('2026-09-26T09:00:00') }),
+    task('没标星', { deadlineOn: '2026-09-26' }),
   ];
   const cats = new Map([['星标待办', ['work']]]);
   const build = (categoryIds: string[], status: 'all' | 'todo' | 'completed' | 'missed' = 'all') =>
@@ -233,7 +233,7 @@ describe('待确认（管理组）', () => {
   it('已标记完成、还没确认：状态是待确认，截止时间过了也不算已错过', () => {
     const pending = task('待确认', {
       groupId: 'g',
-      deadlineAt: sh('2026-09-20T09:00:00'),
+      deadlineOn: '2026-09-20',
       completedAt: sh('2026-09-19T09:00:00'),
       confirmedAt: null,
     });
@@ -249,6 +249,6 @@ describe('待确认（管理组）', () => {
     expect(list('completed')).toEqual(['已确认']);
     expect(list('missed')).toEqual([]);
     expect(list('todo')).toEqual([]);
-    expect(deriveTaskStatus(pending, context.now)).toBe('pending');
+    expect(deriveTaskStatus(pending, '2026-09-25')).toBe('pending');
   });
 });

@@ -3,10 +3,11 @@ import { expect, test } from '@playwright/test';
 import {
   collapse,
   createPanel,
-  dateInput,
+  expectDate,
   editPanel,
   localDate,
   openTask,
+  pickDate,
   pickImportance,
   queryRest,
   quickAdd,
@@ -33,7 +34,7 @@ test('展开面板新建：三角旋转、收起不丢内容（三角 / 点外�
   // 快速添加栏里填的标题与选项，展开后仍在
   await page.getByLabel('快速添加任务').fill(title);
   await pickImportance(quickAddBar(page), 3);
-  await dateInput(quickAddBar(page)).fill(localDate(2));
+  await pickDate(quickAddBar(page), localDate(2));
 
   // 三角：命中区域至少 44×44；展开后朝上（旋转 180°）
   const toggle = expandToggle(page);
@@ -58,10 +59,27 @@ test('展开面板新建：三角旋转、收起不丢内容（三角 / 点外�
     'aria-pressed',
     'true',
   );
-  await expect(dateInput(panel)).toHaveValue(localDate(2));
+  await expectDate(panel, localDate(2));
+
+  // 四个固定模块，从上到下：描述 + 分类、时间、人物、子任务
+  await expect(panel.locator('section.editor-module')).toHaveCount(4);
+  expect(
+    await panel
+      .locator('section.editor-module')
+      .evaluateAll((els) => els.map((e) => e.getAttribute('aria-label'))),
+  ).toEqual(['描述', '时间', '人物', '子任务清单']);
+  await expect(
+    panel.getByRole('region', { name: '描述' }).getByRole('group', { name: '分类' }),
+  ).toBeVisible();
+  await expect(
+    panel.getByRole('region', { name: '时间' }).getByRole('switch', { name: '重复' }),
+  ).toBeVisible();
+  // 没有地点、没有时刻
+  await expect(panel.getByText('地点')).toHaveCount(0);
+  await expect(panel.getByRole('button', { name: '选择时刻' })).toHaveCount(0);
 
   // 字段以图标为标签：只有给读屏软件的 aria-label，没有悬停提示
-  for (const name of ['描述', '分类', '重复', '地点', '人物', '截止日期', '重要性']) {
+  for (const name of ['描述', '分类', '重复', '人物', '子任务', '重要性']) {
     const icon = panel.locator(`.field-icon[aria-label="${name}"]`);
     await expect(icon).toHaveCount(1);
     await expect(icon).not.toHaveAttribute('title', /.*/);
@@ -70,10 +88,9 @@ test('展开面板新建：三角旋转、收起不丢内容（三角 / 点外�
   await expect(page.locator('[title]')).toHaveCount(0);
 
   await panel.getByRole('textbox', { name: '描述' }).fill('带上身份证');
-  await panel.getByLabel('地点名称').fill('市民中心');
   await panel.getByRole('button', { name: '添加人物' }).click();
   await panel.getByLabel('第 1 个人物的姓名').fill('王五');
-  await panel.getByLabel('第 1 个人物的关系').fill('同事');
+  await panel.getByLabel('第 1 个人物的备注').fill('同事');
 
   // 1) 再点三角收起：内容保留
   await collapseButton.click();
@@ -92,7 +109,7 @@ test('展开面板新建：三角旋转、收起不丢内容（三角 / 点外�
   await page.keyboard.press('Escape');
   await expect(panel).toHaveCount(0);
   await expandToggle(page).click();
-  await expect(panel.getByLabel('地点名称')).toHaveValue('市民中心');
+  await expect(panel.getByLabel('第 1 个人物的备注')).toHaveValue('同事');
 
   // 对勾：创建并收起，草稿清空
   await panel.getByRole('button', { name: '创建' }).click();
@@ -103,7 +120,7 @@ test('展开面板新建：三角旋转、收起不丢内容（三角 / 点外�
 
   const taskId = await openTask(page, title);
   await expect(editPanel(page).getByRole('textbox', { name: '描述' })).toHaveValue('带上身份证');
-  await expect(editPanel(page).getByLabel('第 1 个人物的关系')).toHaveValue('同事');
+  await expect(editPanel(page).getByLabel('第 1 个人物的备注')).toHaveValue('同事');
   const people = await queryRest<{ name: string }[]>(request, `task_people?task_id=eq.${taskId}`);
   expect(people.map((p) => p.name)).toEqual(['王五']);
 });
@@ -167,7 +184,7 @@ test('同一时间只展开一个面板；打开另一个时当前的收起（�
   await expect(page.getByLabel('快速添加任务')).toHaveValue(`${id} 草稿`);
 });
 
-test('编辑地点与多个人物（点 ✓ 保存）；删除人物与清空描述不确认，提示条可撤销', async ({
+test('编辑多个人物（名字 + 备注）（点 ✓ 保存）；删除人物与清空描述不确认，提示条可撤销', async ({
   page,
   request,
 }) => {
@@ -182,11 +199,9 @@ test('编辑地点与多个人物（点 ✓ 保存）；删除人物与清空描
   await expect(panel.getByRole('button', { name: /保存|还原/ })).toHaveCount(0);
 
   await panel.getByRole('textbox', { name: '描述' }).fill('带两份合同');
-  await panel.getByLabel('地点名称').fill('客户公司');
-  await panel.getByLabel('地址').fill('人民路 1 号');
   await panel.getByRole('button', { name: '添加人物' }).click();
   await panel.getByLabel('第 1 个人物的姓名').fill('张三');
-  await panel.getByLabel('第 1 个人物的关系').fill('客户');
+  await panel.getByLabel('第 1 个人物的备注').fill('客户');
   await panel.getByRole('button', { name: '添加人物' }).click();
   await panel.getByLabel('第 2 个人物的姓名').fill('李四');
   await panel.getByRole('button', { name: '添加人物' }).click(); // 空行保存时被忽略
@@ -196,25 +211,23 @@ test('编辑地点与多个人物（点 ✓ 保存）；删除人物与清空描
   await page.reload();
   await openTask(page, title);
   await expect(panel.getByRole('textbox', { name: '描述' })).toHaveValue('带两份合同');
-  await expect(panel.getByLabel('地点名称')).toHaveValue('客户公司');
+  await expect(panel.getByLabel('第 1 个人物的备注')).toHaveValue('客户');
   await expect(panel.getByLabel('第 1 个人物的姓名')).toHaveValue('张三');
   await expect(panel.getByLabel('第 2 个人物的姓名')).toHaveValue('李四');
   await expect(panel.getByLabel('第 3 个人物的姓名')).toHaveCount(0);
 
-  const [location] = await queryRest<Record<string, unknown>[]>(
-    request,
-    `task_locations?task_id=eq.${taskId}`,
-  );
-  expect(location).toMatchObject({ name: '客户公司', place_id: null, lat: null, lng: null });
-  const people = await queryRest<{ id: string; name: string }[]>(
+  const people = await queryRest<{ id: string; name: string; note: string }[]>(
     request,
     `task_people?task_id=eq.${taskId}&order=created_at`,
   );
-  expect(people.map((p) => p.name)).toEqual(['张三', '李四']);
+  expect(people.map((p) => [p.name, p.note])).toEqual([
+    ['张三', '客户'],
+    ['李四', ''],
+  ]);
 
-  // 只填关系不填姓名 → 提示错误，人物不写入
+  // 只填备注不填姓名 → 提示错误，人物不写入
   await panel.getByRole('button', { name: '添加人物' }).click();
-  await panel.getByLabel('第 3 个人物的关系').fill('同事');
+  await panel.getByLabel('第 3 个人物的备注').fill('同事');
   await expect(panel).toContainText('第 3 个人物缺少姓名');
   await panel.getByRole('button', { name: '删除第 3 个人物' }).click();
   await expect(toast(page, '已删除人物「同事」')).toBeVisible();
@@ -260,12 +273,6 @@ test('编辑地点与多个人物（点 ✓ 保存）；删除人物与清空描
     `task_people?task_id=eq.${taskId}&order=created_at`,
   );
   expect(after.map((p) => p.name)).toEqual(['张三', '李四']);
-
-  // 清空地点：保存后删除记录
-  await panel.getByLabel('地点名称').fill('');
-  await panel.getByLabel('地址').fill('');
-  await waitSaved(page);
-  expect(await queryRest<unknown[]>(request, `task_locations?task_id=eq.${taskId}`)).toEqual([]);
 });
 
 test('只在点 ✓ 时保存：点别处不保存，先确认（放弃修改 / 继续编辑）；单行输入框里按回车也保存', async ({

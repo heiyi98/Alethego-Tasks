@@ -1,12 +1,8 @@
 import {
   IMPORTANCE_DEFAULT,
-  endOfLocalDay,
-  normalizeLocationDraft,
   normalizePeopleDrafts,
   normalizeTaskTitle,
   type ImportanceLevel,
-  type TaskLocation,
-  type TaskLocationDraft,
   type TaskPerson,
   type TaskPersonDraft,
   type EndMode,
@@ -22,17 +18,19 @@ import type {
   TaskPatch,
 } from '@alethego/data';
 
-import { fromDateTimeLocalValue, fromDateValue, toDateValue, toTimeValue } from './format';
+import { toDateValue } from './format';
 import {
+  defaultRecurrenceForm,
   recurrenceFormFromTask,
   recurrencePatch,
+  sameRecurrence,
   type RecurrenceFormState,
 } from './recurrence-form';
 
 /**
  * 任务面板的表单值：新建与编辑共用同一份结构与同一个组件（TaskEditor）。
- * 截止时间：本地日期（YYYY-MM-DD）+ 可选的时刻（HH:MM）。
- * 没选时刻 = 当天最后一刻（过完当天才算已错过）；选了时刻 = 过了那个时刻就算已错过。
+ * 截止日期只到"哪一天"（YYYY-MM-DD），那一天过完才算已错过。
+ * 循环任务：第二行的日期就是开始日期；建好后显示当前这一次的日期，改它就从这天起重新排以后的各次。
  */
 
 export interface PersonRow {
@@ -40,7 +38,7 @@ export interface PersonRow {
   key: string;
   id?: string;
   name: string;
-  relation: string;
+  note: string;
 }
 
 /** 子任务清单的一行：有 id 的是已保存的子任务 */
@@ -53,16 +51,13 @@ export interface SubtaskRow {
 export interface TaskFormValue {
   title: string;
   description: string;
-  /** 本地日期 YYYY-MM-DD；空字符串 = 没有截止日期 */
+  /** 截止日期 YYYY-MM-DD；空字符串 = 没有截止日期。循环任务：开始日期 / 当前这一次的日期 */
   deadline: string;
-  /** 本地时刻 HH:MM；空字符串 = 没选具体时刻 */
-  deadlineTime: string;
   importanceLevel: ImportanceLevel;
   categoryIds: string[];
   completed: boolean;
   isStarred: boolean;
   recurrence: RecurrenceFormState;
-  location: TaskLocationDraft;
   people: PersonRow[];
   /** RACI（管理组）；其他容器为空 */
   raci: AssignmentDraft[];
@@ -78,7 +73,7 @@ export interface RelationDraft extends RelationRef {
 }
 
 /**
- * 两行逻辑。结束是固定日期时，日期就是上面的截止日期（deadline / deadlineTime）。
+ * 两行逻辑。结束是固定日期时，日期就是第二行的截止日期（deadline）。
  * 没选好任务的关系（predecessorId 为空）不保存。
  */
 export interface ScheduleFormValue {
@@ -119,7 +114,7 @@ export function scheduleFormFrom(
 }
 
 /** 两行逻辑 → 保存用的输入（只保留当前方式用到的部分） */
-export function scheduleInputFrom(schedule: ScheduleFormValue, timeZone: string): ScheduleInput {
+export function scheduleInputFrom(schedule: ScheduleFormValue): ScheduleInput {
   const refs = (list: readonly RelationDraft[]) =>
     list
       .filter((r) => r.predecessorId)
@@ -129,21 +124,13 @@ export function scheduleInputFrom(schedule: ScheduleFormValue, timeZone: string)
     startRelations: schedule.startMode === 'relations' ? refs(schedule.startRelations) : [],
     endAfterDays: schedule.endMode === 'after_start' ? schedule.endAfterDays : null,
     endRelations: schedule.endMode === 'relations' ? refs(schedule.endRelations) : [],
-    dateZone: timeZone,
   };
 }
 
 /** 两行逻辑保存的内容是否相同 */
-export function sameSchedule(
-  a: ScheduleFormValue | null,
-  b: ScheduleFormValue | null,
-  timeZone: string,
-): boolean {
+export function sameSchedule(a: ScheduleFormValue | null, b: ScheduleFormValue | null): boolean {
   if (!a || !b) return a === b;
-  return (
-    JSON.stringify(scheduleInputFrom(a, timeZone)) ===
-    JSON.stringify(scheduleInputFrom(b, timeZone))
-  );
+  return JSON.stringify(scheduleInputFrom(a)) === JSON.stringify(scheduleInputFrom(b));
 }
 
 let rowSeq = 0;
@@ -154,13 +141,11 @@ export function emptyTaskForm(categoryIds: string[] = []): TaskFormValue {
     title: '',
     description: '',
     deadline: '',
-    deadlineTime: '',
     importanceLevel: IMPORTANCE_DEFAULT,
     categoryIds,
     completed: false,
     isStarred: false,
-    recurrence: { enabled: false, spec: null, customRule: null, dtstart: '' },
-    location: { name: '', address: '' },
+    recurrence: defaultRecurrenceForm(toDateValue(new Date())),
     people: [],
     raci: [],
     schedule: null,
@@ -187,32 +172,37 @@ export function sameSubtasks(a: readonly SubtaskRow[], b: readonly SubtaskRow[])
 }
 
 export function peopleRows(people: readonly TaskPerson[]): PersonRow[] {
-  return people.map((p) => ({ key: p.id, id: p.id, name: p.name, relation: p.relation }));
+  return people.map((p) => ({ key: p.id, id: p.id, name: p.name, note: p.note }));
 }
 
-export function locationDraft(location: TaskLocation | null): TaskLocationDraft {
-  return { name: location?.name ?? '', address: location?.address ?? '' };
-}
-
+/**
+ * 已保存的任务 → 表单。currentDate：循环任务当前这一次的日期（第二行显示它）；
+ * 序列已结束时为 null，显示开始日期。
+ */
 export function taskFormFromDetail(
   detail: TaskDetail,
-  timeZone: string,
   raci: readonly AssignmentDraft[] = [],
   schedule: ScheduleFormValue | null = null,
   subtasks: readonly { id: string; title: string }[] = [],
+  currentDate: string | null = null,
 ): TaskFormValue {
   const { task } = detail;
+  const recurring = task.recurrenceRule !== null;
+  const deadline = recurring
+    ? (currentDate ?? task.recurrenceStartOn ?? '')
+    : (task.deadlineOn ?? '');
   return {
     title: task.title,
     description: task.description,
-    deadline: task.deadlineAt ? toDateValue(task.deadlineAt) : '',
-    deadlineTime: task.deadlineAt ? toTimeValue(task.deadlineAt, timeZone) : '',
+    deadline,
     importanceLevel: task.importanceLevel,
     categoryIds: detail.categoryIds,
     completed: task.completedAt !== null,
     isStarred: task.isStarred,
-    recurrence: recurrenceFormFromTask(task),
-    location: locationDraft(detail.location),
+    recurrence: recurrenceFormFromTask(
+      task,
+      task.recurrenceStartOn ?? (deadline || toDateValue(new Date())),
+    ),
     people: peopleRows(detail.people),
     raci: [...raci],
     schedule,
@@ -230,14 +220,6 @@ export function sameRaci(a: readonly AssignmentDraft[], b: readonly AssignmentDr
   return key(a) === key(b);
 }
 
-/** 截止日期（本地日期）+ 可选时刻 → 截止时间；没选时刻时取该日的本地日终点 */
-export function deadlineFromForm(date: string, time: string, timeZone: string): Date | null {
-  if (!date) return null;
-  if (time) return fromDateTimeLocalValue(`${date}T${time}`);
-  const day = fromDateValue(date);
-  return day ? endOfLocalDay(day, timeZone) : null;
-}
-
 /** 新建草稿是否已填写了内容（用于"放弃"前的确认）；与页面默认值（所选分类、收藏里的标星）相同不算 */
 export function isDraftDirty(
   form: TaskFormValue,
@@ -252,13 +234,10 @@ export function isDraftDirty(
     form.title.trim() !== '' ||
     form.description.trim() !== '' ||
     form.deadline !== '' ||
-    form.deadlineTime !== '' ||
     form.importanceLevel !== IMPORTANCE_DEFAULT ||
     form.isStarred !== defaults.isStarred ||
     form.recurrence.enabled ||
-    form.location.name.trim() !== '' ||
-    form.location.address.trim() !== '' ||
-    form.people.some((p) => p.name.trim() || p.relation.trim()) ||
+    form.people.some((p) => p.name.trim() || p.note.trim()) ||
     form.subtasks.some((s) => s.title.trim()) ||
     [...form.categoryIds].sort().join() !== [...defaultCategoryIds].sort().join() ||
     !sameRaci(form.raci, defaults.raci ?? [])
@@ -276,6 +255,7 @@ export function validateTaskForm(form: TaskFormValue): FormErrors {
   if (!normalizeTaskTitle(form.title)) errors.title = '标题不能为空';
   const recurrence = recurrencePatch(form.recurrence);
   if (!recurrence.ok) errors.recurrence = recurrence.error;
+  else if (form.recurrence.enabled && !form.deadline) errors.recurrence = '请选择开始日期';
   const people = normalizePeopleDrafts(form.people);
   if (!people.ok) errors.people = `第 ${people.index + 1} 个人物缺少姓名`;
   return errors;
@@ -287,7 +267,6 @@ export function validateTaskForm(form: TaskFormValue): FormErrors {
  */
 export function newTaskFromForm(
   form: TaskFormValue,
-  timeZone: string,
   container: { groupId: string; projectId: string } | null = null,
 ): NewTask {
   const groupId = container?.groupId ?? null;
@@ -297,10 +276,11 @@ export function newTaskFromForm(
     title: normalizeTaskTitle(form.title) ?? form.title,
     description: form.description.trim(),
     importanceLevel: form.importanceLevel,
-    deadlineAt: recurring ? null : deadlineFromForm(form.deadline, form.deadlineTime, timeZone),
+    // 循环任务：第二行的日期是开始日期；截止日期不用
+    deadlineOn: recurring ? null : form.deadline || null,
     isStarred: groupId ? false : form.isStarred,
     recurrenceRule: recurrence.ok ? recurrence.recurrenceRule : null,
-    recurrenceDtstart: recurrence.ok ? (recurrence.recurrenceDtstart ?? null) : null,
+    recurrenceStartOn: recurring ? form.deadline || null : null,
     ...(container ? { groupId: container.groupId, projectId: container.projectId } : {}),
   };
 }
@@ -309,11 +289,7 @@ export function newTaskFromForm(
  * 编辑：比较当前表单与上次保存的表单，只生成有变化且合法的字段。
  * 标题为空、循环规则不合法时跳过对应字段（界面提示错误，等用户改好后再保存）。
  */
-export function taskPatchFromForms(
-  current: TaskFormValue,
-  saved: TaskFormValue,
-  timeZone: string,
-): TaskPatch {
+export function taskPatchFromForms(current: TaskFormValue, saved: TaskFormValue): TaskPatch {
   const patch: TaskPatch = {};
   const title = normalizeTaskTitle(current.title);
   if (title && current.title !== saved.title) patch.title = title;
@@ -323,17 +299,17 @@ export function taskPatchFromForms(
   }
   if (current.isStarred !== saved.isStarred) patch.isStarred = current.isStarred;
 
-  const recurrenceChanged = JSON.stringify(current.recurrence) !== JSON.stringify(saved.recurrence);
+  const recurrenceChanged = !sameRecurrence(current.recurrence, saved.recurrence);
   const recurrence = recurrencePatch(current.recurrence);
-  if (recurrenceChanged && recurrence.ok) {
-    patch.recurrenceRule = recurrence.recurrenceRule;
-    if (recurrence.recurrenceDtstart) patch.recurrenceDtstart = recurrence.recurrenceDtstart;
-  }
-  // 循环任务的截止时间与完成状态由规则和每次实例决定，这两个字段只对普通任务生效
-  if (!current.recurrence.enabled) {
-    if (current.deadline !== saved.deadline || current.deadlineTime !== saved.deadlineTime) {
-      patch.deadlineAt = deadlineFromForm(current.deadline, current.deadlineTime, timeZone);
-    }
+  if (recurrenceChanged && recurrence.ok) patch.recurrenceRule = recurrence.recurrenceRule;
+  const dateChanged = current.deadline !== saved.deadline;
+  const switched = current.recurrence.enabled !== saved.recurrence.enabled;
+  if (current.recurrence.enabled) {
+    // 循环任务：改第二行的日期 = 从这天起重新排以后的各次（换开始日期）；过去的历史不变
+    if ((dateChanged || switched) && current.deadline) patch.recurrenceStartOn = current.deadline;
+  } else {
+    // 普通任务的截止日期与完成状态（循环任务由规则和每一次决定）
+    if (dateChanged || switched) patch.deadlineOn = current.deadline || null;
     if (current.completed !== saved.completed) {
       patch.completedAt = current.completed ? new Date() : null;
     }
@@ -342,21 +318,15 @@ export function taskPatchFromForms(
 }
 
 export function peopleDrafts(rows: readonly PersonRow[]): TaskPersonDraft[] {
-  return rows.map((r) => ({ ...(r.id ? { id: r.id } : {}), name: r.name, relation: r.relation }));
-}
-
-export function sameLocation(a: TaskLocationDraft, b: TaskLocationDraft): boolean {
-  const na = normalizeLocationDraft(a);
-  const nb = normalizeLocationDraft(b);
-  return JSON.stringify(na) === JSON.stringify(nb);
+  return rows.map((r) => ({ ...(r.id ? { id: r.id } : {}), name: r.name, note: r.note }));
 }
 
 export function samePeople(a: readonly PersonRow[], b: readonly PersonRow[]): boolean {
   const key = (rows: readonly PersonRow[]) =>
     JSON.stringify(
       rows
-        .filter((r) => r.name.trim() || r.relation.trim())
-        .map((r) => [r.id ?? null, r.name.trim(), r.relation.trim()]),
+        .filter((r) => r.name.trim() || r.note.trim())
+        .map((r) => [r.id ?? null, r.name.trim(), r.note.trim()]),
     );
   return key(a) === key(b);
 }

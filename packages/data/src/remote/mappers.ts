@@ -1,7 +1,6 @@
 import {
   isImportanceLevel,
   type Category,
-  type TaskLocation,
   type TaskPerson,
   type RecurrenceOccurrence,
   type Task,
@@ -11,7 +10,10 @@ import { DataError } from '../errors';
 import type { NewTask, TaskPatch } from '../interfaces/repositories';
 import type { TableInsert, TableRow, TableUpdate } from './database.types';
 
-/** 数据库行（snake_case、ISO 字符串）与领域对象（camelCase、Date）之间的转换。 */
+/**
+ * 数据库行（snake_case）与领域对象（camelCase）之间的转换。时间点是 Date；只到某一天的日期
+ * （截止日期、循环的日期）两边都是 "YYYY-MM-DD"，原样传递。
+ */
 
 const toDate = (value: string): Date => new Date(value);
 const toNullableDate = (value: string | null): Date | null => (value ? new Date(value) : null);
@@ -34,10 +36,10 @@ export function taskFromRow(row: TableRow<'tasks'>): Task {
     endAfterDays: row.end_after_days ?? null,
     title: row.title,
     description: row.description,
-    deadlineAt: toNullableDate(row.deadline_at),
+    deadlineOn: row.deadline_on,
     importanceLevel: row.importance_level,
     recurrenceRule: row.recurrence_rule,
-    recurrenceDtstart: toNullableDate(row.recurrence_dtstart),
+    recurrenceStartOn: row.recurrence_start_on,
     completedAt: toNullableDate(row.completed_at),
     // 迁移前的数据库没有这一列：视为完成即确认
     confirmedAt: toNullableDate(
@@ -57,10 +59,10 @@ export function taskToInsert(input: NewTask, ownerId: string): TableInsert<'task
     project_id: input.projectId ?? null,
     title: input.title,
     description: input.description ?? '',
-    deadline_at: toNullableIso(input.deadlineAt),
+    deadline_on: input.deadlineOn ?? null,
     importance_level: input.importanceLevel ?? 0,
     recurrence_rule: input.recurrenceRule ?? null,
-    recurrence_dtstart: toNullableIso(input.recurrenceDtstart),
+    recurrence_start_on: input.recurrenceStartOn ?? null,
     is_starred: input.isStarred ?? false,
   };
 }
@@ -69,11 +71,11 @@ export function taskPatchToUpdate(patch: TaskPatch): TableUpdate<'tasks'> {
   const update: TableUpdate<'tasks'> = {};
   if (patch.title !== undefined) update.title = patch.title;
   if (patch.description !== undefined) update.description = patch.description;
-  if (patch.deadlineAt !== undefined) update.deadline_at = toNullableIso(patch.deadlineAt);
+  if (patch.deadlineOn !== undefined) update.deadline_on = patch.deadlineOn;
   if (patch.importanceLevel !== undefined) update.importance_level = patch.importanceLevel;
   if (patch.recurrenceRule !== undefined) update.recurrence_rule = patch.recurrenceRule;
-  if (patch.recurrenceDtstart !== undefined) {
-    update.recurrence_dtstart = toNullableIso(patch.recurrenceDtstart);
+  if (patch.recurrenceStartOn !== undefined) {
+    update.recurrence_start_on = patch.recurrenceStartOn;
   }
   if (patch.completedAt !== undefined) update.completed_at = toNullableIso(patch.completedAt);
   if (patch.confirmedAt !== undefined) update.confirmed_at = toNullableIso(patch.confirmedAt);
@@ -97,21 +99,10 @@ export function occurrenceFromRow(row: TableRow<'recurrence_occurrences'>): Recu
   return {
     id: row.id,
     taskId: row.task_id,
-    occurrenceDate: toDate(row.occurrence_date),
+    occurrenceDate: row.occurrence_date,
     status: row.status,
     completedAt: toNullableDate(row.completed_at),
     createdAt: toDate(row.created_at),
-  };
-}
-
-export function locationFromRow(row: TableRow<'task_locations'>): TaskLocation {
-  return {
-    taskId: row.task_id,
-    name: row.name,
-    address: row.address,
-    placeId: row.place_id,
-    lat: row.lat,
-    lng: row.lng,
   };
 }
 
@@ -120,7 +111,7 @@ export function personFromRow(row: TableRow<'task_people'>): TaskPerson {
     id: row.id,
     taskId: row.task_id,
     name: row.name,
-    relation: row.relation,
+    note: row.note,
     contactId: row.contact_id,
     createdAt: toDate(row.created_at),
   };

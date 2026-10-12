@@ -5,7 +5,6 @@ import type {
   IOccurrenceRepository,
   IProjectRepository,
   IRelationRepository,
-  ITaskLocationRepository,
   ITaskPeopleRepository,
   ITaskRepository,
   ISubtaskRepository,
@@ -18,7 +17,6 @@ export interface DataStore {
   categories: ICategoryRepository;
   occurrences: IOccurrenceRepository;
   /** 任务详情扩展：地点 / 人物（由 TaskDetailAggregator 统一拼装） */
-  locations: ITaskLocationRepository;
   people: ITaskPeopleRepository;
   /** 组：名单、邀请、删除组的投票、通知 */
   groups: IGroupRepository;

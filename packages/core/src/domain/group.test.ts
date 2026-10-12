@@ -162,6 +162,18 @@ describe('身份与权限', () => {
     expect(Object.values(projectMemberActions('management', 'member', member))).not.toContain(true);
   });
 
+  it('组的默认项目：全组成员都在里面，不能移出；管理员照常任命', () => {
+    const member = { role: 'member', isMe: false } as const;
+    expect(projectMemberActions('management', 'leader', member, { isDefault: true })).toEqual({
+      appointAdmin: true,
+      revokeAdmin: false,
+      remove: false,
+    });
+    expect(projectMemberActions('management', 'admin', member, { isDefault: true }).remove).toBe(
+      false,
+    );
+  });
+
   it('任务：没开任务分配时项目成员都能标记完成；开了时按 RACI', () => {
     expect(taskPermissions(null, [])).toMatchObject({ edit: true, complete: true });
     expect(taskPermissions({ tools: [], myRole: 'member' }, [])).toEqual({

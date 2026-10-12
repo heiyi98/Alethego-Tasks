@@ -18,6 +18,7 @@ export * from './quadrant/quadrant-classifier';
 
 export * from './recurrence/recurrence-engine';
 export * from './recurrence/recurrence-rule';
+export * from './recurrence/calendar';
 
 export * from './representative/task-representative';
 

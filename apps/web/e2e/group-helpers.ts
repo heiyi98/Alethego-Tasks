@@ -9,7 +9,7 @@ export type GroupUser = Credentials & { name: string };
 export const sidebar = (page: Page) => page.getByRole('navigation', { name: '主菜单' });
 export const groupSection = (page: Page) => sidebar(page).getByRole('region', { name: '组' });
 export const groupLink = (page: Page, name: string) =>
-  groupSection(page).getByRole('link', { name, exact: false });
+  groupSection(page).locator('.sidebar-group-row').getByRole('link', { name, exact: false });
 /** 侧边栏里组下面的项目 */
 export const projectLink = (page: Page, name: string) =>
   groupSection(page).locator('.sidebar-projects').getByRole('link', { name, exact: false });
@@ -167,9 +167,9 @@ export async function groupTask(
       p_project_id: projectId,
       p_title: title,
       p_description: (fields.description as string | undefined) ?? '',
-      p_deadline_at: (fields.deadline_at as string | undefined) ?? null,
+      p_deadline_on: (fields.deadline_on as string | undefined) ?? null,
       p_recurrence_rule: null,
-      p_recurrence_dtstart: null,
+      p_recurrence_start_on: null,
       p_assignments: raci.map((a) =>
         a.userId ? { role: a.role, user_id: a.userId } : { role: a.role, contact_id: a.contactId },
       ),

@@ -433,8 +433,10 @@ export function ProjectRosterDialog({
     if (ok) await run(() => repositories.projects.removeContact(contact.id));
   }
 
-  // 还不在项目里的小组成员：可以直接加入
-  const addable = groupMembers.filter((m) => !members.some((p) => p.userId === m.userId));
+  // 还不在项目里的小组成员：可以直接加入（默认项目里是全组成员，没有加人、邀请、退出）
+  const addable = project.isDefault
+    ? []
+    : groupMembers.filter((m) => !members.some((p) => p.userId === m.userId));
   const showRoles = GROUP_KIND_CONFIG[group.kind].projectAdmins;
 
   return (
@@ -445,7 +447,7 @@ export function ProjectRosterDialog({
           onAdd={(userId) => run(() => repositories.projects.addMember(project.id, userId))}
         />
       )}
-      {permissions?.manageMembers && (
+      {permissions?.manageMembers && !project.isDefault && (
         <EmailForm
           label="邀请"
           submitLabel="邀请"
@@ -467,7 +469,9 @@ export function ProjectRosterDialog({
 
       <ul className="roster-list" aria-label="成员">
         {members.map((member) => {
-          const actions = projectMemberActions(group.kind, project.myRole, member);
+          const actions = projectMemberActions(group.kind, project.myRole, member, {
+            isDefault: project.isDefault,
+          });
           const open = menuFor === member.userId;
           return (
             <RosterRow
@@ -497,7 +501,7 @@ export function ProjectRosterDialog({
                     移出项目
                   </button>
                 ),
-                member.isMe && permissions?.leave && (
+                member.isMe && permissions?.leave && !project.isDefault && (
                   <button
                     key="leave"
                     type="button"

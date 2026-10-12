@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { addDays, dateOfInstant, daysBetween, endOfDate, latestDate } from './calendar-date';
+import { addDays, dateOfInstant, daysBetween, latestDate } from './calendar-date';
 import { computeFloat, type PlanItem, type PlanLink } from './critical-path';
 import { findCycle, topologicalOrder, wouldCreateCycle } from './relation-cycles';
 import {
@@ -43,11 +43,6 @@ describe('日历日', () => {
     const instant = new Date('2026-10-05T16:30:00Z');
     expect(dateOfInstant(instant, 'Asia/Shanghai')).toBe('2026-10-06');
     expect(dateOfInstant(instant, 'America/Los_Angeles')).toBe('2026-10-05');
-    expect(endOfDate('2026-10-06', 'Asia/Shanghai').toISOString()).toBe('2026-10-06T15:59:59.999Z');
-    // 夏令时开始的那一天（纽约 2026-03-08 只有 23 小时）
-    expect(endOfDate('2026-03-08', 'America/New_York').toISOString()).toBe(
-      '2026-03-09T03:59:59.999Z',
-    );
   });
 });
 

@@ -1,6 +1,5 @@
 import {
   computeScheduleDates,
-  dateOfInstant,
   taskHasRelations,
   waitingOn,
   type Category,
@@ -20,12 +19,9 @@ import type { TaskListData } from '@/hooks/use-task-list-data';
  * 日期的计算本身在 packages/core/src/schedule。
  */
 
-/** 任务的开始和结束日期（结束 = 截止时间在用户时区里的日期） */
-export function taskDates(task: Task, timeZone: string): ScheduledDates {
-  return {
-    start: task.startOn,
-    end: task.deadlineAt ? dateOfInstant(task.deadlineAt, timeZone) : null,
-  };
+/** 任务的开始和结束日期（结束 = 截止日期） */
+export function taskDates(task: Task): ScheduledDates {
+  return { start: task.startOn, end: task.deadlineOn };
 }
 
 /** 任务挂着的分类 */
@@ -134,7 +130,6 @@ export function previewDates(
   },
   endOn: string,
   data: TaskListData,
-  timeZone: string,
 ): ScheduledDates {
   const valid = (refs: readonly RelationRef[]) => refs.filter((r) => r.predecessorId);
   const byId = new Map(data.tasks.map((t) => [t.id, t]));
@@ -149,7 +144,7 @@ export function previewDates(
     },
     (id) => {
       const t = byId.get(id);
-      return t && !t.deletedAt ? taskDates(t, timeZone) : undefined;
+      return t && !t.deletedAt ? taskDates(t) : undefined;
     },
   );
 }

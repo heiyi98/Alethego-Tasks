@@ -92,7 +92,10 @@ export function GroupSection({
         <>
           <ul>
             {data?.groups.map((group) => {
-              const projects = data.projects.filter((p) => p.groupId === group.id);
+              // 组的默认项目排在最前面
+              const projects = data.projects
+                .filter((p) => p.groupId === group.id)
+                .sort((a, b) => Number(b.isDefault) - Number(a.isDefault));
               const expanded = !collapsedGroups.has(group.id);
               const leader = group.myRole === 'leader';
               return (
@@ -197,7 +200,8 @@ export function GroupSection({
                                 </span>
                               )}
                             </Link>
-                            {project.myRole === 'leader' && (
+                            {/* 默认项目的名字、颜色跟着组走，不能单独删除：没有可编辑的内容 */}
+                            {project.myRole === 'leader' && !project.isDefault && (
                               <IconButton
                                 label={`编辑项目「${project.name}」`}
                                 className="sidebar-edit"

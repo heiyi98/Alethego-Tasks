@@ -151,7 +151,7 @@ function MatrixPage() {
                         now={now}
                         timeZone={timeZone}
                         onToggleComplete={toggleComplete}
-                        deadline={point.representative.occurrenceAt ?? point.task.deadlineAt}
+                        deadline={point.representative.occurrenceDate ?? point.task.deadlineOn}
                       />
                     ))}
                   </ul>

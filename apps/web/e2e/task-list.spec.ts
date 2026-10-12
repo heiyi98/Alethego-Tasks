@@ -4,11 +4,13 @@ import {
   categoryItem,
   collapse,
   createCategory,
-  dateInput,
+  dateButton,
   editPanel,
+  expectDate,
   expectTitles,
   localDate,
   openTask,
+  pickDate,
   queryRest,
   quickAdd,
   quickAddBar,
@@ -18,11 +20,9 @@ import {
   selectCategory,
   selectScope,
   selectStatus,
-  setTime,
   sidebar,
   statusBar,
   taskItem,
-  timeInput,
   titleBox,
   toast,
   waitSaved,
@@ -50,7 +50,7 @@ test('快速添加带重要性与截止日期、按截止时间排序、状态�
     'aria-pressed',
     'true',
   );
-  await expect(dateInput(bar)).toHaveValue('');
+  await expectDate(bar, '');
 
   await quickAdd(page, t('无截止'));
   await quickAdd(page, t('下周'), { deadline: localDate(7) });
@@ -62,7 +62,7 @@ test('快速添加带重要性与截止日期、按截止时间排序、状态�
     'aria-pressed',
     'true',
   );
-  await expect(dateInput(bar)).toHaveValue('');
+  await expectDate(bar, '');
 
   // 全部：截止时间从近到远，无截止时间排最后
   await expectTitles(page, id, [t('已过期'), t('明天'), t('下周'), t('无截止')]);
@@ -107,7 +107,7 @@ test('快速添加带重要性与截止日期、按截止时间排序、状态�
   // 在面板里改截止日期：自动保存，列表随之重排
   await selectStatus(page, '全部');
   await openTask(page, t('无截止'));
-  await dateInput(editPanel(page)).fill(localDate(3));
+  await pickDate(editPanel(page).locator('.quick-options'), localDate(3));
   await waitSaved(page);
   await collapse(page);
   const order = [t('已过期'), t('明天'), t('无截止'), t('下周'), t('在已完成里新建')];
@@ -116,7 +116,7 @@ test('快速添加带重要性与截止日期、按截止时间排序、状态�
   await expectTitles(page, id, order);
 });
 
-test('具体时刻：没选时刻过完当天才算错过，选了时刻过了那一刻就算错过', async ({
+test('截止日期只到哪一天：当天过完才算错过；存的是日期；日历选日子、翻月，右上角留着切换历法的位置', async ({
   page,
   request,
 }) => {
@@ -125,47 +125,55 @@ test('具体时刻：没选时刻过完当天才算错过，选了时刻过了�
   await page.goto('/');
   await selectStatus(page, '全部');
 
-  await quickAdd(page, t('今天全天'), { deadline: localDate(0) });
-  // 今天 00:00 已经过去（除非恰好在午夜运行）
-  await quickAdd(page, t('今天零点'), { deadline: localDate(0), time: '00:00' });
-  await quickAdd(page, t('明早九点'), { deadline: localDate(1), time: '09:00' });
+  await quickAdd(page, t('今天'), { deadline: localDate(0) });
+  await quickAdd(page, t('昨天'), { deadline: localDate(-1) });
+  await quickAdd(page, t('下个月'), { deadline: localDate(35) });
 
   const deadlineOf = (name: string) => taskItem(page, t(name)).locator('.task-deadline');
-  await expect(deadlineOf('今天全天')).toHaveText('今天');
-  await expect(deadlineOf('今天零点')).toHaveText('今天 00:00 · 已过');
-  await expect(deadlineOf('明早九点')).toHaveText(/^\d+月\d+日 周. 09:00 · 还剩1天$/);
+  await expect(deadlineOf('今天')).toHaveText('今天');
+  await expect(deadlineOf('昨天')).toHaveText(/^\d+月\d+日 周. · 逾期1天$/);
+  await expect(deadlineOf('下个月')).toHaveText(/^\d+月\d+日 周. · 还剩35天$/);
 
+  // 今天的还没过去，昨天的过完了
   await selectStatus(page, '未完成');
-  await expectTitles(page, id, [t('今天全天'), t('明早九点')]);
+  await expectTitles(page, id, [t('今天'), t('下个月')]);
   await selectStatus(page, '已错过');
-  await expectTitles(page, id, [t('今天零点')]);
+  await expectTitles(page, id, [t('昨天')]);
 
-  // 面板中：时钟图标旁显示已选时刻；清除时刻 → 截止时间回到当天最后一刻
+  // 数据库里只有日期
   await selectStatus(page, '全部');
-  const taskId = await openTask(page, t('明早九点'));
-  const panel = editPanel(page);
-  await expect(timeInput(panel)).toHaveValue('09:00');
-  await panel.getByRole('button', { name: '清除时刻' }).click();
-  await expect(timeInput(panel)).toHaveCount(0);
-  await waitSaved(page);
-  const [row] = await queryRest<{ deadline_at: string }[]>(
+  const taskId = await openTask(page, t('今天'));
+  const [row] = await queryRest<Record<string, unknown>[]>(
     request,
-    `tasks?id=eq.${taskId}&select=deadline_at`,
+    `tasks?id=eq.${taskId}&select=*`,
   );
-  // Asia/Shanghai 当天 23:59:59.999 = UTC 15:59:59.999
-  expect(new Date(row!.deadline_at).toISOString()).toMatch(/T15:59:59\.999Z$/);
-
-  // 再选一个时刻
-  await setTime(panel, '18:30');
-  await waitSaved(page);
+  expect(row!.deadline_on).toBe(localDate(0));
+  expect(row).not.toHaveProperty('deadline_at');
+  expect(row).not.toHaveProperty('date_zone');
+  await expect(editPanel(page).getByRole('button', { name: '选择时刻' })).toHaveCount(0);
   await collapse(page);
-  await expect(deadlineOf('明早九点')).toHaveText(/^\d+月\d+日 周. 18:30 · 还剩1天$/);
 
-  // 没选日期时点时钟：日期默认今天
+  // 日历：一个月一页，每周从周一开始；今天标出来；能翻月；切换历法的位置留着、现在没有按钮
   const bar = quickAddBar(page);
-  await bar.getByRole('button', { name: '选择时刻' }).click();
-  await expect(dateInput(bar)).toHaveValue(localDate(0));
-  await expect(timeInput(bar)).toBeVisible();
+  await dateButton(bar).click();
+  const popover = page.getByRole('dialog', { name: '选择日期' });
+  const [y, m, d] = localDate(0).split('-').map(Number) as [number, number, number];
+  await expect(popover.locator('.date-popover-title')).toHaveText(`${y}年${m}月`);
+  await expect(popover.locator('.date-grid-weekday').first()).toHaveText('一');
+  await expect(popover.getByRole('button', { name: `${y}年${m}月${d}日` })).toHaveClass(
+    /date-cell-today/,
+  );
+  await expect(popover.locator('[data-slot="calendar-switch"]')).toBeAttached();
+  await expect(popover.locator('[data-slot="calendar-switch"] button')).toHaveCount(0);
+  await popover.getByRole('button', { name: '下个月' }).click();
+  const [ny, nm] = m === 12 ? [y + 1, 1] : [y, m + 1];
+  await expect(popover.locator('.date-popover-title')).toHaveText(`${ny}年${nm}月`);
+  await popover.getByRole('button', { name: `${ny}年${nm}月1日`, exact: true }).click();
+  await expect(popover).toHaveCount(0);
+  await expectDate(bar, `${ny}-${String(nm).padStart(2, '0')}-01`);
+  // 清除
+  await bar.getByRole('button', { name: '清除截止日期' }).click();
+  await expectDate(bar, '');
 });
 
 test('分类页面（单选）× 页面内状态行；一个任务挂多个分类时在每个分类页面里都有；页面内没有分类标签', async ({

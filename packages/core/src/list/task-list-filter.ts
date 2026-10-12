@@ -2,7 +2,8 @@ import type { RecurrenceOccurrence } from '../domain/occurrence';
 import type { Task } from '../domain/task';
 import { deriveTaskStatus, type TaskStatus } from '../domain/task-status';
 import { resolveRepresentativeInstance, seriesFromTask } from '../recurrence/recurrence-engine';
-import { calendarDaysBetween, localDayNumber, type EvaluationContext } from '../time/zoned-time';
+import { daysBetween } from '../schedule/calendar-date';
+import { todayOf, type EvaluationContext } from '../time/zoned-time';
 import { OVERDUE_MATRIX_GRACE_DAYS } from '../urgency/tiers';
 import { listDeadlineOf, sortByDeadline } from './task-list-order';
 
@@ -63,14 +64,11 @@ export function isTodayTask(
 ): boolean {
   const deadline = listDeadlineOf(task, occurrences, context);
   if (!deadline) return false;
-  if (
-    localDayNumber(deadline, context.timeZone) === localDayNumber(context.now, context.timeZone)
-  ) {
-    return true;
-  }
-  if (deadline.getTime() >= context.now.getTime()) return false;
+  const today = todayOf(context);
+  if (deadline === today) return true;
+  if (deadline > today) return false;
   if (deriveListStatus(task, occurrences, context) === 'completed') return false;
-  return calendarDaysBetween(deadline, context.now, context.timeZone) < OVERDUE_MATRIX_GRACE_DAYS;
+  return daysBetween(deadline, today) < OVERDUE_MATRIX_GRACE_DAYS;
 }
 
 /**
@@ -94,7 +92,7 @@ export function isRelatedGroupTask(
 
 /**
  * 列表中显示的状态：
- * - 普通任务：由截止时间 / 完成时间派生（见 deriveTaskStatus）
+ * - 普通任务：由截止日期 / 完成时间派生（见 deriveTaskStatus）
  * - 循环任务：只要还有下一个实例就是"待办"（逾期规则不适用于循环任务的历史实例）；
  *   序列已结束（COUNT / UNTIL 用尽且都已处理）视为"已完成"
  */
@@ -104,16 +102,16 @@ export function deriveListStatus(
   context: EvaluationContext,
 ): TaskStatus {
   const series = seriesFromTask(task);
-  if (!series) return deriveTaskStatus(task, context.now);
+  if (!series) return deriveTaskStatus(task, todayOf(context));
   return resolveRepresentativeInstance(series, occurrences, context) ? 'todo' : 'completed';
 }
 
 export function matchesStatusFilter(
-  task: Pick<Task, 'deadlineAt' | 'completedAt'> & Partial<Pick<Task, 'confirmedAt'>>,
+  task: Pick<Task, 'deadlineOn' | 'completedAt'> & Partial<Pick<Task, 'confirmedAt'>>,
   filter: StatusFilter,
-  now: Date,
+  today: string,
 ): boolean {
-  return filter === 'all' || deriveTaskStatus(task, now) === filter;
+  return filter === 'all' || deriveTaskStatus(task, today) === filter;
 }
 
 export function matchesScope(task: Pick<Task, 'isStarred'>, scope: ListScope): boolean {
@@ -174,7 +172,7 @@ export function buildTaskList(
     .map((task) => ({
       id: task.id,
       createdAt: task.createdAt,
-      deadlineAt: listDeadlineOf(task, sources.occurrencesByTask?.get(task.id) ?? [], context),
+      deadlineOn: listDeadlineOf(task, sources.occurrencesByTask?.get(task.id) ?? [], context),
       task,
     }));
   return sortByDeadline(rows).map((row) => row.task);

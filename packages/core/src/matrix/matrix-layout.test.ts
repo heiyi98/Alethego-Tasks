@@ -23,10 +23,10 @@ const task = (id: string, fields: Partial<Task> = {}): Task => ({
   endAfterDays: null,
   title: id,
   description: '',
-  deadlineAt: null,
+  deadlineOn: null,
   importanceLevel: 0,
   recurrenceRule: null,
-  recurrenceDtstart: null,
+  recurrenceStartOn: null,
   completedAt: null,
   // 个人任务完成即确认
   confirmedAt: fields.completedAt ?? null,
@@ -53,8 +53,8 @@ describe('格子', () => {
 describe('buildMatrixLayout', () => {
   it('按紧迫度列与重要性行放置，并给出象限', () => {
     const tasks = [
-      task('tomorrow-3', { deadlineAt: sh('2026-09-25T09:00:00'), importanceLevel: 3 }),
-      task('month-1', { deadlineAt: sh('2026-10-24T09:00:00'), importanceLevel: 1 }),
+      task('tomorrow-3', { deadlineOn: '2026-09-25', importanceLevel: 3 }),
+      task('month-1', { deadlineOn: '2026-10-24', importanceLevel: 1 }),
       task('nodeadline-3', { importanceLevel: 3 }),
     ];
     // 今天周四：明天（周五）N = 2 → 短期"2天–1天"那一格；长期"3天"那一格
@@ -82,52 +82,52 @@ describe('buildMatrixLayout', () => {
   });
 
   it('重要性为 0 但有截止时间 → 最下一行，照常上矩阵', () => {
-    const tasks = [task('t', { deadlineAt: sh('2026-09-24T20:00:00') })];
+    const tasks = [task('t', { deadlineOn: '2026-09-24' })];
     expect(pointOf(tasks, 't')).toMatchObject({ slot: cell(5), row: 0 });
   });
 
   it('按日历日判档：明天 09:00 与明天全天落在同一格', () => {
     const tasks = [
-      task('tomorrow-9', { deadlineAt: sh('2026-09-25T09:00:00'), importanceLevel: 3 }),
-      task('tomorrow-eod', { deadlineAt: sh('2026-09-25T23:59:59.999'), importanceLevel: 3 }),
+      task('tomorrow-9', { deadlineOn: '2026-09-25', importanceLevel: 3 }),
+      task('tomorrow-eod', { deadlineOn: '2026-09-25', importanceLevel: 3 }),
     ];
     expect(pointOf(tasks, 'tomorrow-9')).toMatchObject({ slot: cell(4) });
     expect(pointOf(tasks, 'tomorrow-eod')).toMatchObject({ slot: cell(4) });
   });
 
-  it('逾期区：逾期 0 / 1 / 2 天进逾期区；满 3 天退场', () => {
+  it('逾期区：逾期 1 / 2 天进逾期区；满 3 天退场；今天截止的还没逾期', () => {
     const tasks = [
-      task('late-0', { deadlineAt: sh('2026-09-24T09:00:00'), importanceLevel: 2 }),
-      task('late-1', { deadlineAt: sh('2026-09-23T23:59:59.999'), importanceLevel: 2 }),
-      task('late-2', { deadlineAt: sh('2026-09-22T09:00:00'), importanceLevel: 2 }),
-      task('late-3', { deadlineAt: sh('2026-09-21T23:59:59.999'), importanceLevel: 2 }),
-      task('late-5', { deadlineAt: sh('2026-09-19T09:00:00'), importanceLevel: 2 }),
+      task('today', { deadlineOn: '2026-09-24', importanceLevel: 2 }),
+      task('late-1', { deadlineOn: '2026-09-23', importanceLevel: 2 }),
+      task('late-2', { deadlineOn: '2026-09-22', importanceLevel: 2 }),
+      task('late-3', { deadlineOn: '2026-09-21', importanceLevel: 2 }),
+      task('late-5', { deadlineOn: '2026-09-19', importanceLevel: 2 }),
     ];
     const result = layout(tasks);
     expect(result.points.map((p) => [p.task.id, p.slot?.kind, p.overdueDays])).toEqual([
-      ['late-0', 'overdue', 0],
+      ['today', 'cell', null],
       ['late-1', 'overdue', 1],
       ['late-2', 'overdue', 2],
     ]);
     expect(result.hidden.overdue_expired).toBe(2);
   });
 
-  it('循环任务永远不进逾期区：实例时刻一过，代表就换成下一次', () => {
+  it('循环任务永远不进逾期区：今天这一次过完之前代表是今天，之后换成下一次', () => {
     const daily = task('daily', {
       importanceLevel: 3,
       recurrenceRule: 'FREQ=DAILY',
-      recurrenceDtstart: sh('2026-09-01T08:00:00'),
+      recurrenceStartOn: '2026-09-01',
     });
     const point = pointOf([daily], 'daily');
-    // 现在周四 10:00，今天 08:00 的实例已过 → 代表是明天 08:00 → N = 2
-    expect(point).toMatchObject({ slot: cell(4), overdueDays: null });
-    expect(point?.representative.occurrenceAt).toEqual(sh('2026-09-25T08:00:00'));
+    // 现在周四：代表是今天这一次 → N = 1
+    expect(point).toMatchObject({ slot: cell(5), overdueDays: null });
+    expect(point?.representative.occurrenceDate).toBe('2026-09-24');
   });
 
   it('不上矩阵的任务计入 hidden；已完成 / 已删除的不计入', () => {
     const result = layout([
       task('unprocessed'),
-      task('far', { deadlineAt: sh('2028-01-01T00:00:00'), importanceLevel: 3 }),
+      task('far', { deadlineOn: '2028-01-01', importanceLevel: 3 }),
       task('done', { importanceLevel: 3, completedAt: sh('2026-09-20T00:00:00') }),
       task('deleted', { importanceLevel: 3, deletedAt: sh('2026-09-20T00:00:00') }),
     ]);
@@ -139,17 +139,17 @@ describe('buildMatrixLayout', () => {
     const recurring = task('gym', {
       importanceLevel: 3,
       recurrenceRule: 'FREQ=WEEKLY;BYDAY=MO,WE,FR',
-      recurrenceDtstart: sh('2026-09-21T07:00:00'),
+      recurrenceStartOn: '2026-09-21',
     });
     const point = pointOf([recurring], 'gym');
     // 代表实例周五（N = 2）→ "2天–1天"那一格
     expect(point).toMatchObject({ slot: cell(4), row: 3, quadrant: 'important_urgent' });
-    expect(point?.representative.occurrenceAt).toEqual(sh('2026-09-25T07:00:00'));
+    expect(point?.representative.occurrenceDate).toBe('2026-09-25');
   });
 
   it('格内偏移按任务 id 固定：与输入顺序、同格的其他任务无关', () => {
     const tasks = Array.from({ length: 9 }, (_, i) =>
-      task(`same-${i}`, { deadlineAt: sh('2026-09-25T09:00:00'), importanceLevel: 3 }),
+      task(`same-${i}`, { deadlineOn: '2026-09-25', importanceLevel: 3 }),
     );
     const first = layout(tasks).points;
     for (const p of first) {
@@ -167,8 +167,8 @@ describe('buildMatrixLayout', () => {
 describe('组任务', () => {
   it('传进来的组任务照常放进矩阵（选哪些任务由筛选栏决定）', () => {
     const result = layout([
-      task('mine', { deadlineAt: sh('2026-09-25T09:00:00'), importanceLevel: 3 }),
-      task('group', { deadlineAt: sh('2026-09-25T09:00:00'), groupId: 'g1', projectId: 'p1' }),
+      task('mine', { deadlineOn: '2026-09-25', importanceLevel: 3 }),
+      task('group', { deadlineOn: '2026-09-25', groupId: 'g1', projectId: 'p1' }),
     ]);
     expect(result.points.map((p) => p.task.id).sort()).toEqual(['group', 'mine']);
   });
@@ -176,9 +176,9 @@ describe('组任务', () => {
 
 describe('groupPointsByQuadrant', () => {
   const tasks = [
-    task('a', { deadlineAt: sh('2026-09-27T09:00:00'), importanceLevel: 3 }), // N = 4
-    task('b', { deadlineAt: sh('2026-09-25T09:00:00'), importanceLevel: 3 }), // N = 2
-    task('c', { importanceLevel: 1, deadlineAt: sh('2026-12-01T09:00:00') }), // N = 69
+    task('a', { deadlineOn: '2026-09-27', importanceLevel: 3 }), // N = 4
+    task('b', { deadlineOn: '2026-09-25', importanceLevel: 3 }), // N = 2
+    task('c', { importanceLevel: 1, deadlineOn: '2026-12-01' }), // N = 69
   ];
 
   it('按象限分组，组内按截止时间从近到远（长期：N ≤ 14 紧急）', () => {

@@ -27,12 +27,12 @@ import {
 import { toDateValue } from '@/lib/format';
 
 /**
- * 快速添加（每个清单页面都有）：输入栏本身就是标题，下方一行常用选项（重要性、截止日期 / 时刻），
+ * 快速添加（每个清单页面都有）：第一行是标题（输入栏本身），第二行是重要性、截止日期；
  * 点输入栏右端的 ➕ 创建（回车是额外的快捷方式）；三角展开完整的新建面板，面板从输入栏下方延展出来。收起面板时草稿保留。
- * 新任务自动带上当前选中的全部分类（没选分类就不带）；在"收藏"里新建的任务自动标星。
- * 在组里：新任务属于一个项目，没有重要性、分类和收藏。在项目页面默认是这个项目；在组页面先选项目
+ * 新任务自动带上当前选中的分类（没选分类就不带）；在"收藏"里新建的任务自动标星。
+ * 在组里：新任务属于一个项目，没有分类和收藏。在项目页面默认是这个项目；在组页面第二行最前面先选项目
  * （只列出我能建任务的项目）。只有项目管理员能建任务（不能建时添加栏是禁用的，位置不变）；
- * 选中的项目开了任务分配时可以设定 RACI，创建的人默认是 A。
+ * 选中的项目开了任务分配时多一个第三行选执行人和负责人：执行人必须选，负责人默认是创建者。
  */
 export function QuickAdd({
   categories,
@@ -55,7 +55,7 @@ export function QuickAdd({
   const { data, now, timeZone } = useTaskData();
   const { notify, confirm, showUndo } = useFeedback();
   const inGroup = groupId !== null;
-  const { projects, scopeOf } = useCurrentGroup();
+  const { group, projects, scopeOf } = useCurrentGroup();
   // 组页面：能建任务的项目里选一个
   const manageable = projects.filter((p) => scopeOf(p.id)?.permissions.manageTasks);
   const [chosen, setChosen] = useState('');
@@ -173,8 +173,8 @@ export function QuickAdd({
     const removed = form.people[index];
     if (!removed) return;
     onChange({ people: form.people.filter((_, i) => i !== index) });
-    if (removed.name.trim() || removed.relation.trim()) {
-      showUndo(`已删除人物「${removed.name || removed.relation}」`, () =>
+    if (removed.name.trim() || removed.note.trim()) {
+      showUndo(`已删除人物「${removed.name || removed.note}」`, () =>
         setDraft((d) => {
           const people = [...d.people];
           people.splice(Math.min(index, people.length), 0, removed);
@@ -241,13 +241,16 @@ export function QuickAdd({
               onChange={onChange}
               errors={errors}
               categories={data?.categories ?? []}
-              inGroup={inGroup}
+              container={
+                inGroup && scope
+                  ? { groupName: group?.name ?? '', projectName: scope.project.name }
+                  : null
+              }
               optionsLeading={projectPicker}
               raci={features.raci ? { members, contacts, editable: true } : undefined}
               records={[]}
               now={now}
               timeZone={timeZone}
-              fallbackStart={null}
               onToggle={close}
               onRemovePerson={removePerson}
               optionsActions={

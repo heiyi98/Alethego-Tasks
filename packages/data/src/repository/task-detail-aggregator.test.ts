@@ -7,16 +7,15 @@ import { loadTaskDetail, saveTaskExtensions } from './task-detail-aggregator';
 const OWNER = '11111111-1111-4111-8111-111111111111';
 
 describe('TaskDetailAggregator', () => {
-  it('拼装任务、分类、地点与人物', async () => {
+  it('拼装任务、分类与人物（名字 + 备注）', async () => {
     const store = new InMemoryLocalStore({ ownerId: OWNER });
     const task = await store.tasks.create({ title: '签合同' });
     const work = await store.categories.create({ name: '工作', color: '#1E88E5' });
     await store.categories.setTaskCategories(task.id, [work.id]);
     await saveTaskExtensions(store, task.id, {
-      location: { name: ' 客户公司 ', address: '人民路 1 号' },
       people: [
-        { name: '张三', relation: '客户' },
-        { name: '李四', relation: '' },
+        { name: '张三', note: '客户' },
+        { name: '李四', note: '' },
       ],
     });
 
@@ -24,52 +23,45 @@ describe('TaskDetailAggregator', () => {
     expect(detail).toMatchObject({
       task: { id: task.id },
       categoryIds: [work.id],
-      location: { name: '客户公司', address: '人民路 1 号', placeId: null, lat: null, lng: null },
       people: [
-        { name: '张三', relation: '客户', contactId: null },
-        { name: '李四', relation: '' },
+        { name: '张三', note: '客户', contactId: null },
+        { name: '李四', note: '' },
       ],
     });
+    expect(detail).not.toHaveProperty('location');
   });
 
-  it('人物：带 id 的更新、新增、未出现的删除；地点清空即删除', async () => {
+  it('人物：带 id 的更新、新增、未出现的删除', async () => {
     const store = new InMemoryLocalStore({ ownerId: OWNER });
     const task = await store.tasks.create({ title: 't' });
     const first = await saveTaskExtensions(store, task.id, {
-      location: { name: '家', address: '' },
       people: [
-        { name: 'A', relation: '' },
-        { name: 'B', relation: '' },
+        { name: 'A', note: '' },
+        { name: 'B', note: '' },
       ],
     });
     const [a] = first.people;
 
     const second = await saveTaskExtensions(store, task.id, {
-      location: { name: '  ', address: '' },
       people: [
-        { id: a!.id, name: 'A2', relation: '同事' },
-        { name: 'C', relation: '' },
+        { id: a!.id, name: 'A2', note: '同事' },
+        { name: 'C', note: '' },
       ],
     });
-    expect(second.location).toBeNull();
-    expect(second.people.map((p) => [p.name, p.relation])).toEqual([
+    expect(second.people.map((p) => [p.name, p.note])).toEqual([
       ['A2', '同事'],
       ['C', ''],
     ]);
     expect(second.people[0]!.id).toBe(a!.id);
-    expect(await store.locations.getByTask(task.id)).toBeNull();
   });
 
-  it('人物缺少姓名时整体不保存（地点也不写入）', async () => {
+  it('人物缺少姓名时整体不保存', async () => {
     const store = new InMemoryLocalStore({ ownerId: OWNER });
     const task = await store.tasks.create({ title: 't' });
     await expect(
-      saveTaskExtensions(store, task.id, {
-        location: { name: '公司', address: '' },
-        people: [{ name: '', relation: '客户' }],
-      }),
+      saveTaskExtensions(store, task.id, { people: [{ name: '', note: '客户' }] }),
     ).rejects.toThrow(DataError);
-    expect(await store.locations.getByTask(task.id)).toBeNull();
+    expect(await store.people.listByTask(task.id)).toEqual([]);
   });
 
   it('已删除的任务没有详情', async () => {

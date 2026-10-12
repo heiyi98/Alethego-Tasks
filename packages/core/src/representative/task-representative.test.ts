@@ -17,10 +17,10 @@ const baseTask: Task = {
   endAfterDays: null,
   title: '任务',
   description: '',
-  deadlineAt: null,
+  deadlineOn: null,
   importanceLevel: 0,
   recurrenceRule: null,
-  recurrenceDtstart: null,
+  recurrenceStartOn: null,
   completedAt: null,
   confirmedAt: null,
   isStarred: false,
@@ -33,14 +33,14 @@ describe('resolveTaskRepresentative', () => {
   it('普通任务的代表是任务本身', () => {
     const task = {
       ...baseTask,
-      deadlineAt: sh('2026-09-26T18:00:00'),
+      deadlineOn: '2026-09-26',
       importanceLevel: 3 as const,
     };
     expect(resolveTaskRepresentative(task, [], context)).toEqual({
       taskId: 'task-1',
       importanceLevel: 3,
-      deadlineAt: task.deadlineAt,
-      occurrenceAt: null,
+      deadlineOn: task.deadlineOn,
+      occurrenceDate: null,
     });
   });
 
@@ -55,20 +55,20 @@ describe('resolveTaskRepresentative', () => {
     expect(resolveTaskRepresentative(task, [], context)).toBeNull();
   });
 
-  it('循环任务的代表是时刻未过的最早未完成实例，继承任务重要性；截止时间就是实例时刻', () => {
+  it('循环任务的代表是日期还没过去的最早未完成实例，继承任务重要性；截止日期就是那一次的日期', () => {
     const task: Task = {
       ...baseTask,
       importanceLevel: 3,
       recurrenceRule: 'FREQ=WEEKLY;BYDAY=MO,WE,FR',
-      recurrenceDtstart: sh('2026-09-21T07:00:00'),
-      deadlineAt: sh('2020-01-01T00:00:00'), // 循环任务不使用该字段
+      recurrenceStartOn: '2026-09-21',
+      deadlineOn: '2020-01-01', // 循环任务不使用该字段
     };
     const representative = resolveTaskRepresentative(task, [], context);
     expect(representative).toEqual({
       taskId: 'task-1',
       importanceLevel: 3,
-      deadlineAt: sh('2026-09-25T07:00:00'),
-      occurrenceAt: sh('2026-09-25T07:00:00'),
+      deadlineOn: '2026-09-25',
+      occurrenceDate: '2026-09-25',
     });
 
     // 矩阵只看到标准形状：周五（明天）的实例 → N = 2，重要且紧急
@@ -82,30 +82,18 @@ describe('resolveTaskRepresentative', () => {
     });
   });
 
-  it('循环任务永远不逾期：今天的实例时刻已过，代表换成明天的实例', () => {
+  it('循环任务永远不逾期：今天这一次在今天过完之前一直是代表（N = 1），之后换成明天的', () => {
     const task: Task = {
       ...baseTask,
       importanceLevel: 1,
       recurrenceRule: 'FREQ=DAILY',
-      recurrenceDtstart: sh('2026-09-01T07:00:00'),
+      recurrenceStartOn: '2026-09-01',
     };
-    const representative = resolveTaskRepresentative(task, [], context)!;
-    expect(representative.occurrenceAt).toEqual(sh('2026-09-25T07:00:00'));
-    expect(toMatrixCandidate(representative, context).urgency).toMatchObject({
-      kind: 'scheduled',
-      dayNumber: 2,
-    });
-  });
-
-  it('今天的实例时刻还没到：代表仍是今天的实例（N = 1）', () => {
-    const task: Task = {
-      ...baseTask,
-      importanceLevel: 1,
-      recurrenceRule: 'FREQ=DAILY',
-      recurrenceDtstart: sh('2026-09-01T20:00:00'),
-    };
-    const representative = resolveTaskRepresentative(task, [], context)!;
-    expect(representative.occurrenceAt).toEqual(sh('2026-09-24T20:00:00'));
-    expect(toMatrixCandidate(representative, context).urgency).toMatchObject({ dayNumber: 1 });
+    const lateNight = { now: sh('2026-09-24T23:59:00'), timeZone };
+    const today = resolveTaskRepresentative(task, [], lateNight)!;
+    expect(today.occurrenceDate).toBe('2026-09-24');
+    expect(toMatrixCandidate(today, lateNight).urgency).toMatchObject({ dayNumber: 1 });
+    const nextDay = { now: sh('2026-09-25T00:00:00'), timeZone };
+    expect(resolveTaskRepresentative(task, [], nextDay)!.occurrenceDate).toBe('2026-09-25');
   });
 });

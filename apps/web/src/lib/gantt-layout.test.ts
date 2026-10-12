@@ -12,10 +12,10 @@ const task = (id: string, patch: Partial<Task> = {}): Task => ({
   endAfterDays: null,
   title: id,
   description: '',
-  deadlineAt: null,
+  deadlineOn: null,
   importanceLevel: 0,
   recurrenceRule: null,
-  recurrenceDtstart: null,
+  recurrenceStartOn: null,
   completedAt: null,
   confirmedAt: null,
   isStarred: false,
@@ -24,16 +24,15 @@ const task = (id: string, patch: Partial<Task> = {}): Task => ({
   deletedAt: null,
   ...patch,
 });
-const end = (date: string) => new Date(`${date}T23:59:59.999+08:00`);
 
 describe('甘特图的排布', () => {
   const tasks = [
-    task('B', { startOn: '2026-10-04', deadlineAt: end('2026-10-08') }),
-    task('A', { startOn: '2026-10-01', deadlineAt: end('2026-10-03') }),
-    task('M', { deadlineAt: end('2026-10-06') }),
+    task('B', { startOn: '2026-10-04', deadlineOn: '2026-10-08' }),
+    task('A', { startOn: '2026-10-01', deadlineOn: '2026-10-03' }),
+    task('M', { deadlineOn: '2026-10-06' }),
     task('N'),
     task('S', { startOn: '2026-10-05' }),
-    task('D', { startOn: '2026-10-02', deadlineAt: end('2026-10-02'), completedAt: new Date() }),
+    task('D', { startOn: '2026-10-02', deadlineOn: '2026-10-02', completedAt: new Date() }),
   ];
   const relations = new Map<string, TaskRelation[]>([
     ['B', [{ taskId: 'B', side: 'start', predecessorId: 'A', anchor: 'end', offsetDays: 1 }]],
