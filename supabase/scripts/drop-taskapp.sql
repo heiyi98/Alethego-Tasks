@@ -4,9 +4,7 @@
 -- 初始结构和之后的迁移都没有在 public、auth 或其他 schema 里建过任何东西，所以删掉这个 schema 就删干净了，
 -- 不碰同一项目里其他产品的任何东西。数据不保留。
 --
--- 只在两种情况下使用（见 docs/07-迁库说明.md）：
---   1. 迁到 TaskApp 自己的 Supabase 项目之后，从 Mindo 里删掉 TaskApp；
---   2. 上线前改了初始结构之后替换测试库（数据全部清空）。
--- 上线后不允许清空数据或删库重建：改库一律写新的迁移。
+-- 只在一种情况下使用（见 docs/07-迁库说明.md）：迁到 TaskApp 自己的 Supabase 项目之后，从 Mindo 里删掉 TaskApp。
+-- 改库不删库重建：一律新增增量迁移，保留现有数据。
 
 drop schema if exists taskapp cascade;

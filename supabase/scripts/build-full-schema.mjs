@@ -1,4 +1,4 @@
-// 把 supabase/migrations（初始结构 + 之后的迁移）按文件名顺序合并成一份完整建库脚本
+// 把 supabase/migrations（第一版基础 + 之后每一批的增量迁移）按文件名顺序合并成一份完整建库脚本
 // （taskapp-full-schema.sql），在全新的 Supabase 项目里一次执行就能建好 TaskApp 的全部表和功能。
 // 用法：node supabase/scripts/build-full-schema.mjs（改了迁移之后重新生成；单元测试会检查它是否最新）
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';

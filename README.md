@@ -8,7 +8,7 @@
 packages/core/   领域层：纯 TypeScript，无框架依赖（Web / Mobile 共享）
 packages/data/   数据层：仓储接口、Supabase 远程实现、本地存储接口
 apps/web/        Next.js：任务列表、快速添加、展开面板新建/编辑、矩阵（直接读写 Supabase）
-supabase/        数据库：migrations/ 里是初始结构 20261007000000_initial_schema.sql（taskapp schema：users、tasks、categories、task_categories、recurrence_occurrences、
+supabase/        数据库：migrations/ 里是第一版基础 20261007000000_initial_schema.sql 和之后每一批的增量迁移（taskapp schema：users、tasks、categories、task_categories、recurrence_occurrences、
                  task_people、groups、group_members、group_invitations、
                  group_deletion_requests / votes、group_leader_requests / votes、projects、project_members、
                  project_invitations、project_deletion_requests / votes、project_contacts、task_assignments、
@@ -68,10 +68,11 @@ supabase db reset   # 应用 supabase/migrations
 
 **数据库的工作规则**：
 
-- 上线前（现在）：数据库的改动直接改进 `supabase/migrations/20261007000000_initial_schema.sql` 这份初始结构，不新增迁移文件；
-  同步运行 `node supabase/scripts/build-full-schema.mjs` 重新生成完整建库脚本。测试数据可以随时清空。
-- 上线后：只能新增迁移，保留现有数据。
-- 指导意见（不是规则）：设计时保持模块化，让以后改结构不至于被迫清空数据。
+- `supabase/migrations/20261007000000_initial_schema.sql` 是第一版基础，以后不再修改。
+- 每一批改动新增一个增量迁移文件（`supabase/migrations/<时间>_<名字>.sql`），只包含这次的变化，必须保留现有数据；
+  已有的库只执行新增的这个文件，不删库重建。
+- 完整建库脚本 `supabase/scripts/taskapp-full-schema.sql` 由"基础加所有增量"按文件名顺序自动合成
+  （`node supabase/scripts/build-full-schema.mjs`），用于全新的项目。
 
 详见 docs/07-迁库说明.md。
 
