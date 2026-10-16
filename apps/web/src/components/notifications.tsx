@@ -1,6 +1,6 @@
 'use client';
 
-import { deriveListStatus } from '@alethego/core';
+import { deriveListStatus, type StatusFilter } from '@alethego/core';
 import type { GroupNotification } from '@alethego/data';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
@@ -10,7 +10,7 @@ import { useRepositories } from './repositories-provider';
 import { useSelection } from './selection';
 import { useTaskData } from './task-data-provider';
 import { messages } from '@/i18n';
-import { errorMessage } from '@/lib/format';
+import { DEFAULT_STATUS, errorMessage } from '@/lib/format';
 import { notificationText } from '@/lib/notification-text';
 import { groupHref } from '@/lib/selection';
 
@@ -107,15 +107,15 @@ export function NotificationBell() {
       void repositories.groups.dismissNotification(item.id).then(reload);
     }
     const task = data?.tasks.find((t) => t.id === item.taskId);
-    let status = selection.status;
+    // 新页面的状态行从默认值（"未完成"）开始；任务不在里面时换成它所在的那一项，让它看得见
+    let status: StatusFilter = DEFAULT_STATUS;
     if (task) {
-      const own = deriveListStatus(task, data?.occurrencesByTask.get(task.id) ?? [], {
+      status = deriveListStatus(task, data?.occurrencesByTask.get(task.id) ?? [], {
         now,
         timeZone,
       });
-      if (status !== 'all' && status !== own) status = own;
     }
-    const href = groupHref({ ...selection, status }, item.groupId, item.projectId);
+    const href = groupHref(selection, item.groupId, item.projectId, status);
     router.push(`${href}&task=${item.taskId}`);
   }
 

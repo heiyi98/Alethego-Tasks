@@ -5,6 +5,7 @@ import {
   type GroupMember,
   type GroupRole,
   type Project,
+  type FormerPerson,
   type ProjectContact,
   type ProjectMember,
   type ProjectRole,
@@ -58,7 +59,12 @@ export function groupFromRow(row: TableRow<'groups'>, myRole: GroupRole | null):
 }
 
 function contactFromRow(row: TableRow<'project_contacts'>): ProjectContact {
-  return { id: row.id, projectId: row.project_id, name: row.name };
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    name: row.name,
+    deleted: row.deleted_at !== null,
+  };
 }
 
 export function projectFromRow(row: TableRow<'projects'>, myRole: ProjectRole): Project {
@@ -103,7 +109,11 @@ export class SupabaseGroupRepository implements IGroupRepository {
   async list(): Promise<Group[]> {
     const [groups, memberships] = await Promise.all([
       this.client.from('groups').select('*').order('created_at', { ascending: true }),
-      this.client.from('group_members').select('group_id, role').eq('user_id', this.userId),
+      this.client
+        .from('group_members')
+        .select('group_id, role')
+        .eq('user_id', this.userId)
+        .is('left_at', null),
     ]);
     // 只加入了组里某些项目的人也能看到组（身份为 null）
     const roles = new Map(check(memberships, '查询组').map((m) => [m.group_id, m.role]));
@@ -323,8 +333,16 @@ export class SupabaseProjectRepository implements IProjectRepository {
     const [projects, groups, groupRoles, projectRoles] = await Promise.all([
       this.client.from('projects').select('*').order('created_at', { ascending: true }),
       this.client.from('groups').select('id, kind'),
-      this.client.from('group_members').select('group_id, role').eq('user_id', this.userId),
-      this.client.from('project_members').select('project_id, role').eq('user_id', this.userId),
+      this.client
+        .from('group_members')
+        .select('group_id, role')
+        .eq('user_id', this.userId)
+        .is('left_at', null),
+      this.client
+        .from('project_members')
+        .select('project_id, role')
+        .eq('user_id', this.userId)
+        .is('left_at', null),
     ]);
     const kinds = new Map(check(groups, '查询项目').map((g) => [g.id, g.kind as GroupKind]));
     const leaderOf = new Set(
@@ -456,6 +474,14 @@ export class SupabaseProjectRepository implements IProjectRepository {
 
   async leave(projectId: string): Promise<LeaveProjectResult> {
     return check(await this.client.rpc('leave_project', { p_project_id: projectId }), '退出项目');
+  }
+
+  async formerPeople(projectId: string): Promise<FormerPerson[]> {
+    const rows = check(
+      await this.client.rpc('project_former_people', { p_project_id: projectId }),
+      '查询名单',
+    );
+    return rows.map((row) => ({ userId: row.user_id, nickname: row.nickname }));
   }
 
   async contacts(projectId: string): Promise<ProjectContact[]> {

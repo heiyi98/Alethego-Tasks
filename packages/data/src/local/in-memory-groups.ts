@@ -3,6 +3,7 @@ import type {
   GroupKind,
   GroupMember,
   Project,
+  FormerPerson,
   ProjectContact,
   ProjectMember,
   Task,
@@ -199,10 +200,8 @@ export class MemoryGroupRepository implements IGroupRepository {
 
   async leave(groupId: string): Promise<LeaveResult> {
     const group = this.group(groupId);
-    // 管理组：唯一的组长不能退出；合作组：最后一个成员退出，组和任务一起删除
-    if (group.kind === 'management') return 'last_leader';
-    await this.requestDeletion(groupId);
-    return 'deleted';
+    // 本机只有自己一个人：管理组的最后一位组长、合作组的最后一个人都不能退出（要结束就删除组）
+    return group.kind === 'management' ? 'last_leader' : 'last_member';
   }
 
   async dismissNotification() {}
@@ -299,6 +298,11 @@ export class MemoryProjectRepository implements IProjectRepository {
     throw new DataError('invalid', '组长不能退出项目');
   }
 
+  async formerPeople(): Promise<FormerPerson[]> {
+    // 本机只有自己一个人，没有人离开
+    return [];
+  }
+
   async contacts(projectId: string): Promise<ProjectContact[]> {
     this.project(projectId);
     return [...this.contactList.values()].filter((c) => c.projectId === projectId);
@@ -306,13 +310,15 @@ export class MemoryProjectRepository implements IProjectRepository {
 
   async addContact(projectId: string, name: string): Promise<ProjectContact> {
     this.project(projectId);
-    const contact = { id: this.state.newId(), projectId, name: name.trim() };
+    const contact = { id: this.state.newId(), projectId, name: name.trim(), deleted: false };
     this.contactList.set(contact.id, contact);
     return contact;
   }
 
   async removeContact(contactId: string) {
-    this.contactList.delete(contactId);
+    // 只标记为已删除：任务上的标注保留并照常显示名字
+    const contact = this.contactList.get(contactId);
+    if (contact) this.contactList.set(contactId, { ...contact, deleted: true });
   }
 
   async deletionRequest(): Promise<ProjectDeletionRequest | null> {

@@ -751,7 +751,11 @@ export function EditPanel({
         categories={categories}
         container={containerNames}
         readOnly={!perms.edit}
-        raci={features.raci ? { members, contacts, editable: perms.edit } : undefined}
+        raci={
+          features.raci
+            ? { members, contacts, formerPeople: scope?.formerPeople ?? [], editable: perms.edit }
+            : undefined
+        }
         schedule={scheduleProps}
         records={loaded.records}
         onToggleRecord={toggleRecord}

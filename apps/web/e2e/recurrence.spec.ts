@@ -530,14 +530,15 @@ test('循环任务建好后第二行只显示当前这一次，不能点；关�
   );
 });
 
-test('关掉循环：当前这一次变成普通任务（日期、子任务勾选保留），以后的消失，历史保留并能修改', async ({
+test('关掉循环：当前这一次变成普通任务（日期、子任务勾选保留），以后没完成也没勾过的消失，其余的都是历史', async ({
   page,
   request,
 }) => {
   // 子任务按数据库的时间记下加入的时刻，这里不固定浏览器时钟，用今天前后的日子
   const id = runId();
   const title = `${id} 每天跑步`;
-  const [d3, d2, d1, today, d2after] = [-3, -2, -1, 0, 2].map((n) => localDate(n)) as [
+  const [d3, d2, d1, today, d1after, d2after] = [-3, -2, -1, 0, 1, 2].map((n) => localDate(n)) as [
+    string,
     string,
     string,
     string,
@@ -548,25 +549,34 @@ test('关掉循环：当前这一次变成普通任务（日期、子任务勾�
   await selectStatus(page, '全部');
   await quickAdd(page, title, { deadline: d3 });
   const taskId = await openTask(page, title);
-  await editPanel(page).getByRole('switch', { name: '重复' }).check();
-  await period(page, '日').click();
-  await waitSaved(page);
-  // 子任务：今天这一次勾了"热身"；后天那一次勾了"拉伸"、并且提前完成
+  // 还是普通任务时就有子任务，并且勾了"拉伸"：改成循环之前的勾选，关掉循环后算历史
   const [warm, stretch] = await rpcAsMain<{ id: string; title: string }[]>(
     request,
     'set_task_subtasks',
     { p_task_id: taskId, p_items: [{ title: '热身' }, { title: '拉伸' }] },
   );
   await rpcAsMain(request, 'set_subtask_checked', {
-    p_subtask_id: warm!.id,
-    p_occurrence_date: today,
-    p_checked: true,
-  });
-  await rpcAsMain(request, 'set_subtask_checked', {
     p_subtask_id: stretch!.id,
-    p_occurrence_date: d2after,
+    p_occurrence_date: null,
     p_checked: true,
   });
+  await page.reload();
+  await openTask(page, title);
+  await editPanel(page).getByRole('switch', { name: '重复' }).check();
+  await period(page, '日').click();
+  await waitSaved(page);
+  // 今天这一次勾了"热身"；明天那一次勾了"热身"（没完成）；后天那一次勾了"拉伸"、并且提前完成
+  for (const [subtask, date] of [
+    [warm!, today],
+    [warm!, d1after],
+    [stretch!, d2after],
+  ] as const) {
+    await rpcAsMain(request, 'set_subtask_checked', {
+      p_subtask_id: subtask.id,
+      p_occurrence_date: date,
+      p_checked: true,
+    });
+  }
   await insertOccurrence(request, taskId, d2after);
   await page.reload();
   await openTask(page, title);
@@ -578,11 +588,11 @@ test('关掉循环：当前这一次变成普通任务（日期、子任务勾�
     .poll(async () => (await recordsOf(request, taskId)).map((r) => r.status))
     .toEqual(['missed', 'completed', 'missed', 'completed']);
 
-  // 关掉：第二行是当前这一次（今天），可以点；历史照样显示（以后的那一次不在里面）
+  // 关掉：第二行是当前这一次（今天），可以点；以后提前完成的那一次也在历史里
   await editPanel(page).getByRole('switch', { name: '重复' }).uncheck();
   await expectDate(secondRow(page), today);
   await expect(dateButton(secondRow(page))).not.toHaveAttribute('aria-disabled', 'true');
-  await expect(historyRows(page)).toHaveCount(3);
+  await expect(historyRows(page)).toHaveCount(4);
   await waitSaved(page);
 
   // 1) 当前这一次变成普通任务：日期、子任务勾选保留
@@ -596,18 +606,29 @@ test('关掉循环：当前这一次变成普通任务（日期、子任务勾�
     deadline_on: today,
     completed_at: null,
   });
-  const checks = await queryRest<{ subtask_id: string; occurrence_date: string | null }[]>(
+  // 勾选一条都不删：今天这一次的变成普通任务的；改成循环之前的成为历史（不再算现在的）；其余各次的照旧
+  const checks = await queryRest<
+    { subtask_id: string; occurrence_date: string | null; archived_at: string | null }[]
+  >(
     request,
-    `task_subtask_checks?subtask_id=in.(${warm!.id},${stretch!.id})&select=subtask_id,occurrence_date`,
+    `task_subtask_checks?subtask_id=in.(${warm!.id},${stretch!.id})&select=subtask_id,occurrence_date,archived_at`,
   );
-  // 今天这一次的勾选变成普通任务的；以后那一次的消失；过去各次的（补登记完成时一起勾上的）保留
-  const key = (c: { subtask_id: string; occurrence_date: string | null }) =>
-    `${c.subtask_id}:${c.occurrence_date ?? ''}`;
-  expect(checks.map(key).sort()).toEqual(
+  const key = (subtaskId: string, date: string | null, archived = false) =>
+    `${subtaskId}:${date ?? ''}:${archived ? 'archived' : ''}`;
+  // （补登记 d2 完成时一起勾上哪些子任务取决于子任务加入的时刻，这里不看）
+  expect(
+    checks
+      .filter((c) => c.occurrence_date !== d2)
+      .map((c) => key(c.subtask_id, c.occurrence_date, c.archived_at !== null))
+      .sort(),
+  ).toEqual(
     [
-      key({ subtask_id: warm!.id, occurrence_date: null }),
-      key({ subtask_id: warm!.id, occurrence_date: d2 }),
-      key({ subtask_id: stretch!.id, occurrence_date: d2 }),
+      key(stretch!.id, null, true),
+      key(warm!.id, null),
+      key(warm!.id, d1after),
+      // 后天那一次提前完成时，没勾的子任务一起勾上
+      key(warm!.id, d2after),
+      key(stretch!.id, d2after),
     ].sort(),
   );
   await collapse(page);
@@ -616,11 +637,14 @@ test('关掉循环：当前这一次变成普通任务（日期、子任务勾�
   await expect(row.locator('.subtask-toggle')).toHaveText('1/2');
   await expect(row).not.toContainText('↻');
 
-  // 2) 以后的各次消失（包括提前完成的那一次）；3) 过去的历史保留
+  // 2) 以后没完成、也没勾过子任务的消失；勾过的留在历史里，显示为没完成；提前完成的保留
+  // 3) 过去的历史保留
   expect((await recordsOf(request, taskId)).map((r) => [r.occurrence_date, r.status])).toEqual([
     [d3, 'missed'],
     [d2, 'completed'],
     [d1, 'missed'],
+    [d1after, 'missed'],
+    [d2after, 'completed'],
   ]);
   // 历史在这个任务里仍然能看到、能修改；不再增加
   await page.clock.setFixedTime(new Date(Date.now() + 4 * 86_400_000));
@@ -628,13 +652,20 @@ test('关掉循环：当前这一次变成普通任务（日期、子任务勾�
   await openTask(page, title);
   await expect(editPanel(page).getByRole('switch', { name: '重复' })).not.toBeChecked();
   await history(page).getByRole('button', { name: '展开历史' }).click();
-  await expect(historyRows(page)).toHaveText([dayLabel(d1), dayLabel(d2), dayLabel(d3)]);
+  await expect(historyRows(page)).toHaveCount(5);
+  for (const [i, date] of [d2after, d1after, d1, d2, d3].entries()) {
+    await expect(historyRows(page).nth(i)).toContainText(dayLabel(date));
+  }
+  // 勾过子任务的那一次：没完成，显示它的进度
+  const d1afterRow = historyRows(page).nth(1);
+  await expect(d1afterRow).toHaveClass(/task-missed/);
+  await expect(d1afterRow.locator('.history-progress')).toHaveText('1/2');
   await history(page)
     .getByRole('checkbox', { name: `完成：${dayLabel(d3)}` })
     .click();
   await expect
     .poll(async () => (await recordsOf(request, taskId)).map((r) => r.status))
-    .toEqual(['completed', 'completed', 'missed']);
+    .toEqual(['completed', 'completed', 'missed', 'missed', 'completed']);
 });
 
 test('什么都没选就保存 = 没有开启循环；循环任务改成什么都不选 = 关掉循环', async ({

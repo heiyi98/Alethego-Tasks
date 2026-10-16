@@ -383,8 +383,14 @@ test('标星：列表行与面板里都可切换；范围"收藏"= 标星任务�
   await selectStatus(page, '全部');
   await expectTitles(page, id, [t('明天'), t('后天'), t('已完成')]);
 
-  // 范围"收藏"：标星任务 ∩ 状态（状态行照常可选）
+  // 范围"收藏"：标星任务 ∩ 状态（状态行照常可选）；换页面时状态行回到默认的"未完成"
   await selectScope(page, '收藏');
+  await expect(statusBar(page).getByRole('button', { name: '未完成' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expectTitles(page, id, [t('后天')]);
+  await selectStatus(page, '全部');
   await expectTitles(page, id, [t('后天'), t('已完成')]);
   await selectStatus(page, '未完成');
   await expectTitles(page, id, [t('后天')]);
@@ -563,6 +569,12 @@ test('左侧菜单的数字：按页面当前的状态计数；每一项数的�
   const starredBefore = Number(await count(scopeItem(page, '收藏')).textContent());
 
   await selectCategory(page, work);
+  // 换页面时状态行回到默认的"未完成"
+  await expect(statusBar(page).getByRole('button', { name: '未完成' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await selectStatus(page, '全部');
   await quickAdd(page, `${id} 一`);
   await quickAdd(page, `${id} 二`, { deadline: localDate(-1) });
   await taskItem(page, `${id} 一`).getByRole('button', { name: '标星', exact: true }).click();
@@ -608,6 +620,40 @@ test('列表侧边栏单选：每一项是一个页面，标题就是这一项�
     await expect(categoryItem(page, names[1]!)).not.toHaveAttribute('aria-current', 'page');
   }
   await expect(page).not.toHaveURL(/cat=/);
+});
+
+test('换页面时状态行回到新页面的默认值：今日是"全部"，其他页面是"未完成"；不带上一个页面的选择', async ({
+  page,
+}) => {
+  const id = runId();
+  const work = `${id}分类`;
+  await page.goto('/');
+  await createCategory(page, work);
+  const pressed = (name: string) =>
+    expect(statusBar(page).getByRole('button', { name, exact: true })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+  await pressed('未完成');
+
+  await selectStatus(page, '已错过');
+  await selectScope(page, '今日');
+  await pressed('全部');
+  await selectStatus(page, '未完成');
+  await selectScope(page, '收藏');
+  await pressed('未完成');
+  await selectStatus(page, '已完成');
+  await selectCategory(page, work);
+  await pressed('未完成');
+  await selectStatus(page, '全部');
+  await selectScope(page, '总览');
+  await pressed('未完成');
+  await selectStatus(page, '全部');
+  await selectScope(page, '今日');
+  await pressed('全部');
+  await selectStatus(page, '已完成');
+  await selectCategory(page, work);
+  await pressed('未完成');
 });
 
 test('点任务名：展开并让标题进入编辑；点行内其他区域：只展开', async ({ page }) => {

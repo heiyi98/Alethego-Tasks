@@ -496,30 +496,83 @@ test('RACI：创建时设定（创建人默认是 A）；R 标记完成进入待
   await Promise.all([pl, pa, pm].map((p) => p.context().close()));
 });
 
-test('踢出组与退出组：在任何项目上有 R 或 A 时失败并列出 RACI；否则确认窗口列出 C、I，确认后一并去掉；最后一位组长不能退出；合作组直接退出', async ({
+/** 按这个账号的身份改一条任务（标记完成、退回等） */
+async function patchTask(u: GroupUser, taskId: string, body: object) {
+  const response = await fetch(
+    `${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/tasks?id=eq.${taskId}`,
+    {
+      method: 'PATCH',
+      headers: {
+        apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        Authorization: `Bearer ${await (await import('./auth')).accessTokenFor(u)}`,
+        'Content-Profile': 'taskapp',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    },
+  );
+  expect(response.ok, await response.text()).toBe(true);
+}
+
+test('踢出组与退出组：只有未完成任务上的执行人、负责人挡住离开；可以离开时只确认一次；RACI 和成员记录都保留；离开的人照常显示名字、收不到通知；再次加入恢复记录和昵称；最后一位组长 / 合作组最后一个人不能退出', async ({
   browser,
 }) => {
-  test.setTimeout(150_000);
+  test.setTimeout(180_000);
   const id = runId();
   const { L, A, M, others, groupId, groupName, projectId, projectName } = await managementGroup(
     id,
     [`${id}被踢`, `${id}要走`],
   );
   const [kicked, leaver] = others as [GroupUser, GroupUser];
-  const mId = await userId(M);
-  const t1 = `${id} 有R的任务`;
-  await groupTask(A, projectId, t1, [
+  const [mId, aId, kickedId, leaverId] = await Promise.all(
+    [M, A, kicked, leaver].map((u) => userId(u)),
+  );
+  // 被踢的人在组里起了昵称
+  await rpc(kicked, 'ensure_current_user', { p_email: kicked.email, p_display_name: kicked.name });
+  const nick = await fetch(
+    `${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/group_members?group_id=eq.${groupId}&user_id=eq.${kickedId}`,
+    {
+      method: 'PATCH',
+      headers: {
+        apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        Authorization: `Bearer ${await (await import('./auth')).accessTokenFor(kicked)}`,
+        'Content-Profile': 'taskapp',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ nickname: `${id}小踢` }),
+    },
+  );
+  expect(nick.ok).toBe(true);
+
+  // 未完成：组员是执行人，被踢的人是知会，要走的人是顾问
+  const t1 = `${id} 未完成`;
+  const t1Id = await groupTask(A, projectId, t1, [
     { role: 'R', userId: mId },
-    { role: 'A', userId: await userId(A) },
-    { role: 'I', userId: await userId(kicked) },
-    { role: 'C', userId: await userId(leaver) },
+    { role: 'A', userId: aId },
+    { role: 'I', userId: kickedId },
+    { role: 'C', userId: leaverId },
   ]);
+  // 已完成：被踢的人是执行人
+  const t2 = `${id} 已完成`;
+  const t2Id = await groupTask(A, projectId, t2, [
+    { role: 'R', userId: kickedId },
+    { role: 'A', userId: aId },
+  ]);
+  await patchTask(kicked, t2Id, { completed_at: new Date().toISOString() });
+  await patchTask(A, t2Id, { confirmed_at: new Date().toISOString() });
+  // 待确认：要走的人是执行人
+  const t3 = `${id} 待确认`;
+  const t3Id = await groupTask(A, projectId, t3, [
+    { role: 'R', userId: leaverId },
+    { role: 'A', userId: aId },
+  ]);
+  await patchTask(leaver, t3Id, { completed_at: new Date().toISOString() });
 
   const pl = await openAs(browser, L);
   await groupLink(pl, groupName).click();
   await openRoster(pl);
 
-  // 踢出身上有 R 的人：失败，列出他在本组所有项目的任务上的 R、A、C、I（带项目名）
+  // 踢出未完成任务上的执行人：失败，只列出未完成任务上的执行人、负责人（带项目名）
   await rosterAction(pl, `${id}组员`, '踢出');
   await expect(confirmDialog(pl)).toHaveAccessibleName(`不能踢出「${id}组员」`);
   await expect(confirmDialog(pl).locator('.raci-roles-list li')).toHaveText([
@@ -529,18 +582,25 @@ test('踢出组与退出组：在任何项目上有 R 或 A 时失败并列出 R
   await confirmDialog(pl).getByRole('button', { name: '关闭' }).click();
   await expect(rosterRow(pl, `${id}组员`)).toBeVisible();
 
-  // 踢出只有 I 的人：确认窗口列出他的 C、I；确认后踢出，I 一并去掉
-  await rosterAction(pl, `${id}被踢`, '踢出');
-  await expect(confirmDialog(pl)).toHaveAccessibleName(`踢出「${id}被踢」？`);
-  await expect(confirmDialog(pl).locator('.raci-roles-list li')).toHaveText([
-    `${projectName}${t1}I`,
-  ]);
+  // 已完成任务上的执行人、未完成任务上的知会：不挡；只确认一次，不列出 RACI
+  await rosterAction(pl, `${id}小踢`, '踢出');
+  await expect(confirmDialog(pl)).toHaveAccessibleName(`踢出「${id}小踢」？`);
+  await expect(confirmDialog(pl).locator('.raci-roles-list')).toHaveCount(0);
   await confirmDialog(pl).getByRole('button', { name: '踢出' }).click();
-  await expect(rosterRow(pl, `${id}被踢`)).toHaveCount(0);
+  await expect(rosterRow(pl, `${id}小踢`)).toHaveCount(0);
+  // RACI 全部保留；成员记录只标记为已离开（昵称保留）；他看不到组和项目
   expect(
-    await select(A, `task_assignments?select=role&user_id=eq.${await userId(kicked)}`),
-  ).toEqual([]);
-  // 踢出组 = 同时移出他所在的所有项目
+    await select<{ role: string }>(
+      A,
+      `task_assignments?select=role&user_id=eq.${kickedId}&order=role`,
+    ),
+  ).toEqual([{ role: 'I' }, { role: 'R' }]);
+  const [kickedRow] = await select<{ nickname: string; left_at: string | null }>(
+    L,
+    `group_members?select=nickname,left_at&group_id=eq.${groupId}&user_id=eq.${kickedId}`,
+  );
+  expect(kickedRow!.nickname).toBe(`${id}小踢`);
+  expect(kickedRow!.left_at).not.toBeNull();
   expect(await select(kicked, `groups?select=id&id=eq.${groupId}`)).toEqual([]);
   expect(await select(kicked, `projects?select=id&id=eq.${projectId}`)).toEqual([]);
 
@@ -549,7 +609,7 @@ test('踢出组与退出组：在任何项目上有 R 或 A 时失败并列出 R
     rpc(A, 'remove_group_member', { p_group_id: groupId, p_user_id: mId }),
   ).rejects.toThrow(/没有踢出这个人的权限/);
 
-  // 组员退出：身上有 R 时失败，列出 RACI
+  // 组员退出：未完成任务上是执行人，失败
   const pm = await openAs(browser, M);
   await groupLink(pm, groupName).click();
   await openRoster(pm);
@@ -560,41 +620,114 @@ test('踢出组与退出组：在任何项目上有 R 或 A 时失败并列出 R
   ]);
   await confirmDialog(pm).getByRole('button', { name: '关闭' }).click();
 
-  // 只有 C 的人退出：确认窗口列出 C；退出后 C 一并去掉，回到总览
+  // 待确认任务上的执行人、未完成任务上的顾问：可以退出，只确认一次
   const pv = await openAs(browser, leaver);
   await groupLink(pv, groupName).click();
   await openRoster(pv);
   await rosterAction(pv, `${id}要走`, '退出组');
   await expect(confirmDialog(pv)).toHaveAccessibleName(`退出「${groupName}」？`);
-  await expect(confirmDialog(pv).locator('.raci-roles-list li')).toHaveText([
-    `${projectName}${t1}C`,
-  ]);
+  await expect(confirmDialog(pv).locator('.raci-roles-list')).toHaveCount(0);
   await confirmDialog(pv).getByRole('button', { name: '退出' }).click();
   await expect(titleBar(pv)).toHaveText('总览');
   await expect(groupLink(pv, groupName)).toHaveCount(0);
   expect(
-    await select(A, `task_assignments?select=role&user_id=eq.${await userId(leaver)}`),
-  ).toEqual([]);
+    await select<{ role: string }>(
+      A,
+      `task_assignments?select=role&user_id=eq.${leaverId}&order=role`,
+    ),
+  ).toEqual([{ role: 'C' }, { role: 'R' }]);
+
+  // 任务上照常显示已离开的人的名字（组里的昵称）
+  await rosterDialog(pl).getByRole('button', { name: '关闭' }).click();
+  await projectLink(pl, projectName).click();
+  await selectStatus(pl, '全部');
+  await taskItem(pl, t1).locator('.task-title').click();
+  const raciField = editPanel(pl).getByRole('group', { name: 'RACI' });
+  await expect(raciField.getByRole('group', { name: '知会（I）' })).toContainText(`${id}小踢`);
+  await expect(raciField.getByRole('group', { name: '顾问（C）' })).toContainText(`${id}要走`);
+  // 已离开的人不在下拉框里（不能再选回来）
+  await expect(
+    raciField
+      .getByRole('combobox', { name: '添加顾问（C）' })
+      .getByRole('option', { name: `${id}小踢` }),
+  ).toHaveCount(0);
+  // 保留已离开的人保存不会失败（改一下描述再保存）
+  await editPanel(pl).getByRole('textbox', { name: '描述' }).fill('改一下');
+  await editPanel(pl).getByRole('button', { name: '完成编辑' }).first().click();
+  await expect(editPanel(pl)).toHaveCount(0);
+  expect(
+    (await select<{ description: string }>(A, `tasks?select=description&id=eq.${t1Id}`))[0]!
+      .description,
+  ).toBe('改一下');
+  // 数据库只检查新加进去的人：留着可以，新加不行
+  await expect(
+    rpc(A, 'set_task_raci', {
+      p_task_id: t1Id,
+      p_assignments: [
+        { role: 'R', user_id: mId },
+        { role: 'A', user_id: aId },
+        { role: 'I', user_id: kickedId },
+        { role: 'C', user_id: leaverId },
+        { role: 'I', user_id: leaverId },
+      ],
+    }),
+  ).rejects.toThrow(/RACI 里的成员必须是项目成员/);
+
+  // 待确认、执行人已经离开：负责人退回后回到未完成，执行人仍是他；他收不到通知；管理员重新指定执行人
+  const leaverNotifications = () =>
+    select(
+      leaver,
+      `task_notifications?select=id,action,created_at,fields&task_id=eq.${t3Id}&order=id`,
+    );
+  const notificationsBefore = await leaverNotifications();
+  await patchTask(A, t3Id, { completed_at: null });
+  const [t3Row] = await select<{ completed_at: string | null }>(
+    A,
+    `tasks?select=completed_at&id=eq.${t3Id}`,
+  );
+  expect(t3Row!.completed_at).toBeNull();
+  expect(
+    await select(A, `task_assignments?select=role&task_id=eq.${t3Id}&user_id=eq.${leaverId}`),
+  ).toEqual([{ role: 'R' }]);
+  expect(await leaverNotifications()).toEqual(notificationsBefore);
+  expect(
+    await rpc(A, 'set_task_raci', {
+      p_task_id: t3Id,
+      p_assignments: [
+        { role: 'R', user_id: mId },
+        { role: 'A', user_id: aId },
+      ],
+    }),
+  ).toBeNull();
+
+  // 再次加入：恢复原来那条成员记录和昵称；身份按新人（组员），只回到默认项目
+  await rpc(L, 'invite_to_group', { p_group_id: groupId, p_email: kicked.email });
+  const [invitation] = await select<{ id: string }>(
+    kicked,
+    `group_invitations?select=id&group_id=eq.${groupId}`,
+  );
+  await rpc(kicked, 'accept_group_invitation', { p_invitation_id: invitation!.id });
+  const [back] = await select<{ nickname: string; role: string; left_at: string | null }>(
+    L,
+    `group_members?select=nickname,role,left_at&group_id=eq.${groupId}&user_id=eq.${kickedId}`,
+  );
+  expect(back).toEqual({ nickname: `${id}小踢`, role: 'member', left_at: null });
+  const memberships = await select<{ project_id: string; left_at: string | null }>(
+    L,
+    `project_members?select=project_id,left_at&user_id=eq.${kickedId}`,
+  );
+  expect(memberships.find((m) => m.project_id === projectId)!.left_at).not.toBeNull();
+  expect(memberships.filter((m) => m.left_at === null)).toHaveLength(1);
 
   // 最后一位组长不能退出
+  await groupLink(pl, groupName).click();
+  await openRoster(pl);
   await rosterAction(pl, `${id}组长`, '退出组');
   await expect(confirmDialog(pl)).toHaveAccessibleName('最后一位组长不能退出');
   await confirmDialog(pl).getByRole('button', { name: '关闭' }).click();
   expect(await rpc(L, 'leave_group', { p_group_id: groupId })).toBe('last_leader');
 
-  // 项目管理员（没有 R、A）可以退出组：先把负责人换成组长（执行人和负责人不能删光）
-  expect(
-    await rpc(A, 'set_task_raci', {
-      p_task_id: (await select<{ id: string }>(A, `tasks?select=id&title=eq.${t1}`))[0]!.id,
-      p_assignments: [
-        { role: 'R', user_id: mId },
-        { role: 'A', user_id: await userId(L) },
-      ],
-    }),
-  ).toBeNull();
-  expect(await rpc(A, 'leave_group', { p_group_id: groupId })).toBe('left');
-
-  // 合作组（项目没开任务分配）：直接退出；最后一个成员退出时组和项目、任务一起删除
+  // 合作组：组员直接退出；最后一个人不能退出（要结束就删除组），组和任务都还在
   const coop = `${id}合作组`;
   const coopId = await groupWith(L, [M], coop);
   await groupTask(L, await projectIn(L, coopId, `${id}合作项目`), `${id} 合作组任务`);
@@ -610,10 +743,12 @@ test('踢出组与退出组：在任何项目上有 R 或 A 时失败并列出 R
   await openRoster(pl);
   await expect(rosterDialog(pl).locator('.roster-name')).toHaveText([`${id}组长`]);
   await rosterAction(pl, `${id}组长`, '退出组');
-  await confirmDialog(pl).getByRole('button', { name: '退出' }).click();
-  await expect(titleBar(pl)).toHaveText('总览');
-  await expect(groupLink(pl, coop)).toHaveCount(0);
-  expect(await select(L, `tasks?select=id&group_id=eq.${coopId}`)).toEqual([]);
+  await expect(confirmDialog(pl)).toHaveAccessibleName('最后一个人不能退出');
+  await confirmDialog(pl).getByRole('button', { name: '关闭' }).click();
+  expect(await rpc(L, 'leave_group', { p_group_id: coopId })).toBe('last_member');
+  expect(await select(L, `tasks?select=title&group_id=eq.${coopId}`)).toEqual([
+    { title: `${id} 合作组任务` },
+  ]);
 
   await Promise.all([pl, pm, pv].map((p) => p.context().close()));
 });

@@ -97,7 +97,8 @@ export function RecurrenceEditor({
     .filter((r) =>
       current
         ? r.occurrenceDate < current.occurrenceDate
-        : !(wasRecurring && !value.enabled && start) || r.occurrenceDate < start,
+        : // 关掉循环：当前这一次变成普通任务，其余的记录（包括以后提前完成的）都是历史
+          !(wasRecurring && !value.enabled && start) || r.occurrenceDate !== start,
     )
     .sort((a, b) => (a.occurrenceDate < b.occurrenceDate ? 1 : -1));
   const period = value.enabled ? value.period : null;

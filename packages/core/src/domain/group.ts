@@ -102,6 +102,14 @@ export interface ProjectContact {
   id: string;
   projectId: string;
   name: string;
+  /** 已删除：不在名单和 RACI 的候选里，任务上的标注保留并照常显示名字 */
+  deleted: boolean;
+}
+
+/** 已经离开、但还挂在项目的任务上（RACI）的人：任务上照常显示名字（组里的昵称） */
+export interface FormerPerson {
+  userId: string;
+  nickname: string;
 }
 
 /* ------------------------------------------------------------------ */

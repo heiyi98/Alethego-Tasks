@@ -100,7 +100,7 @@ export function TaskRow({
   const namesOf = (role: 'R' | 'A') =>
     assignments
       .filter((a) => a.role === role && a.userId)
-      .map((a) => scope?.members.find((m) => m.userId === a.userId)?.nickname ?? '')
+      .map((a) => scope?.nameOfUser(a.userId!) ?? '')
       .filter(Boolean);
 
   // 任务关系：还在等前置时，简介行最前面写"等待 某任务 开始 / 结束"，等多个时后面加剩余数量

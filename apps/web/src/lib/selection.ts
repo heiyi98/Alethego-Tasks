@@ -8,7 +8,7 @@ import { ALL_STATUSES, DEFAULT_STATUS } from './format';
  * - 某个个人分类：?cat=id
  * - 某个组（组里我能看到的所有项目的任务）：?group=id；组里的某个项目：?group=id&project=id
  * - 状态（清单页面内、添加栏下面一行，单选）：?status=…（是这一页的默认值时省略：今日默认"全部"，
- *   其他页面默认"未完成"）。换页面时，选过的状态带过去；用的是默认值时换成新页面的默认值
+ *   其他页面默认"未完成"）。换页面时，状态行回到新页面自己的默认值，不把上一个页面的选择带过去
  * - 看法：清单 / 责任分配矩阵（?view=raci）/ 甘特图（?view=gantt）
  * 时间管理矩阵是 /matrix，用自己的筛选栏（勾选存在账号上），不看这些；但地址里保留进入矩阵之前
  * 所在的页面（同样的查询参数），从矩阵回到清单时回到那个页面。
@@ -46,10 +46,6 @@ export function defaultStatusOf(
     ? 'all'
     : DEFAULT_STATUS;
 }
-
-/** 换页面时带过去的状态：用的是默认值时为 null（用新页面的默认值） */
-const chosenStatus = (selection: Selection): StatusFilter | null =>
-  selection.status === defaultStatusOf(selection) ? null : selection.status;
 
 export function isStatusFilter(value: string | null | undefined): value is StatusFilter {
   return ALL_STATUSES.some((status) => status === value);
@@ -137,11 +133,8 @@ export function needsCanonicalRedirect(params: URLSearchParams): boolean {
   );
 }
 
-/** 个人的页面没有"待确认"（今日除外：今日里有开了任务分配的项目的任务） */
-const personalStatus = (status: StatusFilter | null) => (status === 'pending' ? null : status);
-
-/** 侧边栏上一项对应的页面（清单），状态行保持当前选择 */
-export function scopeHref(selection: Selection, scope: ListScope): string {
+/** 侧边栏上一项对应的页面（清单），状态行是这一页的默认值 */
+export function scopeHref(_selection: Selection, scope: ListScope): string {
   return selectionHref({
     mode: 'list',
     listView: 'list',
@@ -149,13 +142,11 @@ export function scopeHref(selection: Selection, scope: ListScope): string {
     projectId: null,
     scope,
     categoryIds: [],
-    status:
-      (scope === 'today' ? chosenStatus(selection) : personalStatus(chosenStatus(selection))) ??
-      defaultStatusOf({ groupId: null, categoryIds: [], scope }),
+    status: defaultStatusOf({ groupId: null, categoryIds: [], scope }),
   });
 }
 
-export function categoryHref(selection: Selection, categoryId: string): string {
+export function categoryHref(_selection: Selection, categoryId: string): string {
   return selectionHref({
     mode: 'list',
     listView: 'list',
@@ -163,15 +154,19 @@ export function categoryHref(selection: Selection, categoryId: string): string {
     projectId: null,
     scope: DEFAULT_LIST_SCOPE,
     categoryIds: [categoryId],
-    status: personalStatus(chosenStatus(selection)) ?? DEFAULT_STATUS,
+    status: DEFAULT_STATUS,
   });
 }
 
-/** 进入一个组（或组里某个项目）的任务清单，状态行保持当前选择 */
+/**
+ * 进入一个组（或组里某个项目）的任务清单，状态行是这一页的默认值（"未完成"）；
+ * status 只给通知里的"查看"用：要让那条任务在清单里看得见
+ */
 export function groupHref(
-  selection: Selection,
+  _selection: Selection,
   groupId: string,
   projectId: string | null = null,
+  status: StatusFilter = DEFAULT_STATUS,
 ): string {
   return selectionHref({
     mode: 'list',
@@ -180,7 +175,7 @@ export function groupHref(
     projectId,
     scope: DEFAULT_LIST_SCOPE,
     categoryIds: [],
-    status: chosenStatus(selection) ?? DEFAULT_STATUS,
+    status,
   });
 }
 

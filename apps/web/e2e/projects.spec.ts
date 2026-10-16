@@ -23,7 +23,7 @@ import {
   user,
   userId,
 } from './group-helpers';
-import { quickAdd, runId, taskItem } from './helpers';
+import { editPanel, quickAdd, runId, taskItem } from './helpers';
 
 // 多个账号各用自己的浏览器上下文：从"没登录"开始
 test.use({ storageState: { cookies: [], origins: [] } });
@@ -283,7 +283,7 @@ test('项目管理员只在被任命的项目里有权限；组长在每个项�
   await Promise.all([pa, pc].map((p) => p.context().close()));
 });
 
-test('移出项目：开了任务分配、身上有 R 或 A 时失败并列出 RACI；否则确认窗口列出 C、I；没开任务分配直接确认', async ({
+test('移出项目：未完成任务上的执行人、负责人挡住；否则只确认一次，RACI 和成员记录保留；再加进来恢复记录；删除只有名字的人只标记，任务上照常显示名字', async ({
   browser,
 }) => {
   test.setTimeout(120_000);
@@ -294,35 +294,78 @@ test('移出项目：开了任务分配、身上有 R 或 A 时失败并列出 R
   const groupId = await groupWith(L, [M, N], `${id}组`, 'management');
   const p1 = await projectIn(L, groupId, `${id}分配项目`, ['assignment']);
   const p2 = await projectIn(L, groupId, `${id}普通项目`);
+  const contact = await rpc<{ id: string }>(L, 'add_project_contact', {
+    p_project_id: p1,
+    p_name: `${id}外援`,
+  });
   const title = `${id} 任务`;
   await groupTask(L, p1, title, [
     { role: 'R', userId: await userId(M) },
     { role: 'A', userId: await userId(L) },
     { role: 'I', userId: await userId(N) },
+    { role: 'C', contactId: contact.id },
   ]);
 
   const pl = await openAs(browser, L);
   await projectLink(pl, `${id}分配项目`).click();
   await openRoster(pl);
-  // 身上有 R：不能移出，列出他在这个项目里的 RACI
+  // 未完成任务上的执行人：不能移出，列出这条任务
   await rosterAction(pl, `${id}执行`, '移出项目');
   await expect(confirmDialog(pl)).toHaveAccessibleName(`不能移出「${id}执行」`);
   await expect(confirmDialog(pl).locator('.raci-roles-list li')).toHaveText([`${title}R`]);
   await confirmDialog(pl).getByRole('button', { name: '关闭' }).click();
   await expect(rosterRow(pl, `${id}执行`)).toBeVisible();
-  // 只有 I：确认窗口列出 I，确认后移出，I 一并去掉；他还在组里
+  // 只有知会：只确认一次；移出后知会保留，成员记录只标记为已离开；他还在组里
   await rosterAction(pl, `${id}知会`, '移出项目');
   await expect(confirmDialog(pl)).toHaveAccessibleName(`把「${id}知会」移出项目？`);
-  await expect(confirmDialog(pl).locator('.raci-roles-list li')).toHaveText([`${title}I`]);
+  await expect(confirmDialog(pl).locator('.raci-roles-list')).toHaveCount(0);
   await confirmDialog(pl).getByRole('button', { name: '移出' }).click();
   await expect(rosterRow(pl, `${id}知会`)).toHaveCount(0);
-  expect(await select(L, `task_assignments?select=role&user_id=eq.${await userId(N)}`)).toEqual([]);
+  expect(await select(L, `task_assignments?select=role&user_id=eq.${await userId(N)}`)).toEqual([
+    { role: 'I' },
+  ]);
+  const [left] = await select<{ left_at: string | null }>(
+    L,
+    `project_members?select=left_at&project_id=eq.${p1}&user_id=eq.${await userId(N)}`,
+  );
+  expect(left!.left_at).not.toBeNull();
   expect(await select(N, `projects?select=id&id=eq.${p1}`)).toEqual([]);
   expect(await select(N, `groups?select=id&id=eq.${groupId}`)).toHaveLength(1);
+
+  // 删除只有名字的人：只标记为已删除，名单里没有了；任务上的标注保留并照常显示名字
+  await rosterDialog(pl)
+    .getByRole('button', { name: `删除「${id}外援」` })
+    .click();
+  await confirmDialog(pl).getByRole('button', { name: '删除' }).click();
+  await expect(rosterDialog(pl)).not.toContainText(`${id}外援`);
   await rosterDialog(pl).getByRole('button', { name: '关闭' }).click();
+  expect(await select(L, `task_assignments?select=role&contact_id=eq.${contact.id}`)).toEqual([
+    { role: 'C' },
+  ]);
+  await taskItem(pl, title).locator('.task-title').click();
+  const raciField = editPanel(pl).getByRole('group', { name: 'RACI' });
+  await expect(raciField.getByRole('group', { name: '顾问（C）' })).toContainText(`${id}外援`);
+  await expect(raciField.getByRole('group', { name: '知会（I）' })).toContainText(`${id}知会`);
+  await expect(
+    raciField
+      .getByRole('combobox', { name: '添加知会（I）' })
+      .getByRole('option', { name: `${id}外援` }),
+  ).toHaveCount(0);
+  await pl.getByRole('button', { name: '收起', exact: true }).click();
 
   // 执行人自己退出项目：同样不行
   expect(await rpc(M, 'leave_project', { p_project_id: p1 })).toBe('blocked');
+
+  // 再加进来：恢复原来那条成员记录
+  expect(await rpc(L, 'add_project_member', { p_project_id: p1, p_user_id: await userId(N) })).toBe(
+    'added',
+  );
+  expect(
+    await select<{ left_at: string | null; role: string }>(
+      L,
+      `project_members?select=left_at,role&project_id=eq.${p1}&user_id=eq.${await userId(N)}`,
+    ),
+  ).toEqual([{ left_at: null, role: 'member' }]);
 
   // 没开任务分配的项目：直接确认，确认后移出
   await projectLink(pl, `${id}普通项目`).click();

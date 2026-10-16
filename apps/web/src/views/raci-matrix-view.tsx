@@ -40,9 +40,22 @@ function RaciTable() {
     return <p className="muted empty">没有{status === 'all' ? '' : STATUS_LABELS[status]}任务</p>;
   }
 
+  // 已经离开的人、已删除的只有名字的人：还挂在显示的任务上时也给一列，照常显示名字
+  const assigned = new Set(
+    tasks.flatMap((t) =>
+      (data.assignmentsByTask.get(t.id) ?? []).map((a) =>
+        a.userId ? `u:${a.userId}` : `c:${a.contactId}`,
+      ),
+    ),
+  );
   const people = [
     ...members.map((m) => ({ key: `u:${m.userId}`, name: m.nickname, userId: m.userId })),
-    ...contacts.map((c) => ({ key: `c:${c.id}`, name: c.name, contactId: c.id })),
+    ...(scope?.formerPeople ?? [])
+      .filter((m) => assigned.has(`u:${m.userId}`))
+      .map((m) => ({ key: `u:${m.userId}`, name: m.nickname, userId: m.userId })),
+    ...contacts
+      .filter((c) => !c.deleted || assigned.has(`c:${c.id}`))
+      .map((c) => ({ key: `c:${c.id}`, name: c.name, contactId: c.id })),
   ];
 
   const letters = (taskId: string, person: (typeof people)[number]) => {

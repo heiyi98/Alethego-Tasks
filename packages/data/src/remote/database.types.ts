@@ -57,6 +57,7 @@ export interface Database {
           role: GroupRoleEnum;
           nickname: string | null;
           joined_at: string;
+          left_at: string | null;
         };
         Insert: { [_ in never]: never };
         Update: { nickname?: string | null };
@@ -103,7 +104,13 @@ export interface Database {
         Relationships: [];
       };
       project_members: {
-        Row: { project_id: string; user_id: string; role: 'admin' | 'member'; joined_at: string };
+        Row: {
+          project_id: string;
+          user_id: string;
+          role: 'admin' | 'member';
+          joined_at: string;
+          left_at: string | null;
+        };
         Insert: NoWrite;
         Update: NoWrite;
         Relationships: [];
@@ -139,6 +146,7 @@ export interface Database {
           name: string;
           created_by: string;
           created_at: string;
+          deleted_at: string | null;
         };
         Insert: NoWrite;
         Update: NoWrite;
@@ -163,6 +171,7 @@ export interface Database {
           occurrence_date: string | null;
           checked_at: string;
           checked_by: string | null;
+          archived_at: string | null;
         };
         Insert: NoWrite;
         Update: NoWrite;
@@ -497,6 +506,10 @@ export interface Database {
         Args: { p_project_id: string; p_name: string; p_color: string };
         Returns: Database['taskapp']['Tables']['projects']['Row'];
       };
+      project_former_people: {
+        Args: { p_project_id: string };
+        Returns: { user_id: string; nickname: string }[];
+      };
       project_roster: {
         Args: { p_project_id: string };
         Returns: {
@@ -575,7 +588,7 @@ export interface Database {
       };
       leave_group: {
         Args: { p_group_id: string };
-        Returns: 'left' | 'deleted' | 'blocked' | 'last_leader';
+        Returns: 'left' | 'blocked' | 'last_leader' | 'last_member';
       };
       process_group_timeouts: { Args: Record<string, never>; Returns: number };
       dismiss_notification: { Args: { p_id: string }; Returns: undefined };

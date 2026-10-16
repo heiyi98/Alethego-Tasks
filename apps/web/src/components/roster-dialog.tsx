@@ -174,18 +174,19 @@ export function GroupRosterDialog({ group, onClose }: { group: Group; onClose: (
     });
   }
 
-  /** 踢出组：他在任何项目上有 R 或 A 时不能踢，列出他的 RACI；否则确认窗口里列出他的 C、I */
+  /**
+   * 踢出组：他在未完成的任务上是执行人或负责人时不能踢，列出这些任务；否则只确认一次。
+   * 他在任务上的 RACI 全部保留（离开后不再收到通知）
+   */
   async function remove(member: GroupMember) {
     setMenuFor(null);
     const roles = await repositories.groups.memberTaskRoles(group.id, member.userId);
-    if (roles.some((r) => r.role === 'R' || r.role === 'A')) {
+    if (roles.length > 0) {
       await alert(`不能踢出「${member.nickname}」`, <RaciRolesList roles={roles} showProject />);
       return;
     }
-    const ci = roles.filter((r) => r.role === 'C' || r.role === 'I');
     const ok = await confirm({
       message: `踢出「${member.nickname}」？`,
-      detail: ci.length > 0 ? <RaciRolesList roles={ci} showProject /> : undefined,
       confirmLabel: '踢出',
       cancelLabel: '取消',
       destructive: true,
@@ -199,26 +200,24 @@ export function GroupRosterDialog({ group, onClose }: { group: Group; onClose: (
     });
   }
 
-  /** 退出组：身上有 R 或 A 时不能退出；管理组最后一位组长不能退出 */
+  /**
+   * 退出组：在未完成的任务上是执行人或负责人时不能退出；管理组最后一位组长、合作组最后一个人不能退出
+   * （要结束就删除组）；否则只确认一次
+   */
   async function leave(me: GroupMember) {
     setMenuFor(null);
     const roles = await repositories.groups.memberTaskRoles(group.id, me.userId);
-    if (roles.some((r) => r.role === 'R' || r.role === 'A')) {
+    if (roles.length > 0) {
       await alert('不能退出', <RaciRolesList roles={roles} showProject />);
       return;
     }
-    if (
-      !GROUP_KIND_CONFIG[group.kind].everyoneLeader &&
-      me.role === 'leader' &&
-      !members.some((m) => !m.isMe && m.role === 'leader')
-    ) {
-      await alert('最后一位组长不能退出');
+    const everyoneLeader = GROUP_KIND_CONFIG[group.kind].everyoneLeader;
+    if (me.role === 'leader' && !members.some((m) => !m.isMe && m.role === 'leader')) {
+      await alert(everyoneLeader ? '最后一个人不能退出' : '最后一位组长不能退出');
       return;
     }
-    const ci = roles.filter((r) => r.role === 'C' || r.role === 'I');
     const ok = await confirm({
       message: `退出「${group.name}」？`,
-      detail: ci.length > 0 ? <RaciRolesList roles={ci} showProject /> : undefined,
       confirmLabel: '退出',
       cancelLabel: '取消',
       destructive: true,
@@ -231,8 +230,8 @@ export function GroupRosterDialog({ group, onClose }: { group: Group; onClose: (
         await alert('不能退出', <RaciRolesList roles={latest} showProject />);
         return;
       }
-      if (result === 'last_leader') {
-        await alert('最后一位组长不能退出');
+      if (result === 'last_leader' || result === 'last_member') {
+        await alert(result === 'last_member' ? '最后一个人不能退出' : '最后一位组长不能退出');
         return;
       }
       onClose();
@@ -328,7 +327,8 @@ export function ProjectRosterDialog({
   const { members: groupMembers, scopeOf, reloadRoster } = useCurrentGroup();
   const scope = scopeOf(project.id);
   const members = scope?.members ?? [];
-  const contacts = scope?.contacts ?? [];
+  // 已删除的只有名字的人不在名单里（任务上照常显示名字）
+  const contacts = (scope?.contacts ?? []).filter((c) => !c.deleted);
   const permissions = scope?.permissions;
   const assignment = scope?.features.raci ?? false;
   const router = useRouter();
@@ -357,24 +357,20 @@ export function ProjectRosterDialog({
   }
 
   /**
-   * 移出项目：开了任务分配、他身上有 R 或 A 时不能移出，列出他在这个项目里的 RACI；
-   * 否则确认窗口里列出会一起去掉的 C、I。没开任务分配时直接确认。
+   * 移出项目：开了任务分配、他在未完成的任务上是执行人或负责人时不能移出，列出这些任务；
+   * 否则只确认一次。他在任务上的 RACI 全部保留
    */
   async function remove(member: ProjectMember) {
     setMenuFor(null);
-    let detail: ReactNode;
     if (assignment) {
       const roles = await repositories.projects.memberTaskRoles(project.id, member.userId);
-      if (roles.some((r) => r.role === 'R' || r.role === 'A')) {
+      if (roles.length > 0) {
         await alert(`不能移出「${member.nickname}」`, <RaciRolesList roles={roles} />);
         return;
       }
-      const ci = roles.filter((r) => r.role === 'C' || r.role === 'I');
-      if (ci.length > 0) detail = <RaciRolesList roles={ci} />;
     }
     const ok = await confirm({
       message: `把「${member.nickname}」移出项目？`,
-      detail,
       confirmLabel: '移出',
       cancelLabel: '取消',
       destructive: true,
@@ -390,19 +386,15 @@ export function ProjectRosterDialog({
 
   async function leave(me: ProjectMember) {
     setMenuFor(null);
-    let detail: ReactNode;
     if (assignment) {
       const roles = await repositories.projects.memberTaskRoles(project.id, me.userId);
-      if (roles.some((r) => r.role === 'R' || r.role === 'A')) {
+      if (roles.length > 0) {
         await alert('不能退出', <RaciRolesList roles={roles} />);
         return;
       }
-      const ci = roles.filter((r) => r.role === 'C' || r.role === 'I');
-      if (ci.length > 0) detail = <RaciRolesList roles={ci} />;
     }
     const ok = await confirm({
       message: `退出「${project.name}」？`,
-      detail,
       confirmLabel: '退出',
       cancelLabel: '取消',
       destructive: true,

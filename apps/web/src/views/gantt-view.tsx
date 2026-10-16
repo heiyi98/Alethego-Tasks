@@ -120,7 +120,7 @@ function GanttChart() {
     if (!scope?.features.raci) return [];
     return (data.assignmentsByTask.get(task.id) ?? [])
       .filter((a) => a.role === 'R' && a.userId)
-      .map((a) => scope.members.find((m) => m.userId === a.userId)?.nickname ?? '')
+      .map((a) => scope.nameOfUser(a.userId!))
       .filter(Boolean);
   };
 

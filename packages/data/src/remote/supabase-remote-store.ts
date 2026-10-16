@@ -500,7 +500,9 @@ export class SupabaseSubtaskRepository implements ISubtaskRepository {
         await this.client
           .from('task_subtask_checks')
           .select('subtask_id, occurrence_date')
-          .in('subtask_id', ids.slice(i, i + 100)),
+          .in('subtask_id', ids.slice(i, i + 100))
+          // 归入历史的勾选（关掉循环前作为普通任务的）不算任务现在的勾选
+          .is('archived_at', null),
         '查询子任务的勾选',
       );
       checks.push(

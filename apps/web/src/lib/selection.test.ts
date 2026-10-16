@@ -41,11 +41,12 @@ describe('清单的侧边栏：单选导航', () => {
     expect(parse('/')).toMatchObject({ status: 'todo' });
     expect(selectionHref(parse('/?scope=today'))).toBe('/?scope=today');
     expect(selectionHref(parse('/?scope=today&status=todo'))).toBe('/?scope=today&status=todo');
-    // 用的是默认值时，换页面用新页面的默认值；选过的带过去
+    // 换页面时状态行回到新页面自己的默认值，不把上一个页面的选择带过去
     expect(scopeHref(parse('/'), 'today')).toBe('/?scope=today');
     expect(scopeHref(parse('/?scope=today'), 'all')).toBe('/');
     expect(scopeHref(parse('/?scope=today&status=todo'), 'starred')).toBe('/?scope=starred');
-    expect(scopeHref(parse('/?status=completed'), 'today')).toBe('/?scope=today&status=completed');
+    expect(scopeHref(parse('/?status=completed'), 'today')).toBe('/?scope=today');
+    expect(scopeHref(parse('/?scope=today&status=missed'), 'all')).toBe('/');
     expect(parse('/?scope=starred')).toMatchObject({ scope: 'starred' });
     // 分类、组优先：选了分类或组时范围不起作用
     expect(parse('/?scope=starred&cat=a')).toMatchObject({ scope: 'all', categoryIds: ['a'] });
@@ -57,8 +58,8 @@ describe('清单的侧边栏：单选导航', () => {
     const s = parse('/?cat=a&status=all');
     // 今日默认就是"全部"
     expect(scopeHref(s, 'today')).toBe('/?scope=today');
-    expect(categoryHref(s, 'b')).toBe('/?cat=b&status=all');
-    expect(groupHref(s, 'g', 'p')).toBe('/?group=g&project=p&status=all');
+    expect(categoryHref(s, 'b')).toBe('/?cat=b');
+    expect(groupHref(s, 'g', 'p')).toBe('/?group=g&project=p');
   });
 
   it('当前页面（整行高亮）只有一项', () => {
@@ -126,6 +127,6 @@ describe('项目、责任分配矩阵与待确认', () => {
     const raci = parse('/?group=g1&project=p1&view=raci&status=pending');
     expect(scopeHref(raci, 'all')).toBe('/');
     expect(categoryHref(raci, 'c1')).toBe('/?cat=c1');
-    expect(scopeHref(raci, 'today')).toBe('/?scope=today&status=pending');
+    expect(scopeHref(raci, 'today')).toBe('/?scope=today');
   });
 });

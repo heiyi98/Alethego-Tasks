@@ -9,6 +9,7 @@ import {
   groupPermissions,
   projectPermissions,
   type ContainerFeatures,
+  type FormerPerson,
   type Group,
   type GroupMember,
   type GroupPermissions,
@@ -37,9 +38,15 @@ export interface ProjectScope {
   project: Project;
   features: ContainerFeatures;
   permissions: ProjectPermissions;
+  /** 没离开的成员 */
   members: ProjectMember[];
+  /** 只有名字的人，包括已删除的（deleted：不在名单和候选里，任务上照常显示名字） */
   contacts: ProjectContact[];
+  /** 已经离开、但还挂在任务上（RACI）的人：任务上照常显示名字 */
+  formerPeople: FormerPerson[];
   me: ProjectMember | undefined;
+  /** 任务上某个人显示的名字：成员和已离开的人都用组里的昵称 */
+  nameOfUser: (userId: string) => string;
 }
 
 /**
@@ -73,7 +80,10 @@ interface Rosters {
   groupId: string;
   members: GroupMember[];
   leaderRequests: LeaderRequest[];
-  projects: Map<string, { members: ProjectMember[]; contacts: ProjectContact[] }>;
+  projects: Map<
+    string,
+    { members: ProjectMember[]; contacts: ProjectContact[]; formerPeople: FormerPerson[] }
+  >;
 }
 
 export function CurrentGroupProvider({ children }: { children: ReactNode }) {
@@ -106,13 +116,15 @@ export function CurrentGroupProvider({ children }: { children: ReactNode }) {
           : Promise.resolve([]),
         Promise.all(
           projects.map(async (p) => {
-            const [projectMembers, contacts] = await Promise.all([
+            const raci = featuresForProject(p).raci;
+            const [projectMembers, contacts, formerPeople] = await Promise.all([
               repositories.projects.roster(p.id),
               featuresForProject(p).contacts
                 ? repositories.projects.contacts(p.id)
                 : Promise.resolve([]),
+              raci ? repositories.projects.formerPeople(p.id) : Promise.resolve([]),
             ]);
-            return [p.id, { members: projectMembers, contacts }] as const;
+            return [p.id, { members: projectMembers, contacts, formerPeople }] as const;
           }),
         ),
       ]);
@@ -134,13 +146,20 @@ export function CurrentGroupProvider({ children }: { children: ReactNode }) {
       const p = projects.find((x) => x.id === id);
       if (!p) return null;
       const roster = current?.projects.get(id);
+      const members = roster?.members ?? [];
+      const formerPeople = roster?.formerPeople ?? [];
       return {
         project: p,
         features: featuresForProject(p),
         permissions: projectPermissions(group.kind, p),
-        members: roster?.members ?? [],
+        members,
         contacts: roster?.contacts ?? [],
-        me: roster?.members.find((m) => m.isMe),
+        formerPeople,
+        me: members.find((m) => m.isMe),
+        nameOfUser: (userId) =>
+          members.find((m) => m.userId === userId)?.nickname ??
+          formerPeople.find((m) => m.userId === userId)?.nickname ??
+          '',
       };
     };
     return {
@@ -177,7 +196,9 @@ export function useCurrentGroup(): CurrentGroupValue {
   return value;
 }
 
-/** 名单里某人在本组显示的名字：成员用昵称，只有名字的人用名字 */
+/**
+ * 名单里某人在本组显示的名字：成员（包括已经离开的）用昵称，只有名字的人（包括已删除的）用名字
+ */
 export function personName(
   members: readonly Pick<ProjectMember, 'userId' | 'nickname'>[],
   contacts: readonly ProjectContact[],

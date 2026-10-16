@@ -67,6 +67,8 @@ interface MemoryState {
   projects: Map<string, Project>;
   subtasks: Subtask[];
   checks: SubtaskCheck[];
+  /** 归入历史的勾选（关掉循环前作为普通任务的）：不算任务现在的勾选，也不删除 */
+  archivedChecks: SubtaskCheck[];
 }
 
 const linkKey = (taskId: string, categoryId: string) => `${taskId}:${categoryId}`;
@@ -159,16 +161,52 @@ class MemoryTaskRepository implements ITaskRepository {
   async stopRecurrence(id: string, currentDate: string) {
     const task = this.active(id);
     if (!task.recurrenceRule) return task;
-    // 以后的各次（包括当前这一次的记录）消失；过去各次的历史保留
-    for (const [key, o] of this.state.occurrences) {
-      if (o.taskId === id && o.occurrenceDate >= currentDate) this.state.occurrences.delete(key);
-    }
-    // 子任务勾选：当前这一次的变成普通任务的勾选；以前作为普通任务的、以后各次的清掉
+    // 当前这一次是任务现在的状态，之前的一律是历史；完成的记录不会被系统连带删除
     const mine = new Set(this.state.subtasks.filter((s) => s.taskId === id).map((s) => s.id));
+    const checkedDates = new Set(
+      this.state.checks
+        .filter((c) => mine.has(c.subtaskId) && c.occurrenceDate !== null)
+        .map((c) => c.occurrenceDate!),
+    );
+    const existing = new Map(
+      [...this.state.occurrences.values()]
+        .filter((o) => o.taskId === id)
+        .map((o) => [o.occurrenceDate, o]),
+    );
+    // 以后勾过子任务的那几次：还没有记录的补一条（没完成），留在历史里
+    for (const date of checkedDates) {
+      if (date > currentDate && !existing.has(date)) {
+        const occurrence: RecurrenceOccurrence = {
+          id: this.state.newId(),
+          taskId: id,
+          occurrenceDate: date,
+          status: 'missed',
+          completedAt: null,
+          createdAt: this.state.now(),
+        };
+        this.state.occurrences.set(occurrence.id, occurrence);
+      }
+    }
+    for (const [key, o] of this.state.occurrences) {
+      if (o.taskId !== id || o.occurrenceDate < currentDate) continue;
+      if (o.occurrenceDate === currentDate) {
+        // 当前这一次变成任务本身
+        this.state.occurrences.delete(key);
+      } else if (o.status !== 'completed' && !checkedDates.has(o.occurrenceDate)) {
+        // 以后既没完成、也没勾过子任务的才消失
+        this.state.occurrences.delete(key);
+      } else if (o.status === 'pending') {
+        this.state.occurrences.set(key, { ...o, status: 'missed' });
+      }
+    }
+    // 子任务勾选：以前作为普通任务的归入历史；当前这一次的成为普通任务的勾选
+    this.state.archivedChecks.push(
+      ...this.state.checks.filter((c) => mine.has(c.subtaskId) && c.occurrenceDate === null),
+    );
     this.state.checks = this.state.checks.flatMap((c) => {
       if (!mine.has(c.subtaskId)) return [c];
+      if (c.occurrenceDate === null) return [];
       if (c.occurrenceDate === currentDate) return [{ ...c, occurrenceDate: null }];
-      if (c.occurrenceDate === null || c.occurrenceDate > currentDate) return [];
       return [c];
     });
     const stopped: Task = {
@@ -523,6 +561,7 @@ export class InMemoryLocalStore implements ILocalStore {
       projects: new Map(),
       subtasks: [],
       checks: [],
+      archivedChecks: [],
     };
     this.tasks = new MemoryTaskRepository(state);
     this.categories = new MemoryCategoryRepository(state);

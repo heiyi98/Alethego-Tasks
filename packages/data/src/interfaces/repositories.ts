@@ -4,6 +4,7 @@ import type {
   GroupKind,
   GroupMember,
   Project,
+  FormerPerson,
   ProjectContact,
   ProjectMember,
   ProjectTool,
@@ -226,7 +227,7 @@ export interface GroupNotification {
 /** 任务上的 RACI（整组替换时传入，不含 taskId） */
 export type AssignmentDraft = Pick<TaskAssignment, 'role' | 'userId' | 'contactId'>;
 
-/** 某人在任务上的 R、A、C、I（移出 / 踢出 / 退出前列出） */
+/** 某人在任务上的执行人、负责人（挡住移出 / 踢出 / 退出时列出） */
 export interface MemberTaskRole {
   taskId: string;
   taskTitle: string;
@@ -238,7 +239,8 @@ export interface MemberTaskRole {
 export type LeaderRequestResult = 'appointed' | 'requested' | 'already_requested';
 export type LeaderVoteResult = 'appointed' | 'agreed' | 'cancelled' | 'no_request';
 export type RemoveMemberResult = 'removed' | 'blocked';
-export type LeaveResult = 'left' | 'deleted' | 'blocked' | 'last_leader';
+/** 退出组：left；挡住（未完成的任务上是执行人或负责人）；管理组最后一位组长；合作组最后一个人 */
+export type LeaveResult = 'left' | 'blocked' | 'last_leader' | 'last_member';
 export type LeaveProjectResult = 'left' | 'blocked';
 
 /** 正在进行的任命组长投票 */
@@ -300,9 +302,12 @@ export interface IGroupRepository {
   leaderRequests(groupId: string): Promise<LeaderRequest[]>;
   requestLeader(groupId: string, userId: string): Promise<LeaderRequestResult>;
   voteLeader(requestId: string, agree: boolean): Promise<LeaderVoteResult>;
-  /** 某人在本组所有项目上的 R、A、C、I */
+  /** 挡住某人离开组的任务：他在组里未完成的任务上的执行人、负责人 */
   memberTaskRoles(groupId: string, userId: string): Promise<MemberTaskRole[]>;
-  /** 踢出组（连同他所在的所有项目）：任何项目上有 R 或 A 时不执行（blocked），否则连同 C、I 一起去掉 */
+  /**
+   * 踢出组（连同他所在的所有项目）：未完成的任务上是执行人或负责人时不执行（blocked）。
+   * 成员记录只标记为已离开；他在任务上的 RACI 全部保留
+   */
   removeMember(groupId: string, userId: string): Promise<RemoveMemberResult>;
   leave(groupId: string): Promise<LeaveResult>;
   /** 任务通知看过 / 处理过之后不再显示 */
@@ -338,11 +343,14 @@ export interface IProjectRepository {
   declineInvitation(invitationId: string): Promise<void>;
   /** 任命（admin）或撤销（member）项目管理员（组长） */
   setRole(projectId: string, userId: string, role: 'admin' | 'member'): Promise<void>;
+  /** 挡住某人离开项目的任务：他在这个项目未完成的任务上的执行人、负责人 */
   memberTaskRoles(projectId: string, userId: string): Promise<MemberTaskRole[]>;
-  /** 移出项目：开了任务分配、他身上有 R 或 A 时不执行（blocked），否则连同 C、I 一起去掉 */
+  /** 移出项目：未完成的任务上是执行人或负责人时不执行（blocked）；成员记录只标记为已离开，RACI 全部保留 */
   removeMember(projectId: string, userId: string): Promise<RemoveMemberResult>;
   leave(projectId: string): Promise<LeaveProjectResult>;
-  /** 只有名字的人（开了任务分配的项目） */
+  /** 已经离开、但还挂在这个项目的任务上（RACI）的人 */
+  formerPeople(projectId: string): Promise<FormerPerson[]>;
+  /** 只有名字的人（开了任务分配的项目），包括已删除的（deleted） */
   contacts(projectId: string): Promise<ProjectContact[]>;
   addContact(projectId: string, name: string): Promise<ProjectContact>;
   /** 删除只有名字的人：他在任务上的 C、I 一并去掉 */

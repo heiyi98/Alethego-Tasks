@@ -204,6 +204,9 @@ create table taskapp.group_members (
   nickname  text
             constraint group_members_nickname_not_blank check (nickname is null or btrim(nickname) <> ''),
   joined_at timestamptz not null default now(),
+  -- 离开（被踢出或退出）的时间：成员记录不删除，只标记为已离开；昵称保留。
+  -- 名单、权限、通知、投票、"和我有关的任务"都只算没离开的人。再次加入时恢复这条记录（身份按新人）
+  left_at   timestamptz,
 
   constraint group_members_pkey
     primary key (group_id, user_id)
@@ -247,7 +250,9 @@ create table taskapp.project_contacts (
   name       text not null
              constraint project_contacts_name_not_blank check (btrim(name) <> ''),
   created_by uuid not null references taskapp.users (id),
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  -- 删除的时间：只标记为已删除（从名单和 RACI 的候选里消失），任务上的标注保留并照常显示名字
+  deleted_at timestamptz
 );
 
 create table taskapp.task_assignments (
@@ -305,6 +310,8 @@ create table taskapp.project_members (
   role       text not null default 'member'
              constraint project_members_role_check check (role in ('admin', 'member')),
   joined_at  timestamptz not null default now(),
+  -- 离开项目（被移出、退出项目或退出小组）的时间：成员记录不删除，只标记为已离开
+  left_at    timestamptz,
 
   constraint project_members_pkey
     primary key (project_id, user_id)
@@ -375,7 +382,10 @@ create table taskapp.task_subtask_checks (
   subtask_id      uuid not null references taskapp.task_subtasks (id) on delete cascade,
   occurrence_date date,
   checked_at      timestamptz not null default taskapp.clock_now(),
-  checked_by      uuid references taskapp.users (id)
+  checked_by      uuid references taskapp.users (id),
+  -- 归入历史的时间：普通任务以前的勾选（例如改成循环之前的），关掉循环时归入历史——
+  -- 不再算作任务现在的勾选，也不删除。只有普通任务的勾选（occurrence_date 为空）会归入历史
+  archived_at     timestamptz
 );
 
 -- 3. 索引 -------------------------------------------------------------------------------------
@@ -415,7 +425,7 @@ create index task_subtasks_task_id_idx on taskapp.task_subtasks (task_id);
 
 -- 同一个子任务：普通任务只有一个勾选，循环任务每一次一个
 create unique index task_subtask_checks_once_key
-  on taskapp.task_subtask_checks (subtask_id) where occurrence_date is null;
+  on taskapp.task_subtask_checks (subtask_id) where occurrence_date is null and archived_at is null;
 
 create unique index task_subtask_checks_occurrence_key
   on taskapp.task_subtask_checks (subtask_id, occurrence_date) where occurrence_date is not null;
@@ -512,7 +522,7 @@ set search_path = ''
 as $$
   select exists (
     select 1 from taskapp.group_members m
-    where m.group_id = p_group_id and m.user_id = auth.uid()
+    where m.group_id = p_group_id and m.user_id = auth.uid() and m.left_at is null
   );
 $$;
 
@@ -558,7 +568,7 @@ as $$
          u.email
   from taskapp.group_members m
   join taskapp.users u on u.id = m.user_id
-  where m.group_id = p_group_id
+  where m.group_id = p_group_id and m.left_at is null
     and taskapp.is_group_member(p_group_id)
   order by m.joined_at, m.user_id;
 $$;
@@ -584,7 +594,7 @@ begin
   end if;
   if exists (
     select 1 from taskapp.group_members m join taskapp.users u on u.id = m.user_id
-    where m.group_id = p_group_id and lower(u.email) = v_email
+    where m.group_id = p_group_id and lower(u.email) = v_email and m.left_at is null
   ) then
     return 'already_member';
   end if;
@@ -610,13 +620,16 @@ begin
   if v_group_id is null then
     raise exception '邀请不存在' using errcode = 'no_data_found';
   end if;
+  -- 离开过的人再次加入：恢复他原来那条成员记录（昵称保留），身份和加入时间按新人
   insert into taskapp.group_members (group_id, user_id, role)
   values (
     v_group_id,
     auth.uid(),
     case taskapp.group_kind(v_group_id) when 'cooperative' then 'leader' else 'member' end
   )
-  on conflict (group_id, user_id) do nothing;
+  on conflict (group_id, user_id) do update
+    set role = excluded.role, joined_at = now(), left_at = null
+    where taskapp.group_members.left_at is not null;
   -- 成了组长（合作组）：以前只加入了项目的行不再需要（组长自动在每个项目里）
   if taskapp.group_kind(v_group_id) = 'cooperative' then
     delete from taskapp.project_members pm using taskapp.projects p
@@ -648,7 +661,7 @@ begin
   if exists (select 1 from taskapp.group_deletion_requests where group_id = p_group_id)
      and not exists (
        select 1 from taskapp.group_members m
-       where m.group_id = p_group_id and m.role = 'leader'
+       where m.group_id = p_group_id and m.role = 'leader' and m.left_at is null
          and not exists (
            select 1 from taskapp.group_deletion_votes v
            where v.group_id = p_group_id and v.user_id = m.user_id
@@ -672,7 +685,7 @@ as $$
 begin
   if not exists (
     select 1 from taskapp.group_members
-    where group_id = p_group_id and user_id = auth.uid() and role = 'leader'
+    where group_id = p_group_id and user_id = auth.uid() and role = 'leader' and left_at is null
   ) then
     raise exception '只有组长可以删除组' using errcode = 'insufficient_privilege';
   end if;
@@ -701,7 +714,7 @@ as $$
 begin
   if not exists (
     select 1 from taskapp.group_members
-    where group_id = p_group_id and user_id = auth.uid() and role = 'leader'
+    where group_id = p_group_id and user_id = auth.uid() and role = 'leader' and left_at is null
   ) then
     raise exception '只有组长可以投票' using errcode = 'insufficient_privilege';
   end if;
@@ -851,7 +864,7 @@ security definer
 set search_path = ''
 as $$
   select role from taskapp.group_members
-  where group_id = p_group_id and user_id = auth.uid();
+  where group_id = p_group_id and user_id = auth.uid() and left_at is null;
 $$;
 
 create function taskapp.group_kind(p_group_id uuid)
@@ -1110,7 +1123,7 @@ begin
   end if;
   if exists (
     select 1 from taskapp.group_members m
-    where m.group_id = v_request.group_id and m.role = 'leader'
+    where m.group_id = v_request.group_id and m.role = 'leader' and m.left_at is null
       and not exists (
         select 1 from taskapp.group_leader_votes v
         where v.request_id = p_request_id and v.user_id = m.user_id
@@ -1144,7 +1157,7 @@ begin
   end if;
   if not exists (
     select 1 from taskapp.group_members
-    where group_id = p_group_id and user_id = p_user_id and role <> 'leader'
+    where group_id = p_group_id and user_id = p_user_id and role <> 'leader' and left_at is null
   ) then
     raise exception '只能任命组里的管理员或组员' using errcode = 'check_violation';
   end if;
@@ -1196,6 +1209,7 @@ begin
 end;
 $$;
 
+-- 挡住某人离开组的任务：他在组里未完成（还没标记完成，不含待确认）的任务上的执行人、负责人
 create function taskapp.member_task_roles(p_group_id uuid, p_user_id uuid)
 returns table (task_id uuid, task_title text, role text, project_id uuid, project_name text)
 language sql
@@ -1208,11 +1222,13 @@ as $$
   join taskapp.tasks t on t.id = a.task_id
   join taskapp.projects p on p.id = t.project_id
   where taskapp.is_group_participant(p_group_id)
-    and t.group_id = p_group_id and t.deleted_at is null and a.user_id = p_user_id
+    and t.group_id = p_group_id and t.deleted_at is null and t.completed_at is null
+    and a.user_id = p_user_id and a.role in ('R', 'A')
   order by p.name, t.title, t.id, position(a.role in 'RACI');
 $$;
 
--- 内部：把某人移出小组（同时移出组里的全部项目，RACI 一并去掉；他的投票作废），
+-- 内部：某人离开小组（被踢出或退出）。成员记录不删除，只标记为已离开（同时离开组里的全部项目）；
+-- 他在任务上的 RACI 全部保留（离开后不再收到通知）；他的投票作废。
 -- 然后看剩下的组长是不是都同意了正在进行的投票
 create function taskapp.remove_member_now(p_group_id uuid, p_user_id uuid)
 returns void
@@ -1223,11 +1239,10 @@ as $$
 declare
   v_id uuid;
 begin
-  delete from taskapp.task_assignments a
-  using taskapp.tasks t
-  where t.id = a.task_id and t.group_id = p_group_id and a.user_id = p_user_id;
-  delete from taskapp.project_members pm using taskapp.projects p
-  where p.id = pm.project_id and p.group_id = p_group_id and pm.user_id = p_user_id;
+  update taskapp.project_members pm set left_at = taskapp.clock_now()
+  from taskapp.projects p
+  where p.id = pm.project_id and p.group_id = p_group_id and pm.user_id = p_user_id
+    and pm.left_at is null;
   delete from taskapp.group_leader_requests
   where group_id = p_group_id and candidate_id = p_user_id;
   delete from taskapp.group_leader_votes v
@@ -1236,12 +1251,9 @@ begin
   delete from taskapp.group_deletion_votes where group_id = p_group_id and user_id = p_user_id;
   delete from taskapp.project_deletion_votes v using taskapp.projects p
   where p.id = v.project_id and p.group_id = p_group_id and v.user_id = p_user_id;
-  delete from taskapp.group_members where group_id = p_group_id and user_id = p_user_id;
+  update taskapp.group_members set left_at = taskapp.clock_now()
+  where group_id = p_group_id and user_id = p_user_id and left_at is null;
 
-  if not exists (select 1 from taskapp.group_members where group_id = p_group_id) then
-    perform taskapp.delete_group_now(p_group_id);
-    return;
-  end if;
   if taskapp.finish_group_deletion_if_agreed(p_group_id) then
     return;
   end if;
@@ -1257,7 +1269,7 @@ begin
 end;
 $$;
 
--- 身上有没有 R 或 A（未删除的任务）
+-- 身上有没有挡住离开的 R 或 A：只看未完成的任务（还没标记完成；已完成、待确认的不挡；已删除的不算）
 create function taskapp.has_ra_in_group(p_group_id uuid, p_user_id uuid)
 returns boolean
 language sql
@@ -1268,7 +1280,7 @@ as $$
   select exists (
     select 1 from taskapp.task_assignments a
     join taskapp.tasks t on t.id = a.task_id
-    where t.group_id = p_group_id and t.deleted_at is null
+    where t.group_id = p_group_id and t.deleted_at is null and t.completed_at is null
       and a.user_id = p_user_id and a.role in ('R', 'A')
   );
 $$;
@@ -1284,7 +1296,7 @@ declare
   v_target_role text;
 begin
   select role into v_target_role from taskapp.group_members
-  where group_id = p_group_id and user_id = p_user_id;
+  where group_id = p_group_id and user_id = p_user_id and left_at is null;
   if not taskapp.is_group_leader(p_group_id) or v_target_role is distinct from 'member'
      or p_user_id = auth.uid() then
     raise exception '没有踢出这个人的权限' using errcode = 'insufficient_privilege';
@@ -1297,8 +1309,8 @@ begin
 end;
 $$;
 
--- 退出小组：在组里任何项目上有执行人或负责人时不能退出；管理组最后一位组长不能退出；
--- 合作组最后一个成员退出时，组和组里的全部项目、任务一起删除
+-- 退出小组：在组里未完成的任务上有执行人或负责人时不能退出；管理组最后一位组长不能退出；
+-- 合作组最后一个人也不能退出（要结束就删除组：完成的记录不会因为成员离开而消失）
 create function taskapp.leave_group(p_group_id uuid)
 returns text
 language plpgsql
@@ -1314,16 +1326,13 @@ begin
   if taskapp.has_ra_in_group(p_group_id, auth.uid()) then
     return 'blocked';
   end if;
-  if taskapp.group_kind(p_group_id) = 'management' and v_role = 'leader' and not exists (
+  if v_role = 'leader' and not exists (
     select 1 from taskapp.group_members
-    where group_id = p_group_id and role = 'leader' and user_id <> auth.uid()
+    where group_id = p_group_id and role = 'leader' and user_id <> auth.uid() and left_at is null
   ) then
-    return 'last_leader';
+    return case taskapp.group_kind(p_group_id) when 'cooperative' then 'last_member' else 'last_leader' end;
   end if;
   perform taskapp.remove_member_now(p_group_id, auth.uid());
-  if not exists (select 1 from taskapp.groups where id = p_group_id) then
-    return 'deleted';
-  end if;
   return 'left';
 end;
 $$;
@@ -1514,14 +1523,23 @@ begin
     raise exception '只有项目管理员可以设定 RACI' using errcode = 'insufficient_privilege';
   end if;
 
+  -- 只检查新加进去的人（这个字母上原来没有他）：已经离开的成员、已删除的只有名字的人原样留着不算错，
+  -- 但不能新加进去
   for v_item in select * from jsonb_array_elements(coalesce(p_assignments, '[]'::jsonb)) loop
+    if exists (
+      select 1 from taskapp.task_assignments a
+      where a.task_id = p_task_id and a.role = v_item ->> 'role'
+        and (a.user_id = (v_item ->> 'user_id')::uuid or a.contact_id = (v_item ->> 'contact_id')::uuid)
+    ) then
+      continue;
+    end if;
     if v_item ->> 'user_id' is not null
        and not taskapp.is_project_member_user(v_project_id, (v_item ->> 'user_id')::uuid) then
       raise exception 'RACI 里的成员必须是项目成员' using errcode = 'check_violation';
     end if;
     if v_item ->> 'contact_id' is not null and not exists (
       select 1 from taskapp.project_contacts
-      where project_id = v_project_id and id = (v_item ->> 'contact_id')::uuid
+      where project_id = v_project_id and id = (v_item ->> 'contact_id')::uuid and deleted_at is null
     ) then
       raise exception '只有名字的人不在这个项目里' using errcode = 'check_violation';
     end if;
@@ -1721,7 +1739,8 @@ as $$
   select coalesce((select is_default from taskapp.projects where id = p_project_id), false);
 $$;
 
--- 新加入组的成员自动进默认项目（组长不用：组长自动在每个项目里）
+-- 新加入组的成员（包括离开后再次加入的）自动进默认项目（组长不用：组长自动在每个项目里）；
+-- 以前在默认项目里的那条成员记录恢复，身份按新人
 create function taskapp.group_members_join_default_project()
 returns trigger
 language plpgsql
@@ -1729,12 +1748,15 @@ security definer
 set search_path = ''
 as $$
 begin
-  if new.role = 'member' then
+  if new.role = 'member' and new.left_at is null
+     and (tg_op = 'INSERT' or old.left_at is not null) then
     insert into taskapp.project_members (project_id, user_id, role)
     select p.id, new.user_id, 'member'
     from taskapp.projects p
     where p.group_id = new.group_id and p.is_default
-    on conflict (project_id, user_id) do nothing;
+    on conflict (project_id, user_id) do update
+      set role = 'member', joined_at = now(), left_at = null
+      where taskapp.project_members.left_at is not null;
   end if;
   return null;
 end;
@@ -1751,10 +1773,10 @@ as $$
   select exists (
     select 1 from taskapp.projects p
     join taskapp.group_members m on m.group_id = p.group_id and m.user_id = p_user_id
-    where p.id = p_project_id and m.role = 'leader'
+    where p.id = p_project_id and m.role = 'leader' and m.left_at is null
   ) or exists (
     select 1 from taskapp.project_members
-    where project_id = p_project_id and user_id = p_user_id
+    where project_id = p_project_id and user_id = p_user_id and left_at is null
   );
 $$;
 
@@ -1779,7 +1801,7 @@ as $$
   select taskapp.is_group_leader(taskapp.project_group(p_project_id))
     or exists (
       select 1 from taskapp.project_members pm
-      where pm.project_id = p_project_id and pm.user_id = auth.uid()
+      where pm.project_id = p_project_id and pm.user_id = auth.uid() and pm.left_at is null
         and (pm.role = 'admin' or taskapp.group_kind(taskapp.project_group(p_project_id)) = 'cooperative')
     );
 $$;
@@ -1794,11 +1816,11 @@ set search_path = ''
 as $$
   select taskapp.is_group_member(p_group_id) or exists (
     select 1 from taskapp.project_members pm join taskapp.projects p on p.id = pm.project_id
-    where p.group_id = p_group_id and pm.user_id = auth.uid()
+    where p.group_id = p_group_id and pm.user_id = auth.uid() and pm.left_at is null
   );
 $$;
 
--- 某人在一个项目（未删除的任务）上的 R、A、C、I
+-- 挡住某人离开项目的任务：他在这个项目未完成（还没标记完成，不含待确认）的任务上的执行人、负责人
 create function taskapp.project_member_task_roles(p_project_id uuid, p_user_id uuid)
 returns table (task_id uuid, task_title text, role text, project_id uuid, project_name text)
 language sql
@@ -1811,7 +1833,8 @@ as $$
   join taskapp.tasks t on t.id = a.task_id
   join taskapp.projects p on p.id = t.project_id
   where taskapp.is_project_member(p_project_id)
-    and t.project_id = p_project_id and t.deleted_at is null and a.user_id = p_user_id
+    and t.project_id = p_project_id and t.deleted_at is null and t.completed_at is null
+    and a.user_id = p_user_id and a.role in ('R', 'A')
   order by t.title, t.id, position(a.role in 'RACI');
 $$;
 
@@ -1825,12 +1848,12 @@ as $$
   select exists (
     select 1 from taskapp.task_assignments a
     join taskapp.tasks t on t.id = a.task_id
-    where t.project_id = p_project_id and t.deleted_at is null
+    where t.project_id = p_project_id and t.deleted_at is null and t.completed_at is null
       and a.user_id = p_user_id and a.role in ('R', 'A')
   );
 $$;
 
--- 内部：把某人移出项目（他在这个项目里的 RACI 一并去掉）
+-- 内部：某人离开项目（被移出或退出）。成员记录不删除，只标记为已离开；他在任务上的 RACI 全部保留
 create function taskapp.remove_project_member_now(p_project_id uuid, p_user_id uuid)
 returns void
 language plpgsql
@@ -1838,10 +1861,8 @@ security definer
 set search_path = ''
 as $$
 begin
-  delete from taskapp.task_assignments a
-  using taskapp.tasks t
-  where t.id = a.task_id and t.project_id = p_project_id and a.user_id = p_user_id;
-  delete from taskapp.project_members where project_id = p_project_id and user_id = p_user_id;
+  update taskapp.project_members set left_at = taskapp.clock_now()
+  where project_id = p_project_id and user_id = p_user_id and left_at is null;
 end;
 $$;
 
@@ -1868,7 +1889,7 @@ begin
   if exists (select 1 from taskapp.project_deletion_requests where project_id = p_project_id)
      and not exists (
        select 1 from taskapp.group_members m
-       where m.group_id = v_group_id and m.role = 'leader'
+       where m.group_id = v_group_id and m.role = 'leader' and m.left_at is null
          and not exists (
            select 1 from taskapp.project_deletion_votes v
            where v.project_id = p_project_id and v.user_id = m.user_id
@@ -1902,7 +1923,8 @@ begin
   insert into taskapp.project_members (project_id, user_id, role)
   select v_project.id, m.user_id, 'member'
   from taskapp.group_members m
-  where m.group_id = p_group_id and m.role = 'member' and m.user_id = any (coalesce(p_member_ids, '{}'));
+  where m.group_id = p_group_id and m.role = 'member' and m.left_at is null
+    and m.user_id = any (coalesce(p_member_ids, '{}'));
   return v_project;
 end;
 $$;
@@ -1942,15 +1964,16 @@ as $$
   people as (
     select m.user_id, 'leader' as role, true as in_group, m.joined_at
     from taskapp.group_members m join p on p.group_id = m.group_id
-    where m.role = 'leader'
+    where m.role = 'leader' and m.left_at is null
     union all
     select pm.user_id,
            case when pm.role = 'admin' or taskapp.group_kind(p.group_id) = 'cooperative'
                 then 'admin' else 'member' end,
            exists (select 1 from taskapp.group_members m
-                   where m.group_id = p.group_id and m.user_id = pm.user_id),
+                   where m.group_id = p.group_id and m.user_id = pm.user_id and m.left_at is null),
            pm.joined_at
     from taskapp.project_members pm join p on p.id = pm.project_id
+    where pm.left_at is null
   )
   select x.user_id,
          coalesce(gm.nickname, u.display_name),
@@ -1969,6 +1992,25 @@ as $$
            x.joined_at, gm.joined_at nulls last, x.user_id;
 $$;
 
+-- 已经离开、但还挂在这个项目的任务上（RACI）的人：任务上照常显示他们的名字
+-- （组里的昵称；只加入了项目的人用 TaskApp 名字）
+create function taskapp.project_former_people(p_project_id uuid)
+returns table (user_id uuid, nickname text)
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select distinct a.user_id, coalesce(gm.nickname, u.display_name)
+  from taskapp.task_assignments a
+  join taskapp.tasks t on t.id = a.task_id
+  join taskapp.users u on u.id = a.user_id
+  left join taskapp.group_members gm on gm.group_id = t.group_id and gm.user_id = a.user_id
+  where t.project_id = p_project_id
+    and taskapp.is_project_member(p_project_id)
+    and not taskapp.is_project_member_user(p_project_id, a.user_id);
+$$;
+
 -- 往项目里加小组成员（项目管理员；直接加入，不需要对方同意）
 create function taskapp.add_project_member(p_project_id uuid, p_user_id uuid)
 returns text
@@ -1982,14 +2024,18 @@ begin
   end if;
   if not exists (
     select 1 from taskapp.group_members
-    where group_id = taskapp.project_group(p_project_id) and user_id = p_user_id
+    where group_id = taskapp.project_group(p_project_id) and user_id = p_user_id and left_at is null
   ) then
     raise exception '只能直接加小组成员' using errcode = 'check_violation';
   end if;
   if taskapp.is_project_member_user(p_project_id, p_user_id) then
     return 'already_member';
   end if;
-  insert into taskapp.project_members (project_id, user_id, role) values (p_project_id, p_user_id, 'member');
+  -- 离开过的人：恢复原来那条成员记录，身份按新人
+  insert into taskapp.project_members (project_id, user_id, role) values (p_project_id, p_user_id, 'member')
+  on conflict (project_id, user_id) do update
+    set role = 'member', joined_at = now(), left_at = null
+    where taskapp.project_members.left_at is not null;
   return 'added';
 end;
 $$;
@@ -2024,9 +2070,12 @@ begin
   end if;
   if v_user is not null and exists (
     select 1 from taskapp.group_members
-    where group_id = taskapp.project_group(p_project_id) and user_id = v_user
+    where group_id = taskapp.project_group(p_project_id) and user_id = v_user and left_at is null
   ) then
-    insert into taskapp.project_members (project_id, user_id, role) values (p_project_id, v_user, 'member');
+    insert into taskapp.project_members (project_id, user_id, role) values (p_project_id, v_user, 'member')
+  on conflict (project_id, user_id) do update
+    set role = 'member', joined_at = now(), left_at = null
+    where taskapp.project_members.left_at is not null;
     return 'added';
   end if;
   insert into taskapp.project_invitations (project_id, email, invited_by)
@@ -2053,7 +2102,10 @@ begin
   end if;
   if not taskapp.is_project_member_user(v_project_id, auth.uid()) then
     insert into taskapp.project_members (project_id, user_id, role)
-    values (v_project_id, auth.uid(), 'member');
+    values (v_project_id, auth.uid(), 'member')
+  on conflict (project_id, user_id) do update
+    set role = 'member', joined_at = now(), left_at = null
+    where taskapp.project_members.left_at is not null;
   end if;
   delete from taskapp.project_invitations where id = p_invitation_id;
   return v_project_id;
@@ -2086,7 +2138,7 @@ begin
     raise exception '身份只能是管理员或成员' using errcode = 'check_violation';
   end if;
   update taskapp.project_members set role = p_role
-  where project_id = p_project_id and user_id = p_user_id;
+  where project_id = p_project_id and user_id = p_user_id and left_at is null;
   if not found then
     raise exception '他不是这个项目的成员（组长不用任命）' using errcode = 'check_violation';
   end if;
@@ -2094,7 +2146,7 @@ end;
 $$;
 
 -- 把人移出项目：项目管理员能移出成员，组长还能移出管理员；组长不能被移出。
--- 开了任务分配的项目里他身上有执行人或负责人时不执行（blocked）
+-- 他在未完成的任务上有执行人或负责人时不执行（blocked）
 create function taskapp.remove_project_member(p_project_id uuid, p_user_id uuid)
 returns text
 language plpgsql
@@ -2109,7 +2161,7 @@ begin
     raise exception '全组成员都在默认项目里' using errcode = 'check_violation';
   end if;
   select role into v_target_role from taskapp.project_members
-  where project_id = p_project_id and user_id = p_user_id;
+  where project_id = p_project_id and user_id = p_user_id and left_at is null;
   v_effective := case
     when v_target_role is null then null
     when v_target_role = 'admin'
@@ -2129,7 +2181,7 @@ begin
 end;
 $$;
 
--- 退出项目：组长不能退出项目；身上有执行人或负责人时不能退出
+-- 退出项目：组长不能退出项目；在未完成的任务上有执行人或负责人时不能退出
 create function taskapp.leave_project(p_project_id uuid)
 returns text
 language plpgsql
@@ -2141,7 +2193,8 @@ begin
     raise exception '全组成员都在默认项目里，退出小组才会离开' using errcode = 'check_violation';
   end if;
   if not exists (
-    select 1 from taskapp.project_members where project_id = p_project_id and user_id = auth.uid()
+    select 1 from taskapp.project_members
+    where project_id = p_project_id and user_id = auth.uid() and left_at is null
   ) then
     raise exception '组长不能退出项目' using errcode = 'insufficient_privilege';
   end if;
@@ -2187,7 +2240,9 @@ begin
   if v_project_id is null or not taskapp.is_project_admin(v_project_id) then
     raise exception '没有删除的权限' using errcode = 'insufficient_privilege';
   end if;
-  delete from taskapp.project_contacts where id = p_contact_id;
+  -- 只标记为已删除：从名单和 RACI 的候选里消失，任务上的标注保留并照常显示名字
+  update taskapp.project_contacts set deleted_at = taskapp.clock_now()
+  where id = p_contact_id and deleted_at is null;
 end;
 $$;
 
@@ -2590,7 +2645,8 @@ begin
     on conflict do nothing;
   else
     delete from taskapp.task_subtask_checks
-    where subtask_id = p_subtask_id and occurrence_date is not distinct from p_occurrence_date;
+    where subtask_id = p_subtask_id and occurrence_date is not distinct from p_occurrence_date
+      and archived_at is null;
   end if;
 end;
 $$;
@@ -2633,11 +2689,13 @@ begin
 end;
 $$;
 
--- 关掉循环（循环任务没有结束条件，这是唯一的结束方式）：
+-- 关掉循环（循环任务没有结束条件，这是唯一的结束方式）。当前这一次是任务现在的状态，之前的一律是历史：
 -- - 当前这一次（p_current_date：按用户本地日期算出的、最早一个还没完成、日期还没过去的那一次）变成普通任务，
---   保留它的日期和子任务的勾选；
--- - 以后的各次消失（包括提前勾了完成的）；
--- - 过去各次的历史记录保留，只是不再增加。
+--   它的子任务勾选成为普通任务的勾选；
+-- - 以前作为普通任务留下的勾选（例如改成循环之前的）归入历史：不再算作任务现在的勾选，也不删除；
+-- - 以后的各次：提前勾了完成的、勾过子任务的留在历史里（没完成的显示为没完成和它的进度）；
+--   既没完成、也没勾过子任务的才消失；
+-- - 过去各次的历史记录保留，只是不再增加。完成的记录不会被系统连带删除。
 create function taskapp.stop_recurrence(p_task_id uuid, p_current_date date)
 returns taskapp.tasks
 language plpgsql
@@ -2658,14 +2716,37 @@ begin
     return v_task;
   end if;
 
-  delete from taskapp.recurrence_occurrences
-  where task_id = p_task_id and occurrence_date >= p_current_date;
+  -- 以后勾过子任务的那几次：还没有记录的补一条（没完成），留在历史里
+  insert into taskapp.recurrence_occurrences (task_id, occurrence_date, status)
+  select distinct p_task_id, c.occurrence_date, 'missed'::taskapp.occurrence_status
+  from taskapp.task_subtask_checks c
+  join taskapp.task_subtasks s on s.id = c.subtask_id
+  where s.task_id = p_task_id and c.occurrence_date > p_current_date
+  on conflict (task_id, occurrence_date) do nothing;
+  update taskapp.recurrence_occurrences
+  set status = 'missed'
+  where task_id = p_task_id and occurrence_date > p_current_date and status = 'pending';
+  -- 当前这一次变成任务本身；以后既没完成、也没勾过子任务的消失
+  delete from taskapp.recurrence_occurrences o
+  where o.task_id = p_task_id
+    and (
+      o.occurrence_date = p_current_date
+      or (
+        o.occurrence_date > p_current_date and o.status <> 'completed'
+        and not exists (
+          select 1 from taskapp.task_subtask_checks c
+          join taskapp.task_subtasks s on s.id = c.subtask_id
+          where s.task_id = p_task_id and c.occurrence_date = o.occurrence_date
+        )
+      )
+    );
 
-  -- 子任务的勾选：以前作为普通任务留下的勾选、以后各次的勾选清掉；当前这一次的勾选变成普通任务的勾选
-  delete from taskapp.task_subtask_checks c
-  using taskapp.task_subtasks s
+  -- 子任务的勾选：以前作为普通任务的归入历史；当前这一次的成为普通任务的勾选
+  update taskapp.task_subtask_checks c
+  set archived_at = taskapp.clock_now()
+  from taskapp.task_subtasks s
   where s.id = c.subtask_id and s.task_id = p_task_id
-    and (c.occurrence_date is null or c.occurrence_date > p_current_date);
+    and c.occurrence_date is null and c.archived_at is null;
   update taskapp.task_subtask_checks c
   set occurrence_date = null
   from taskapp.task_subtasks s
@@ -2697,7 +2778,7 @@ create trigger groups_set_updated_at
   for each row execute function taskapp.set_updated_at();
 
 create trigger group_members_join_default_project
-  after insert on taskapp.group_members
+  after insert or update of left_at on taskapp.group_members
   for each row execute function taskapp.group_members_join_default_project();
 
 create trigger projects_immutable_fields

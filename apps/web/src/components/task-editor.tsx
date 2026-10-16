@@ -262,7 +262,13 @@ export function TaskEditor({
   /** 组任务：第一个模块里显示组名和项目名（没有分类）；个人任务为 null */
   container?: { groupName: string; projectName: string } | null;
   /** 开了任务分配的项目：可选的项目成员与只有名字的人；editable = 能不能改 */
-  raci?: { members: readonly RaciPerson[]; contacts: readonly ProjectContact[]; editable: boolean };
+  /** formerPeople：已经离开、但还挂在任务上的人（只显示名字，不能再选） */
+  raci?: {
+    members: readonly RaciPerson[];
+    contacts: readonly ProjectContact[];
+    formerPeople?: readonly RaciPerson[];
+    editable: boolean;
+  };
   /** 只能看不能改（不是项目管理员） */
   readOnly?: boolean;
   records: readonly RecurrenceOccurrence[];
@@ -438,6 +444,7 @@ export function TaskEditor({
             onChange={(next) => onChange({ raci: next })}
             members={raci.members}
             contacts={raci.contacts}
+            formerPeople={raci.formerPeople ?? []}
             editable={raci.editable}
           />
         ) : (
@@ -560,23 +567,26 @@ const keyOf = (a: Pick<AssignmentDraft, 'userId' | 'contactId'>) =>
 /**
  * RACI：每个字母一行，列出已选的人；能改时每个人后面有 ✕，最后是添加的下拉框。
  * R、A 只能选项目成员；C、I 还可以选只有名字的人。每个字母不限人数。
+ * 已经离开的人、已删除的只有名字的人照常显示名字、可以去掉，但不在下拉框里（不能再选回来）。
  */
 function RaciField({
   value,
   onChange,
   members,
   contacts,
+  formerPeople,
   editable,
 }: {
   value: readonly AssignmentDraft[];
   onChange: (next: AssignmentDraft[]) => void;
   members: readonly RaciPerson[];
   contacts: readonly ProjectContact[];
+  formerPeople: readonly RaciPerson[];
   editable: boolean;
 }) {
   const nameOf = (a: AssignmentDraft) =>
     a.userId
-      ? (members.find((m) => m.userId === a.userId)?.nickname ?? '')
+      ? ([...members, ...formerPeople].find((m) => m.userId === a.userId)?.nickname ?? '')
       : (contacts.find((c) => c.id === a.contactId)?.name ?? '');
 
   return (
@@ -588,7 +598,7 @@ function RaciField({
           const options = [
             ...members.map((m) => ({ key: `u:${m.userId}`, name: m.nickname })),
             ...(raciAllowsContacts(role)
-              ? contacts.map((c) => ({ key: `c:${c.id}`, name: c.name }))
+              ? contacts.filter((c) => !c.deleted).map((c) => ({ key: `c:${c.id}`, name: c.name }))
               : []),
           ].filter((o) => !chosenKeys.has(o.key));
           return (
